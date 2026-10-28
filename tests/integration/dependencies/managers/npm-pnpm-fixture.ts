@@ -16,8 +16,10 @@ import type {
 } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
 import { inspectProject } from "../../../../src/inspect/scan";
+import managerVersions from "../../../fixtures/dependencies/manager-versions.json";
 
 export async function fixture(manager: "npm" | "pnpm") {
+  const expectedVersion = managerVersions.managers[manager];
   const root = await realpath(
     await mkdtemp(join(tmpdir(), `justomp-${manager}-`)),
   );
@@ -92,7 +94,7 @@ export async function fixture(manager: "npm" | "pnpm") {
       name: "fixture-app",
       private: true,
       version: "1.0.0",
-      packageManager: `${manager}@${manager === "npm" ? "11.12.1" : "10.20.0"}`,
+      packageManager: `${manager}@${expectedVersion}`,
     }),
   );
   const config = `registry=${server.url}\ncache=${join(root, "cache")}\nstore-dir=${join(root, "store")}\naudit=false\nfund=false\nmanage-package-manager-versions=false\n`;
@@ -118,6 +120,20 @@ export async function fixture(manager: "npm" | "pnpm") {
       args,
       { cwd, env },
     );
+  const detected = await native(["--version"]);
+  const version = detected.stdout.trim();
+  if (
+    detected.exit_code !== 0 ||
+    detected.truncated ||
+    detected.cancelled ||
+    version !== expectedVersion
+  ) {
+    await server.stop(true);
+    await rm(root, { recursive: true, force: true });
+    throw new Error(
+      `Native ${manager} test requires ${expectedVersion}; measured ${version}. ${detected.stderr}`,
+    );
+  }
   const context = async (path = "."): Promise<AdapterContext> => {
     const structure = await inspectProject({ root: project });
     const selected = structure.projects.find((p) => p.path === path);
@@ -129,7 +145,7 @@ export async function fixture(manager: "npm" | "pnpm") {
       cwd: join(project, selected.path),
       owner: join(project, selected.managerRoot),
       manager,
-      version: manager === "npm" ? "11.12.1" : "10.20.0",
+      version,
       run: (step) =>
         native(step.args, step.cwd ?? join(project, selected.path)),
     };

@@ -84,3 +84,81 @@ test("modern Yarn node_modules linker shares the same native graph contract as P
     await f.close();
   }
 }, 60000);
+
+import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { executeDependency } from "../../../../src/dependencies/service";
+import { closePackagingStructure } from "../../../../src/packaging/get-structure";
+
+test("service reports Yarn shared-lock resolution changes in both members", async () => {
+  const f = await fixture("modern", true);
+  const previousPath = process.env.PATH;
+  try {
+    const launcher =
+      process.env.JUSTOMP_YARN_MODERN_BINARY ?? Bun.which("yarn");
+    if (!launcher) throw new Error("native Yarn launcher missing");
+    await mkdir(join(f.root, ".bin"));
+    await symlink(launcher, join(f.root, ".bin/yarn"));
+    process.env.PATH = `${join(f.root, ".bin")}:${previousPath ?? ""}`;
+    for (const name of ["a", "b"])
+      await writeFile(
+        join(f.root, "packages", name, "package.json"),
+        JSON.stringify({
+          name: `u6-${name}`,
+          version: "1.0.0",
+          dependencies: { "u6-dep": "^1.0.0" },
+        }),
+      );
+    await f.operate(adapter, {
+      operation: "add",
+      group: { kind: "runtime" },
+      packages: [
+        { name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } },
+      ],
+    });
+    f.publish("2.0.0");
+    const beforeA = await readFile(
+      join(f.root, "packages/a/package.json"),
+      "utf8",
+    );
+    const beforeB = await readFile(
+      join(f.root, "packages/b/package.json"),
+      "utf8",
+    );
+    const result = await executeDependency(
+      f.root,
+      "update",
+      {
+        project_id: "javascript:packages/a/package.json",
+        packages: [{ name: "u6-dep" }],
+      },
+      { "yarn-modern": adapter },
+    );
+    expect(result.diagnostics).toEqual([]);
+    expect(result.outcome).toBe("success");
+    expect("affected_projects" in result && result.affected_projects).toEqual([
+      {
+        project_id: "javascript:packages/a/package.json",
+        relative_path: "packages/a",
+        effect: "resolutions_changed",
+      },
+      {
+        project_id: "javascript:packages/b/package.json",
+        relative_path: "packages/b",
+        effect: "resolutions_changed",
+      },
+    ]);
+    expect(
+      await readFile(join(f.root, "packages/a/package.json"), "utf8"),
+    ).toBe(beforeA);
+    expect(
+      await readFile(join(f.root, "packages/b/package.json"), "utf8"),
+    ).toBe(beforeB);
+    expect(await f.installed("u6-dep", "packages/a")).toBe("1.1.0");
+    expect(await f.installed("u6-dep", "packages/b")).toBe("1.1.0");
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    await closePackagingStructure(f.root);
+    await f.close();
+  }
+}, 60000);

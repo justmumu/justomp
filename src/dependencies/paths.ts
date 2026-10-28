@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { type AdapterContext, DependencyError, type Source } from "./model";
 export function within(root: string, path: string): boolean {
   const rel = relative(root, path);
@@ -32,6 +32,23 @@ export async function safePath(root: string, path: string): Promise<string> {
       "A dependency path resolves outside the inspection root",
     );
   return absolute;
+}
+// Resolve symlink aliases even when the final environment has not been created.
+export async function canonicalWritePath(
+  root: string,
+  path: string,
+): Promise<string> {
+  let existing = await safePath(root, path);
+  const suffix: string[] = [];
+  for (;;) {
+    try {
+      return resolve(await realpath(existing), ...suffix);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      suffix.unshift(basename(existing));
+      existing = dirname(existing);
+    }
+  }
 }
 export async function localSource(
   context: AdapterContext,

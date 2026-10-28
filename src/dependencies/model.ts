@@ -105,3 +105,14 @@ export function redact(value: string): string {
       "$1[redacted]",
     );
 }
+
+/** Sanitize response data without parsing text that redaction may have changed. */
+export function redactValues<T>(value: T): T {
+  if (typeof value === "string") return redact(value) as T;
+  if (Array.isArray(value)) return value.map(redactValues) as T;
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactValues(item)]),
+    ) as T;
+  return value;
+}

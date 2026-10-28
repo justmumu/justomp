@@ -312,3 +312,185 @@ test("cold Go graph is explicit and listing never fills cache or checksum metada
   );
   expect("complete" in warm && warm.complete).toBe(true);
 });
+
+for (const location of ["go.mod", "go.work"] as const) {
+  for (const kind of ["registry", "git"] as const) {
+    test(`Go rejects ${kind} add overridden by unused ${location} replacement before mutation`, async () => {
+      const root = await fixture();
+      const proxy = join(root, ".proxy");
+      await createGoProxy(proxy);
+      process.env.GOPROXY = `file://${proxy}`;
+      if (location === "go.work")
+        await writeFile(
+          join(root, location),
+          "go 1.25\nuse .\nreplace example.test/lib => ./local\n",
+        );
+      else
+        await writeFile(
+          join(root, location),
+          "module example.test/app\ngo 1.25\nreplace example.test/lib => ./local\n",
+        );
+      const modBefore = await readFile(join(root, "go.mod"), "utf8");
+      const replacementBefore = await readFile(join(root, location), "utf8");
+      const result = await executeDependency(
+        root,
+        "add",
+        {
+          project_id: "go:go.mod",
+          group: { kind: "runtime" },
+          packages: [
+            {
+              name: "example.test/lib",
+              ...(kind === "registry" ? { version: "1.0.0" } : {}),
+              source:
+                kind === "registry"
+                  ? { kind: "registry" }
+                  : { kind: "git", url: "example.test/lib", ref: "feature" },
+            },
+          ],
+        },
+        registry,
+      );
+      expect(result.outcome, JSON.stringify(result)).toBe("rejected");
+      expect(result.diagnostics?.[0]?.code).toBe(
+        "unsupported-source-operation",
+      );
+      expect("native_steps" in result).toBe(false);
+      expect(await readFile(join(root, "go.mod"), "utf8")).toBe(modBefore);
+      expect(await readFile(join(root, location), "utf8")).toBe(
+        replacementBefore,
+      );
+    });
+  }
+}
+
+test("Go remove retains replacement and registry re-add rejects it", async () => {
+  const root = await fixture();
+  const input = { project_id: "go:go.mod", group: { kind: "runtime" } };
+  const add = await executeDependency(
+    root,
+    "add",
+    {
+      ...input,
+      packages: [
+        { name: "example.test/lib", source: { kind: "path", path: "local" } },
+      ],
+    },
+    registry,
+  );
+  expect(add.outcome, JSON.stringify(add)).toBe("success");
+  const remove = await executeDependency(
+    root,
+    "remove",
+    {
+      ...input,
+      packages: [{ name: "example.test/lib" }],
+    },
+    registry,
+  );
+  expect(remove.outcome, JSON.stringify(remove)).toBe("success");
+  const before = await readFile(join(root, "go.mod"), "utf8");
+  const result = await executeDependency(
+    root,
+    "add",
+    {
+      ...input,
+      packages: [
+        {
+          name: "example.test/lib",
+          version: "1.0.0",
+          source: { kind: "registry" },
+        },
+      ],
+    },
+    registry,
+  );
+  expect(result.outcome, JSON.stringify(result)).toBe("rejected");
+  expect(result.diagnostics?.[0]?.code).toBe("unsupported-source-operation");
+  expect(await readFile(join(root, "go.mod"), "utf8")).toBe(before);
+});
+
+test("Go verifies effective local add source under a go.work replacement", async () => {
+  const root = await fixture();
+  await mkdir(join(root, "override"));
+  await writeFile(
+    join(root, "override/go.mod"),
+    "module example.test/lib\ngo 1.25\n",
+  );
+  await writeFile(join(root, "override/lib.go"), "package lib\n");
+  await writeFile(
+    join(root, "go.work"),
+    "go 1.25\nuse .\nreplace example.test/lib => ./override\n",
+  );
+  const before = await readFile(join(root, "go.work"), "utf8");
+  const result = await executeDependency(
+    root,
+    "add",
+    {
+      project_id: "go:go.mod",
+      group: { kind: "runtime" },
+      packages: [
+        { name: "example.test/lib", source: { kind: "path", path: "local" } },
+      ],
+    },
+    registry,
+  );
+  expect(result.outcome, JSON.stringify(result)).toBe("partial_change");
+  expect(result.diagnostics?.[0]?.code).toBe("postcondition-failed");
+  expect(await readFile(join(root, "go.work"), "utf8")).toBe(before);
+});
+
+for (const override of [
+  "workspace member",
+  "member replacement",
+  "version-specific replacement",
+  "module replacement",
+] as const) {
+  test(`Go rejects registry source overridden by ${override}`, async () => {
+    const root = await fixture(
+      override === "workspace member" || override === "member replacement",
+    );
+    if (override === "member replacement") {
+      await writeFile(
+        join(root, "local/go.mod"),
+        "module example.test/other\ngo 1.25\nreplace example.test/lib => ../replacement\n",
+      );
+      await mkdir(join(root, "replacement"));
+      await writeFile(
+        join(root, "replacement/go.mod"),
+        "module example.test/lib\ngo 1.25\n",
+      );
+    } else if (override === "version-specific replacement") {
+      await writeFile(
+        join(root, "go.mod"),
+        "module example.test/app\ngo 1.25\nreplace example.test/lib v1.0.0 => ./local\n",
+      );
+    } else if (override === "module replacement") {
+      await writeFile(
+        join(root, "go.mod"),
+        "module example.test/app\ngo 1.25\nreplace example.test/lib => example.test/transitive v1.0.0\n",
+      );
+    }
+    const before = await readFile(join(root, "go.mod"), "utf8");
+    const result = await executeDependency(
+      root,
+      "add",
+      {
+        project_id: "go:go.mod",
+        group: { kind: "runtime" },
+        packages: [
+          {
+            name: "example.test/lib",
+            version: "1.0.0",
+            source: { kind: "registry" },
+          },
+        ],
+      },
+      registry,
+    );
+    expect(result.outcome, JSON.stringify(result)).toBe("rejected");
+    expect(result.diagnostics?.[0]?.code).toBe("unsupported-source-operation");
+    expect("native_steps" in result).toBe(false);
+    expect(await readFile(join(root, "go.mod"), "utf8")).toBe(before);
+  });
+}

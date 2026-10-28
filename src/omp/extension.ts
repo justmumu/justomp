@@ -8,10 +8,13 @@ import {
   StructureError,
 } from "../packaging/get-structure";
 
+import { registerDependencyTools } from "./dependency-tools";
+
 interface Scope {
   root: string;
   controller: AbortController;
   release: () => Promise<void>;
+  pending: Set<Promise<unknown>>;
 }
 function describeError(error: unknown) {
   const code =
@@ -51,6 +54,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
       previous?.controller.abort(
         new StructureError("root-changed", "Session root changed"),
       );
+      await Promise.allSettled([...(previous?.pending ?? [])]);
       await previous?.release();
       if (closed)
         throw new StructureError("closed", "Inspection session has shut down");
@@ -59,7 +63,12 @@ export default function registerInspection(pi: ExtensionAPI): void {
         await release();
         throw new StructureError("closed", "Inspection session has shut down");
       }
-      scope = { root: canonical, controller: new AbortController(), release };
+      scope = {
+        root: canonical,
+        controller: new AbortController(),
+        release,
+        pending: new Set(),
+      };
       return scope;
     });
     transition = next.then(
@@ -68,6 +77,29 @@ export default function registerInspection(pi: ExtensionAPI): void {
     );
     return next;
   }
+  async function withRoot<T>(
+    root: string,
+    outerSignal: AbortSignal | undefined,
+    work: (root: string, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    outerSignal?.throwIfAborted();
+    const active = await selectRoot(root);
+    const signal = AbortSignal.any([
+      active.controller.signal,
+      ...(outerSignal ? [outerSignal] : []),
+    ]);
+    signal.throwIfAborted();
+    const job = work(active.root, signal);
+    active.pending.add(job);
+    try {
+      return await job;
+    } finally {
+      active.pending.delete(job);
+    }
+  }
+  registerDependencyTools(pi, (root, signal, work) =>
+    track(withRoot(root, signal, work)),
+  );
   async function inspect(
     root: string,
     refresh: boolean,
@@ -86,16 +118,16 @@ export default function registerInspection(pi: ExtensionAPI): void {
       24_000,
     );
     try {
-      outerSignal?.throwIfAborted();
-      const active = await selectRoot(root);
-      const signal = AbortSignal.any([
-        deadline.signal,
-        active.controller.signal,
-        ...(outerSignal ? [outerSignal] : []),
-      ]);
-      signal.throwIfAborted();
-      if (flush) await loadConfig(active.root, { flush: true, signal });
-      return await getPackagingStructure(active.root, { refresh, signal });
+      return await withRoot(
+        root,
+        outerSignal,
+        async (activeRoot, activeSignal) => {
+          const signal = AbortSignal.any([deadline.signal, activeSignal]);
+          signal.throwIfAborted();
+          if (flush) await loadConfig(activeRoot, { flush: true, signal });
+          return await getPackagingStructure(activeRoot, { refresh, signal });
+        },
+      );
     } finally {
       clearTimeout(timer);
     }

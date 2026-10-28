@@ -13,15 +13,15 @@ import {
   selectDependency,
 } from "../model";
 import { localSource, safePath } from "../paths";
+import {
+  declarationField,
+  jsGroups as groups,
+  normalizeJsVersion,
+} from "./js-common";
 
 export type Variant = "classic" | "modern" | "bun";
-export const groups = ["runtime", "dev", "optional", "peer"] as const;
-export const fields = {
-  runtime: "dependencies",
-  dev: "devDependencies",
-  optional: "optionalDependencies",
-  peer: "peerDependencies",
-} as const;
+export { jsGroups as groups } from "./js-common";
+
 function unsupported(
   message: string,
   code = "unsupported-group-operation",
@@ -250,7 +250,7 @@ export async function plan(
             "Add selected declarations",
           ),
         );
-      const field = fields[request.group.kind as keyof typeof fields];
+      const field = declarationField(request.group);
       steps.push(
         step(
           context,
@@ -304,7 +304,7 @@ export async function plan(
         ),
       );
     } else if (variant === "bun") {
-      const field = fields[request.group.kind as keyof typeof fields];
+      const field = declarationField(request.group);
       steps.push(
         step(
           context,
@@ -368,75 +368,75 @@ export async function plan(
       if (variant !== "modern" || item.version || request.mode === "latest")
         uniqueGroup(inventory, item.name, dependency.group);
     }
-    if (
-      variant === "modern" &&
-      selected.every(({ item }) => !item.version) &&
-      request.mode !== "latest"
-    ) {
+    const resolutionOnly =
+      variant === "modern" && request.mode !== "latest"
+        ? selected.filter(({ item }) => !item.version)
+        : [];
+    for (const { item, dependency } of selected.filter(
+      (target) => !resolutionOnly.includes(target),
+    )) {
+      const flags = groupFlags(dependency.group);
+      if (item.version)
+        steps.push(
+          step(
+            context,
+            [
+              "add",
+              `${item.name}@${normalizeJsVersion(item.version)}`,
+              "--exact",
+              ...flags,
+              ...rootFlags,
+            ],
+            "Pin selected declaration to exact version",
+          ),
+        );
+      else if (
+        variant === "modern" ||
+        (variant === "classic" && request.mode === "latest")
+      )
+        steps.push(
+          step(
+            context,
+            ["add", `${item.name}@latest`, ...flags, ...rootFlags],
+            "Update selected workspace declaration",
+          ),
+        );
+      else if (variant === "classic")
+        steps.push(
+          step(
+            context,
+            [
+              "upgrade",
+              `${item.name}@${dependency.declared_specifier}`,
+              ...flags,
+              ...rootFlags,
+            ],
+            "Upgrade selected declaration",
+          ),
+        );
+      else
+        steps.push(
+          step(
+            context,
+            [
+              "update",
+              item.name,
+              ...(request.mode === "latest" ? ["--latest"] : []),
+              ...(dependency.group.kind === "dev" ? ["--dev"] : []),
+            ],
+            "Update selected declaration",
+          ),
+        );
+    }
+    if (resolutionOnly.length)
       steps.push(
         step(
           context,
-          ["up", "-R", ...request.packages.map((p) => p.name)],
+          ["up", "-R", ...resolutionOnly.map(({ item }) => item.name)],
           "Re-resolve selected names across the shared lockfile",
           context.owner,
         ),
       );
-    } else
-      for (const { item, dependency } of selected) {
-        const flags = groupFlags(dependency.group);
-        if (item.version)
-          steps.push(
-            step(
-              context,
-              [
-                "add",
-                `${item.name}@${item.version}`,
-                "--exact",
-                ...flags,
-                ...rootFlags,
-              ],
-              "Pin selected declaration to exact version",
-            ),
-          );
-        else if (
-          variant === "modern" ||
-          (variant === "classic" && request.mode === "latest")
-        )
-          steps.push(
-            step(
-              context,
-              ["add", `${item.name}@latest`, ...flags, ...rootFlags],
-              "Update selected workspace declaration",
-            ),
-          );
-        else if (variant === "classic")
-          steps.push(
-            step(
-              context,
-              [
-                "upgrade",
-                `${item.name}@${dependency.declared_specifier}`,
-                ...(request.mode === "latest" ? ["--latest"] : []),
-                ...flags,
-                ...rootFlags,
-              ],
-              "Upgrade selected declaration",
-            ),
-          );
-        else
-          steps.push(
-            step(
-              context,
-              [
-                "update",
-                item.name,
-                ...(request.mode === "latest" ? ["--latest"] : []),
-                ...(dependency.group.kind === "dev" ? ["--dev"] : []),
-              ],
-              "Update selected declaration",
-            ),
-          );
-      }
   }
   if (
     variant === "classic" &&
@@ -491,28 +491,39 @@ export async function verify(
       );
   }
   if (request.operation === "update")
-    for (const item of request.packages)
+    for (const item of request.packages) {
+      if (!item.version) continue;
+      const expected = normalizeJsVersion(item.version);
+      const previous = selectDependency(before, item.name, item.group);
+      const current = selectDependency(after, item.name, previous.group);
       if (
-        item.version &&
-        selectDependency(after, item.name, item.group).declared_specifier !==
-          item.version
+        normalizeJsVersion(current.declared_specifier) !== expected ||
+        !current.resolutions?.length ||
+        !current.resolutions.every(
+          (resolution) => normalizeJsVersion(resolution.version) === expected,
+        )
       )
         throw new DependencyError(
           "postcondition-failed",
-          `${item.name} was not saved as an exact pin`,
+          `${item.name} was not saved and resolved as the requested exact version`,
         );
+    }
 }
-function unavailable(inventory: Inventory, message: string): Inventory {
+function unavailable(
+  inventory: Inventory,
+  message: string,
+  transitive: boolean,
+): Inventory {
   return {
     ...inventory,
-    complete: false,
+    complete: !transitive,
     diagnostics: [
       ...inventory.diagnostics,
       { code: "resolution-unavailable", message },
     ],
   };
 }
-type GraphAdd = (name: string, version: string) => void;
+type GraphAdd = (name: string, version: string, direct?: boolean) => void;
 function identity(value: string): [string, string] {
   const match = /^(@[^/]+\/[^@]+|[^@]+)@(.+)$/.exec(value);
   if (!match?.[1] || !match[2])
@@ -524,6 +535,7 @@ function classicTree(
   context: AdapterContext,
   inventory: Inventory,
   add: GraphAdd,
+  transitive: boolean,
 ) {
   const tree = text
     .trim()
@@ -548,12 +560,13 @@ function classicTree(
   const visit = (
     node: Record<string, unknown>,
     scope: Map<string, Record<string, unknown>>,
+    direct = false,
   ) => {
-    if (seen.has(node)) return;
-    seen.add(node);
     if (typeof node.name !== "string" || !Array.isArray(node.children))
       throw new Error("Invalid native tree");
-    add(...identity(node.name));
+    add(...identity(node.name), direct);
+    if (!transitive || seen.has(node)) return;
+    seen.add(node);
     const children = node.children.map(object);
     const nested = new Map([...scope, ...index(children)]);
     for (const child of children) {
@@ -574,7 +587,7 @@ function classicTree(
     : rootIndex;
   for (const dependency of inventory.dependencies) {
     const target = selectedScope.get(dependency.name);
-    if (target) visit(target, selectedScope);
+    if (target) visit(target, selectedScope, true);
     else if (dependency.group.kind !== "peer")
       throw new Error("Missing direct resolution");
   }
@@ -584,6 +597,7 @@ async function bunGraph(
   lock: string,
   inventory: Inventory,
   add: GraphAdd,
+  transitive: boolean,
 ) {
   if (lock.endsWith(".lockb")) {
     const result = await context.run(
@@ -629,7 +643,12 @@ async function bunGraph(
       }
     }
     const seen = new Set<object>();
-    const visit = (name: string, spec: string, peer = false) => {
+    const visit = (
+      name: string,
+      spec: string,
+      peer = false,
+      direct = false,
+    ) => {
       const workspace = spec.startsWith("workspace:")
         ? context.structure.projects.find(
             (p) => p.workspace === context.project.workspace && p.name === name,
@@ -642,8 +661,8 @@ async function bunGraph(
         if (peer) return;
         throw new Error("Missing binary lock edge");
       }
-      add(name, record.version);
-      if (seen.has(record)) return;
+      add(name, record.version, direct);
+      if (!transitive || seen.has(record)) return;
       seen.add(record);
       for (const [child, range] of Object.entries(record.dependencies))
         visit(child, range);
@@ -653,6 +672,7 @@ async function bunGraph(
         dependency.name,
         dependency.declared_specifier,
         dependency.group.kind === "peer",
+        true,
       );
     return;
   }
@@ -677,14 +697,13 @@ async function bunGraph(
     name: string,
     parent: string,
     peer = false,
+    direct = false,
   ): Promise<void> => {
     const key = locate(name, parent);
     if (!key) {
       if (peer) return;
       throw new Error("Missing Bun graph edge");
     }
-    if (seen.has(key)) return;
-    seen.add(key);
     const row = packages[key];
     if (!Array.isArray(row) || typeof row[0] !== "string")
       throw new Error("Invalid Bun package record");
@@ -707,7 +726,10 @@ async function bunGraph(
     add(
       resolvedName,
       typeof data.version === "string" ? data.version : observedVersion,
+      direct,
     );
+    if (!transitive || seen.has(key)) return;
+    seen.add(key);
     for (const field of [
       "dependencies",
       "optionalDependencies",
@@ -722,6 +744,7 @@ async function bunGraph(
       dependency.name,
       context.project.name ?? "",
       dependency.group.kind === "peer",
+      true,
     );
 }
 
@@ -731,46 +754,58 @@ export async function nativeInventory(
   variant: Variant,
 ): Promise<Inventory> {
   const inventory = await readInventory(context.root, context.project);
-  if (!transitive) return inventory;
   const lock = await lockPath(context, variant);
-  if (!lock) return unavailable(inventory, "Native lockfile is missing");
+  if (!lock)
+    return unavailable(inventory, "Native lockfile is missing", transitive);
   const resolutions = new Map<string, Set<string>>();
-  const add = (name: string, version: string) => {
+  const directResolutions = new Map<string, Set<string>>();
+  const add: GraphAdd = (name, version, direct = false) => {
     if (!name || !version) throw new Error("Missing graph identity");
-    const versions = resolutions.get(name) ?? new Set<string>();
-    versions.add(version);
-    resolutions.set(name, versions);
+    for (const map of direct
+      ? [resolutions, directResolutions]
+      : [resolutions]) {
+      const versions = map.get(name) ?? new Set<string>();
+      versions.add(version);
+      map.set(name, versions);
+    }
   };
   try {
-    if (variant === "bun") await bunGraph(context, lock, inventory, add);
+    if (variant === "bun")
+      await bunGraph(context, lock, inventory, add, transitive);
     else {
-      const result = await context.run(
-        step(
-          context,
-          variant === "modern"
-            ? ["info", "--recursive", "--json"]
-            : ["list", "--json", "--depth=99999", "--non-interactive"],
-          "Read native dependency graph",
-        ),
-      );
-      if (result.exit_code !== 0 || result.truncated || result.cancelled)
-        throw new Error("Incomplete native graph");
-      if (variant === "classic")
-        classicTree(result.stdout, context, inventory, add);
-      else
-        for (const line of result.stdout.trim().split("\n").filter(Boolean)) {
-          const row = object(JSON.parse(line)),
-            children = object(row.children);
-          if (
-            typeof row.value !== "string" ||
-            typeof children.Version !== "string"
-          )
-            throw new Error("Invalid Yarn info record");
-          add(identity(row.value)[0], children.Version);
-        }
+      // Modern info without -R reports only the active workspace's direct
+      // resolutions. Keep these separate from same-named transitive versions.
+      for (const recursive of variant === "modern" && transitive
+        ? [false, true]
+        : [false]) {
+        const result = await context.run(
+          step(
+            context,
+            variant === "modern"
+              ? ["info", ...(recursive ? ["--recursive"] : []), "--json"]
+              : ["list", "--json", "--depth=99999", "--non-interactive"],
+            "Read native dependency graph",
+          ),
+        );
+        if (result.exit_code !== 0 || result.truncated || result.cancelled)
+          throw new Error("Incomplete native graph");
+        if (variant === "classic")
+          classicTree(result.stdout, context, inventory, add, transitive);
+        else
+          for (const line of result.stdout.trim().split("\n").filter(Boolean)) {
+            const row = object(JSON.parse(line)),
+              children = object(row.children);
+            if (
+              typeof row.value !== "string" ||
+              typeof children.Version !== "string"
+            )
+              throw new Error("Invalid Yarn info record");
+            add(identity(row.value)[0], children.Version, !recursive);
+          }
+      }
     }
     for (const dependency of inventory.dependencies) {
-      const versions = resolutions.get(dependency.name);
+      const versions = directResolutions.get(dependency.name);
       if (versions)
         dependency.resolutions = [...versions].map((version) => ({
           version,
@@ -779,8 +814,12 @@ export async function nativeInventory(
       else if (dependency.group.kind !== "peer")
         throw new Error(`Missing resolution for ${dependency.name}`);
     }
-    for (const [name, versions] of resolutions)
-      if (!inventory.dependencies.some((d) => d.name === name))
+    if (transitive)
+      for (const [name, versions] of resolutions) {
+        const indirectVersions = [...versions].filter(
+          (version) => !directResolutions.get(name)?.has(version),
+        );
+        if (!indirectVersions.length) continue;
         inventory.dependencies.push({
           name,
           group: { kind: "runtime" },
@@ -791,16 +830,18 @@ export async function nativeInventory(
             file: relative(context.root, lock),
             field: "native graph",
           },
-          resolutions: [...versions].map((version) => ({
+          resolutions: indirectVersions.map((version) => ({
             version,
             evidence: relative(context.root, lock),
           })),
         });
+      }
     return inventory;
   } catch {
     return unavailable(
       inventory,
       "Native graph output is unavailable or has an unsupported format",
+      transitive,
     );
   }
 }

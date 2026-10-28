@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
 
@@ -59,17 +61,43 @@ test("cancelled waiter leaves its owner alive and independent domains run", asyn
 });
 
 test("cancellation also stops a grandchild that ignores SIGTERM", async () => {
+  const root = await mkdtemp(join(tmpdir(), "justomp-runner-ready-"));
+  const ready = join(root, "ready");
   const controller = new AbortController();
-  const program = `const {spawn}=require('node:child_process');spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000);`;
+  const grandchild = `process.on("SIGTERM",()=>{});process.stdout.write(String(process.pid)+"\\n",()=>require("node:fs").writeFileSync(${JSON.stringify(ready)},String(process.pid)));setInterval(()=>{},1000);`;
+  const program = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000);`;
   const promise = runProcess(process.execPath, ["-e", program], {
-    cwd: tmpdir(),
+    cwd: root,
     signal: controller.signal,
   });
-  setTimeout(() => controller.abort(), 150);
-  const result = await promise;
-  expect(result.cancelled).toBe(true);
-  const pid = Number(result.stdout.trim());
-  expect(pid).toBeGreaterThan(0);
-  await Bun.sleep(30);
-  expect(() => process.kill(pid, 0)).toThrow();
-});
+  try {
+    const deadline = Date.now() + 10000;
+    while (!(await Bun.file(ready).exists())) {
+      if (Date.now() > deadline)
+        throw new Error("Grandchild did not become ready");
+      await Bun.sleep(10);
+    }
+    const pid = Number(await readFile(ready, "utf8"));
+    expect(pid).toBeGreaterThan(0);
+    controller.abort();
+    const result = await promise;
+    expect(result.cancelled).toBe(true);
+    expect(Number(result.stdout.trim())).toBe(pid);
+    const reaped = Date.now() + 2000;
+    for (;;) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        break;
+      }
+      if (Date.now() > reaped)
+        throw new Error("Grandchild remained after cancellation");
+      await Bun.sleep(10);
+    }
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    controller.abort();
+    await promise;
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);

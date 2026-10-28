@@ -9,7 +9,6 @@ import {
   DependencyError,
   type Group,
   type Inventory,
-  redact,
 } from "./model";
 export function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -28,7 +27,7 @@ export function sourceOf(specifier: string): Dependency["source"] {
         : /^(catalog:|patch:|https?:|npm:)/.test(specifier)
           ? "unknown"
           : "registry";
-  return { kind, specifier: redact(specifier) };
+  return { kind, specifier };
 }
 export async function readInventory(
   root: string,
@@ -46,7 +45,7 @@ export async function readInventory(
     dependencies.push({
       name,
       group,
-      declared_specifier: redact(spec),
+      declared_specifier: spec,
       source: sourceOf(spec),
       direct: true,
       evidence: { file: project.manifest, field },
@@ -131,7 +130,7 @@ export async function readInventory(
         else if (typeof s.path === "string")
           source = { kind: "path", specifier: s.path };
         else if (typeof s.git === "string")
-          source = { kind: "git", specifier: redact(s.git) };
+          source = { kind: "git", specifier: s.git };
         else if (s.url || Array.isArray(nativeSource))
           source = { kind: "unknown" };
         add(name, group, spec, field, {

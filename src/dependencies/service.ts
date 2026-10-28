@@ -2,7 +2,11 @@ import { realpath } from "node:fs/promises";
 import { normalizePythonName } from "../inspect/readers/manifest";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { changes, fingerprint, resolutionEvidence } from "./changes";
-import { resolveExecutable } from "./executable";
+import {
+  resolveExecutable,
+  resolveManagerScope,
+  validatePnpmNativeScope,
+} from "./executable";
 import { readInventory } from "./inventory";
 import {
   type Adapter,
@@ -13,6 +17,7 @@ import {
   type NativeStep,
   type ProcessResult,
   redact,
+  redactValues,
   sameGroup,
   selectDependency,
 } from "./model";
@@ -25,6 +30,7 @@ import {
   parseRequest,
   schemas,
 } from "./schemas";
+import { validateExistingSources } from "./source-boundaries";
 export type AdapterRegistry = Readonly<Record<string, Adapter>>;
 function failure(error: unknown) {
   return {
@@ -67,11 +73,14 @@ async function target(
       "unresolved-workspace",
       "Resolve workspace inspection diagnostics before dependency operations",
     );
-  const owner = await safePath(structure.root, project.managerRoot);
   return {
     structure,
     project,
-    domain: `${await realpath(owner)}:${project.ecosystem}`,
+    scope: await resolveManagerScope(
+      structure.root,
+      project,
+      structure.projects,
+    ),
   };
 }
 function verify(
@@ -136,14 +145,28 @@ export async function executeDependency(
     root = await realpath(root);
     for (;;) {
       const selected = await target(root, request.project_id, signal);
-      const result = await withDomains([selected.domain], signal, async () => {
+      const domains = selected.scope.domains;
+      const result = await withDomains(domains, signal, async () => {
         const current = await target(root, request.project_id, signal, true);
-        if (current.domain !== selected.domain) return undefined;
+        if (JSON.stringify(current.scope.domains) !== JSON.stringify(domains))
+          return undefined;
         if (current.project.ecosystem === "python" && "packages" in request) {
           for (const item of request.packages)
             item.name = normalizePythonName(item.name);
         }
         if ("packages" in request) {
+          for (const item of request.packages) {
+            const valid =
+              current.project.ecosystem === "javascript"
+                ? /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(item.name)
+                : current.project.ecosystem !== "python" ||
+                  /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(item.name);
+            if (!valid)
+              throw new DependencyError(
+                "invalid-package",
+                `${item.name} is not a valid ${current.project.ecosystem} package name`,
+              );
+          }
           const keys = request.packages.map(
             (item) =>
               `${item.name}:${JSON.stringify("group" in item ? (item.group ?? null) : null)}`,
@@ -154,6 +177,21 @@ export async function executeDependency(
               "Package normalization produced duplicate targets",
             );
         }
+        if (
+          current.project.ecosystem === "javascript" &&
+          request.operation === "update"
+        )
+          for (const item of request.packages)
+            if (
+              item.version &&
+              !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
+                item.version,
+              )
+            )
+              throw new DependencyError(
+                "invalid-version",
+                "JavaScript exact updates require a complete major.minor.patch version",
+              );
         const memberManifests = new Set(
           current.structure.projects
             .filter(
@@ -174,11 +212,20 @@ export async function executeDependency(
             "An existing dependency source points outside the inspection root",
           );
         }
+        await validateExistingSources(root, current.project, current.structure);
         const executable = await resolveExecutable(
           root,
           current.project,
           signal,
+          current.scope,
         );
+        if (executable.manager === "pnpm")
+          await validatePnpmNativeScope(
+            root,
+            current.scope,
+            executable.command,
+            signal,
+          );
         const key =
           executable.manager === "yarn"
             ? executable.version.startsWith("1.")
@@ -212,12 +259,14 @@ export async function executeDependency(
             context,
             request.include_transitive ?? false,
           );
+          signal?.throwIfAborted();
+          const visible = redactValues(inventory);
           return {
             outcome: "success",
             project_id: request.project_id,
             manager: { name: key, version: executable.version },
-            ...inventory,
-            dependencies: inventory.dependencies.filter(
+            ...visible,
+            dependencies: visible.dependencies.filter(
               (d) => request.include_transitive || d.direct,
             ),
             supported_groups: adapter.groups,
@@ -249,13 +298,7 @@ export async function executeDependency(
           ...new Set([
             ...plan.metadata,
             current.project.manifest,
-            ...current.structure.projects
-              .filter(
-                (p) =>
-                  p.ecosystem === current.project.ecosystem &&
-                  p.managerRoot === current.project.managerRoot,
-              )
-              .map((p) => p.manifest),
+            ...memberManifests,
           ]),
         ];
         const before = await fingerprint(root, metadata);
@@ -362,7 +405,7 @@ export async function executeDependency(
                 : "failed"
             : "success",
           project_id: request.project_id,
-          requested: JSON.parse(redact(JSON.stringify(request))),
+          requested: redactValues(request),
           manager: { name: key, version: executable.version },
           affected_projects,
           metadata_changes,

@@ -431,23 +431,41 @@ export const uvAdapter: Adapter = {
       ))
         for (const ref of refs(values))
           queue.push({ ref, group: { kind: "extra", name } });
+      const packagesByName = new Map<
+        string,
+        { package: LockedPackage; index: number }[]
+      >();
+      packages.forEach((p, index) => {
+        const candidates = packagesByName.get(p.name) ?? [];
+        candidates.push({ package: p, index });
+        packagesByName.set(p.name, candidates);
+      });
+      const recordKey = (name: string, group: Group) =>
+        JSON.stringify([name, group.kind, "name" in group ? group.name : null]);
+      const recordsByGroup = new Map<string, Dependency[]>();
+      for (const record of inventory.dependencies) {
+        const key = recordKey(record.name, record.group);
+        const records = recordsByGroup.get(key) ?? [];
+        records.push(record);
+        recordsByGroup.set(key, records);
+      }
       const visited = new Set<string>();
       for (let index = 0; index < queue.length; index++) {
         const item = queue[index];
         if (!item) continue;
-        const candidates = packages.filter(
-          (p) =>
-            p.name === item.ref.name &&
+        const candidates = (
+          packagesByName.get(String(item.ref.name)) ?? []
+        ).filter(
+          ({ package: p }) =>
             (!item.ref.version || item.ref.version === p.version) &&
             (!item.ref.source ||
               JSON.stringify(item.ref.source) === JSON.stringify(p.source)),
         );
         if (!candidates.length) throw new Error("Unresolved uv lock reference");
-        for (const p of candidates) {
+        for (const { package: p, index: packageIndex } of candidates) {
           const name = normalizePythonName(p.name);
-          let records = inventory.dependencies.filter(
-            (d) => d.name === name && sameGroup(d.group, item.group),
-          );
+          const groupKey = recordKey(name, item.group);
+          let records = recordsByGroup.get(groupKey) ?? [];
           if (!records.length && transitive) {
             const record: Dependency = {
               name,
@@ -462,6 +480,7 @@ export const uvAdapter: Adapter = {
             };
             inventory.dependencies.push(record);
             records = [record];
+            recordsByGroup.set(groupKey, records);
           }
           for (const record of records) {
             record.resolutions ??= [];
@@ -477,7 +496,7 @@ export const uvAdapter: Adapter = {
             (!Array.isArray(extra) || extra.some((e) => typeof e !== "string"))
           )
             throw new Error("Invalid uv extra edge");
-          const key = `${packages.indexOf(p)}:${JSON.stringify(item.group)}:${JSON.stringify(extra ?? [])}`;
+          const key = `${packageIndex}:${JSON.stringify(item.group)}:${JSON.stringify(extra ?? [])}`;
           if (visited.has(key)) continue;
           visited.add(key);
           for (const ref of refs(p.dependencies))

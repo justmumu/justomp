@@ -117,3 +117,34 @@ test("an existing dependency outside the inspected root prevents native mutation
   expect(result.diagnostics?.[0]?.code).toBe("outside-root");
   expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest);
 });
+
+test("JavaScript registry names cannot be interpreted as repository shorthand", async () => {
+  const root = await fixture();
+  const result = await executeDependency(
+    root,
+    "add",
+    {
+      project_id: "javascript:package.json",
+      group: { kind: "runtime" },
+      packages: [{ name: "owner/repository", source: { kind: "registry" } }],
+    },
+    {},
+  );
+  expect(result.outcome).toBe("rejected");
+  expect(result.diagnostics?.[0]?.code).toBe("invalid-package");
+});
+
+test("JavaScript exact updates reject partial semver before native commands", async () => {
+  const root = await fixture();
+  const result = await executeDependency(
+    root,
+    "update",
+    {
+      project_id: "javascript:package.json",
+      packages: [{ name: "foo", version: "1.2" }],
+    },
+    {},
+  );
+  expect(result.outcome).toBe("rejected");
+  expect(result.diagnostics?.[0]?.code).toBe("invalid-version");
+});

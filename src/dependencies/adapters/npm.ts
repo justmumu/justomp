@@ -36,11 +36,10 @@ async function inventory(
   transitive: boolean,
 ): Promise<Inventory> {
   const result = await readInventory(ctx.root, ctx.project);
+  const shrinkwrap = await readOptional(join(ctx.owner, "npm-shrinkwrap.json"));
   const lockPath =
-    (await readOptional(join(ctx.owner, "npm-shrinkwrap.json"))) !== undefined
-      ? "npm-shrinkwrap.json"
-      : "package-lock.json";
-  const text = await readOptional(join(ctx.owner, lockPath));
+    shrinkwrap !== undefined ? "npm-shrinkwrap.json" : "package-lock.json";
+  const text = shrinkwrap ?? (await readOptional(join(ctx.owner, lockPath)));
   if (!text)
     return unavailable(
       result,

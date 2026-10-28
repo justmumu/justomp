@@ -1,6 +1,6 @@
 import { join, posix, relative } from "node:path";
 import { parseDocument } from "yaml";
-import { readOptional } from "../executable";
+import { pnpmDirectories, readOptional } from "../executable";
 import { object, readInventory, sourceOf } from "../inventory";
 import {
   type Adapter,
@@ -39,8 +39,9 @@ async function inventory(
   ctx: AdapterContext,
   transitive: boolean,
 ): Promise<Inventory> {
+  const { lockDirectory } = await pnpmDirectories(ctx.cwd, ctx.owner);
   const result = await readInventory(ctx.root, ctx.project),
-    file = join(ctx.project.managerRoot, "pnpm-lock.yaml"),
+    file = relative(ctx.root, join(lockDirectory, "pnpm-lock.yaml")),
     text = await readOptional(join(ctx.root, file));
   if (!text)
     return unavailable(
@@ -55,7 +56,7 @@ async function inventory(
     if (String(lock.lockfileVersion) !== "9.0")
       throw new Error("Unsupported pnpm lock schema");
     const importers = object(lock.importers),
-      key = relative(ctx.owner, ctx.cwd).split("\\").join("/") || ".",
+      key = relative(lockDirectory, ctx.cwd).split("\\").join("/") || ".",
       importer = object(importers[key]),
       snapshots = object(lock.snapshots),
       packages = object(lock.packages);
@@ -135,8 +136,9 @@ export const pnpmAdapter: Adapter = {
   verify: verifyJs,
   async plan(ctx, request, before) {
     const steps: NativeStep[] = [];
+    const { lockDirectory } = await pnpmDirectories(ctx.cwd, ctx.owner);
     if (request.operation === "sync") {
-      if (!(await readOptional(join(ctx.owner, "pnpm-lock.yaml"))))
+      if (!(await readOptional(join(lockDirectory, "pnpm-lock.yaml"))))
         throw new DependencyError(
           "lock-required",
           "pnpm sync requires an existing lock",
@@ -144,7 +146,7 @@ export const pnpmAdapter: Adapter = {
       steps.push({
         label: "Install frozen pnpm environment",
         args: ["install", "--frozen-lockfile"],
-        cwd: ctx.owner,
+        cwd: ctx.cwd,
       });
     } else if (request.operation === "add") {
       if (request.group.kind === "peer")
@@ -242,6 +244,19 @@ export const pnpmAdapter: Adapter = {
         );
       }
     }
-    return jsPlan(ctx, "pnpm-lock.yaml", steps);
+    // pnpm 10 can persist a relative redirected lock directory twice in its
+    // modules state during frozen install. Pass the validated absolute location
+    // consistently without rewriting the user's configuration.
+    if (lockDirectory !== ctx.owner)
+      for (const step of steps) step.args.push("--lockfile-dir", lockDirectory);
+    const plan = jsPlan(ctx, "pnpm-lock.yaml", steps);
+    const defaultLock = join(ctx.project.managerRoot, "pnpm-lock.yaml");
+    plan.metadata = [
+      ...new Set([
+        ...plan.metadata.filter((file) => file !== defaultLock),
+        relative(ctx.root, join(lockDirectory, "pnpm-lock.yaml")),
+      ]),
+    ];
+    return plan;
   },
 };

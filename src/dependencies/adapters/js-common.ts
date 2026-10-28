@@ -119,6 +119,9 @@ export function addResolution(
   if (!dependency.resolutions.some((r) => r.version === version))
     dependency.resolutions.push({ version, evidence });
 }
+export function normalizeJsVersion(version: string): string {
+  return version.replace(/^v/, "");
+}
 export const verifyJs: NonNullable<
   import("../model").Adapter["verify"]
 > = async (_ctx, request, before, after) => {
@@ -148,10 +151,14 @@ export const verifyJs: NonNullable<
     for (const p of request.packages) {
       const previous = selectDependency(before, p.name, p.group),
         current = selectDependency(after, p.name, previous.group);
+      const expected = p.version ? normalizeJsVersion(p.version) : undefined;
       if (
-        p.version &&
-        (current.declared_specifier !== p.version ||
-          !current.resolutions?.some((r) => r.version === p.version))
+        expected &&
+        (normalizeJsVersion(current.declared_specifier) !== expected ||
+          !current.resolutions?.length ||
+          !current.resolutions.every(
+            (r) => normalizeJsVersion(r.version) === expected,
+          ))
       )
         throw new DependencyError(
           "postcondition-failed",

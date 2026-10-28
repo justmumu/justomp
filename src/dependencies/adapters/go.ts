@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseGo } from "../../inspect/readers/go";
+import { readOptional } from "../executable";
 import { object, readInventory } from "../inventory";
 import {
   type Adapter,
@@ -119,6 +120,42 @@ export const goAdapter: Adapter = {
       join(context.project.managerRoot, "go.work"),
       join(context.project.managerRoot, "go.work.sum"),
     ];
+    if (
+      request.operation === "add" &&
+      request.packages.some(
+        (pkg) => pkg.source.kind === "registry" || pkg.source.kind === "git",
+      )
+    ) {
+      // Replacements survive removal and may not have a require entry. Read
+      // every active main module as well as the workspace's overriding rules.
+      const work = await readOptional(join(context.owner, "go.work"));
+      const documents = await Promise.all(
+        (work ? members : [context.project]).map(async (member) =>
+          parseGo(
+            await readFile(join(context.root, member.manifest), "utf8"),
+            "mod",
+          ),
+        ),
+      );
+      if (work) documents.push(parseGo(work, "work"));
+      for (const pkg of request.packages) {
+        if (pkg.source.kind !== "registry" && pkg.source.kind !== "git")
+          continue;
+        // Even a version-specific replacement can become effective through
+        // native minimum-version selection. Do not silently erase shared rules.
+        if (
+          documents.some(
+            (doc) =>
+              doc.module === pkg.name ||
+              doc.replaces.some((item) => item.name === pkg.name),
+          )
+        )
+          throw new DependencyError(
+            "unsupported-source-operation",
+            `Go registry/revision add for ${pkg.name} may be overridden by an existing module replacement or workspace member; manage that override explicitly first`,
+          );
+      }
+    }
     if (request.operation === "sync")
       steps.push({
         label: "materialize selected Go modules",
@@ -208,11 +245,53 @@ export const goAdapter: Adapter = {
     };
   },
   async verify(
-    _context: AdapterContext,
+    context: AdapterContext,
     request: Exclude<DependencyRequest, { operation: "list" }>,
     _before,
     after,
   ) {
+    if (request.operation === "add") {
+      // Native workspace precedence is not represented by go.mod alone. Query
+      // only the requested modules, without fetching or completing checksums.
+      const result = await context.run({
+        label: "verify effective Go add sources",
+        args: [
+          "list",
+          "-m",
+          "-json",
+          "-mod=readonly",
+          ...request.packages.map((pkg) => pkg.name),
+        ],
+        env: { GOPROXY: "off", GOSUMDB: "off" },
+      });
+      if (result.exit_code !== 0 || result.truncated)
+        throw new DependencyError(
+          "postcondition-failed",
+          "Go could not verify the effective sources of the added modules",
+        );
+      const graph = graphObjects(result.stdout);
+      for (const pkg of request.packages) {
+        const module = graph.find((item) => item.Path === pkg.name);
+        let matches = !!module && !module.Error;
+        if (pkg.source.kind === "path" || pkg.source.kind === "workspace") {
+          const effective = module?.Replace ? object(module.Replace) : module;
+          const directory = effective?.Dir;
+          matches =
+            matches &&
+            typeof directory === "string" &&
+            (await realpath(directory)) ===
+              (await realpath(await localSource(context, pkg.source)));
+        } else {
+          matches = matches && !module?.Replace && module?.Main !== true;
+        }
+        if (!matches)
+          throw new DependencyError(
+            "postcondition-failed",
+            `Go selected graph did not use the requested source for ${pkg.name}`,
+          );
+      }
+      return;
+    }
     if (request.operation !== "update") return;
     for (const pkg of request.packages)
       if (pkg.version) {

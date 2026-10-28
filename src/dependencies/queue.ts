@@ -1,6 +1,5 @@
 interface Waiter {
   resolve: (release: () => void) => void;
-  reject: (reason: unknown) => void;
   signal?: AbortSignal;
   abort: () => void;
 }
@@ -40,7 +39,6 @@ function acquire(domain: string, signal?: AbortSignal): Promise<() => void> {
   return new Promise((resolve, reject) => {
     const waiter: Waiter = {
       resolve,
-      reject,
       signal,
       abort: () => {
         const index = state.waiters.indexOf(waiter);

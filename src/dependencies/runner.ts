@@ -25,8 +25,9 @@ export function runProcess(
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const collect = (buffer: Buffer, chunk: Buffer) => {
+    const collect = (buffer: Buffer<ArrayBuffer>, chunk: Buffer) => {
       if (buffer.length + chunk.length > limit) truncated = true;
+      if (buffer.length >= limit) return buffer;
       return Buffer.concat([
         buffer,
         chunk.subarray(0, Math.max(0, limit - buffer.length)),

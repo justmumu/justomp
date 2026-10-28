@@ -47,7 +47,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
       ).toBe("2.0.0");
       await f.operate(adapter, {
         operation: "update",
-        packages: [{ name: "fixture-dep", version: "1.0.0" }],
+        packages: [{ name: "fixture-dep", version: "v1.0.0" }],
       });
       expect((await f.manifest()).dependencies["fixture-dep"]).toBe("1.0.0");
       await rm(join(f.project, "node_modules"), {

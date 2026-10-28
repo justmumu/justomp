@@ -13,7 +13,7 @@ import { SessionManager } from "@oh-my-pi/pi-coding-agent/session/session-manage
 export async function createHost(
   root: string,
   entry = new URL("../../../src/index.ts", import.meta.url).pathname,
-  deny = false,
+  deny: boolean | string[] = false,
 ) {
   const loaded = await loadExtensions([entry], root);
   if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
@@ -24,7 +24,23 @@ export async function createHost(
   });
   const settings = Settings.isolated({
     "tools.approvalMode": "write",
-    ...(deny ? { "tools.approval": { project_inspect: "deny" } } : {}),
+    "tools.approval": {
+      ...Object.fromEntries(
+        [
+          "dependency_list",
+          "dependency_add",
+          "dependency_remove",
+          "dependency_update",
+          "dependency_sync",
+        ].map((name) => [name, "allow"]),
+      ),
+      ...Object.fromEntries(
+        (deny === true ? ["project_inspect"] : deny || []).map((name) => [
+          name,
+          "deny",
+        ]),
+      ),
+    },
   });
   const session = SessionManager.inMemory(root);
   const runner = new ExtensionRunner(
@@ -47,6 +63,14 @@ export async function createHost(
     session,
     registered,
     tool,
+    getTool(name: string) {
+      const entry = runner.getRegisteredTool(name);
+      if (!entry) throw new Error(`${name} was not registered`);
+      return new ExtensionToolWrapper(
+        new RegisteredToolAdapter(entry, runner),
+        runner,
+      );
+    },
     async close() {
       await runner.emit({ type: "session_shutdown" });
       auth.close();

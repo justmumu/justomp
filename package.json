@@ -10,11 +10,13 @@
   "files": [
     "src",
     "README.md",
-    "docs/inspection.md"
+    "docs/inspection.md",
+    "docs/dependencies.md"
   ],
   "exports": {
     ".": "./src/index.ts",
-    "./packaging": "./src/packaging/get-structure.ts"
+    "./packaging": "./src/packaging/get-structure.ts",
+    "./dependencies": "./src/dependencies/index.ts"
   },
   "omp": {
     "extensions": [
@@ -25,7 +27,8 @@
     "check": "tsc --noEmit && biome check . && bun test tests/unit",
     "test:integration": "bun test tests/integration",
     "bench:inspect": "bun tests/performance/inspect.bench.ts",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "test:dependencies": "bun test tests/integration/dependencies tests/integration/omp"
   },
   "dependencies": {
     "chokidar": "6.0.0",
