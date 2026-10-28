@@ -1,0 +1,319 @@
+import { realpath } from "node:fs/promises";
+import { getPackagingStructure } from "../packaging/get-structure";
+import { changes, fingerprint } from "./changes";
+import { resolveExecutable } from "./executable";
+import { readInventory } from "./inventory";
+import {
+  type Adapter,
+  type AdapterContext,
+  DependencyError,
+  type Inventory,
+  type NativePlan,
+  type NativeStep,
+  type ProcessResult,
+  redact,
+  sameGroup,
+  selectDependency,
+} from "./model";
+import { safePath } from "./paths";
+import { withDomains } from "./queue";
+import { runProcess } from "./runner";
+import {
+  type DependencyRequest,
+  type Operation,
+  parseRequest,
+  schemas,
+} from "./schemas";
+export type AdapterRegistry = Readonly<Record<string, Adapter>>;
+function failure(error: unknown) {
+  return {
+    code: error instanceof DependencyError ? error.code : "dependency-error",
+    message: redact(error instanceof Error ? error.message : String(error)),
+  };
+}
+export async function listProjects(
+  root: string,
+  input: unknown = {},
+  signal?: AbortSignal,
+) {
+  schemas.projects.parse(input);
+  const { structure } = await getPackagingStructure(root, { signal });
+  return {
+    projects: structure.projects.map((p) => ({
+      project_id: p.project_id,
+      relative_path: p.path,
+    })),
+  };
+}
+async function target(
+  root: string,
+  id: string,
+  signal?: AbortSignal,
+  refresh = false,
+) {
+  const { structure } = await getPackagingStructure(root, { signal, refresh });
+  const project = structure.projects.find((p) => p.project_id === id);
+  if (!project)
+    throw new DependencyError(
+      "project-not-found",
+      "Project ID is no longer present; call list_projects again",
+    );
+  const workspace = structure.workspaces.find(
+    (w) => w.id === project.workspace,
+  );
+  if (workspace?.status === "unresolved")
+    throw new DependencyError(
+      "unresolved-workspace",
+      "Resolve workspace inspection diagnostics before dependency operations",
+    );
+  const owner = await safePath(structure.root, project.managerRoot);
+  return {
+    structure,
+    project,
+    domain: `${await realpath(owner)}:${project.ecosystem}`,
+  };
+}
+function verify(
+  request: DependencyRequest,
+  before: Inventory,
+  after: Inventory,
+) {
+  if (request.operation === "remove")
+    for (const p of request.packages) {
+      if (
+        after.dependencies.some(
+          (d) =>
+            d.direct && d.name === p.name && sameGroup(d.group, request.group),
+        )
+      )
+        throw new DependencyError(
+          "postcondition-failed",
+          `${p.name} is still declared in the selected group`,
+        );
+    }
+  if (request.operation === "add")
+    for (const p of request.packages)
+      selectDependency(after, p.name, request.group);
+  if (request.operation === "update")
+    for (const p of request.packages) {
+      const previous = selectDependency(before, p.name, p.group);
+      const current = selectDependency(after, p.name, previous.group);
+      if (current.source.kind !== previous.source.kind)
+        throw new DependencyError(
+          "postcondition-failed",
+          `${p.name} changed source unexpectedly`,
+        );
+      if (p.version && !current.declared_specifier.includes(p.version))
+        throw new DependencyError(
+          "postcondition-failed",
+          `${p.name} did not retain the requested exact version`,
+        );
+    }
+}
+export async function executeDependency(
+  root: string,
+  operation: Operation,
+  input: unknown,
+  adapters: AdapterRegistry,
+  signal?: AbortSignal,
+) {
+  let request: DependencyRequest;
+  try {
+    request = parseRequest(operation, input);
+  } catch (error) {
+    return { outcome: "rejected", diagnostics: [failure(error)] };
+  }
+  try {
+    root = await realpath(root);
+    for (;;) {
+      const selected = await target(root, request.project_id, signal);
+      const result = await withDomains([selected.domain], signal, async () => {
+        const current = await target(root, request.project_id, signal, true);
+        if (current.domain !== selected.domain) return undefined;
+        const executable = await resolveExecutable(
+          root,
+          current.project,
+          signal,
+        );
+        const key =
+          executable.manager === "yarn"
+            ? executable.version.startsWith("1.")
+              ? "yarn-classic"
+              : "yarn-modern"
+            : executable.manager;
+        const adapter = adapters[key];
+        if (!adapter)
+          throw new DependencyError(
+            "unsupported-manager",
+            `No adapter is registered for ${key}`,
+          );
+        const context: AdapterContext = {
+          root,
+          project: current.project,
+          structure: current.structure,
+          cwd: executable.cwd,
+          owner: executable.owner,
+          manager: executable.manager,
+          version: executable.version,
+          signal,
+          run: async (step: NativeStep) =>
+            runProcess(executable.command, step.args, {
+              cwd: await safePath(root, step.cwd ?? executable.cwd),
+              env: { ...executable.env, ...step.env },
+              signal,
+            }),
+        };
+        if (request.operation === "list") {
+          const inventory = await adapter.inventory(
+            context,
+            request.include_transitive ?? false,
+          );
+          return {
+            outcome: "success",
+            project_id: request.project_id,
+            manager: { name: key, version: executable.version },
+            ...inventory,
+            dependencies: inventory.dependencies.filter(
+              (d) => request.include_transitive || d.direct,
+            ),
+            supported_groups: adapter.groups,
+            capabilities: {
+              operations: ["list", "add", "remove", "update", "sync"],
+              sources: ["registry", "git", "path", "workspace"],
+              native_limits: true,
+            },
+          };
+        }
+        if ("group" in request && !adapter.groups.includes(request.group.kind))
+          throw new DependencyError(
+            "unsupported-group",
+            `${key} has no native ${request.group.kind} group`,
+          );
+        const beforeInventory = await readInventory(root, current.project);
+        if (request.operation === "remove")
+          for (const p of request.packages)
+            selectDependency(beforeInventory, p.name, request.group);
+        if (request.operation === "update")
+          for (const p of request.packages)
+            selectDependency(beforeInventory, p.name, p.group);
+        const plan: NativePlan = await adapter.plan(
+          context,
+          request,
+          beforeInventory,
+        );
+        const metadata = [
+          ...new Set([
+            ...plan.metadata,
+            current.project.manifest,
+            ...current.structure.projects
+              .filter(
+                (p) =>
+                  p.ecosystem === current.project.ecosystem &&
+                  p.managerRoot === current.project.managerRoot,
+              )
+              .map((p) => p.manifest),
+          ]),
+        ];
+        const before = await fingerprint(root, metadata);
+        const native_steps: ({ label: string } & ProcessResult)[] = [];
+        let error: unknown;
+        try {
+          for (const step of plan.steps) {
+            signal?.throwIfAborted();
+            const result = await context.run(step);
+            native_steps.push({
+              label: step.label,
+              ...result,
+              stdout: redact(result.stdout),
+              stderr: redact(result.stderr),
+            });
+            if (result.cancelled)
+              throw new DependencyError(
+                "cancelled",
+                "Dependency operation was cancelled",
+              );
+            if (result.exit_code !== 0)
+              throw new DependencyError(
+                "native-command-failed",
+                `Native step failed: ${step.label}`,
+              );
+          }
+          const afterInventory = await adapter.inventory(context, false);
+          verify(request, beforeInventory, afterInventory);
+          await adapter.verify?.(
+            context,
+            request,
+            beforeInventory,
+            afterInventory,
+          );
+        } catch (e) {
+          error = e;
+        }
+        let metadata_changes: ReturnType<typeof changes> = [];
+        const diagnostics: { code: string; message: string }[] = [];
+        try {
+          metadata_changes = changes(before, await fingerprint(root, metadata));
+        } catch (e) {
+          diagnostics.push({
+            ...failure(e),
+            code: "change-observation-failed",
+          });
+        }
+        if (error)
+          diagnostics.push(
+            signal?.aborted
+              ? {
+                  code: "cancelled",
+                  message: "Dependency operation was cancelled",
+                }
+              : failure(error),
+          );
+        let structure_refresh_error: ReturnType<typeof failure> | undefined;
+        try {
+          await getPackagingStructure(root, { refresh: true });
+        } catch (e) {
+          structure_refresh_error = failure(e);
+        }
+        const changedPaths = new Set(metadata_changes.map((c) => c.path));
+        const affected_projects = current.structure.projects
+          .filter((p) => plan.affectedProjects.includes(p.project_id))
+          .map((p) => ({
+            project_id: p.project_id,
+            relative_path: p.path,
+            effect: changedPaths.has(p.manifest)
+              ? "manifest_changed"
+              : "resolution_scope",
+          }));
+        const hadEffects =
+          metadata_changes.length > 0 ||
+          native_steps.some((s) => s.exit_code === 0);
+        return {
+          outcome: error
+            ? hadEffects
+              ? "partial_change"
+              : signal?.aborted
+                ? "cancelled"
+                : "failed"
+            : "success",
+          project_id: request.project_id,
+          requested: JSON.parse(redact(JSON.stringify(request))),
+          manager: { name: key, version: executable.version },
+          affected_projects,
+          metadata_changes,
+          native_steps,
+          diagnostics,
+          ...(structure_refresh_error ? { structure_refresh_error } : {}),
+          observation_scope:
+            "Dependency metadata only; environment file changes are managed by the native tool",
+        };
+      });
+      if (result !== undefined) return result;
+    }
+  } catch (error) {
+    return {
+      outcome: signal?.aborted ? "cancelled" : "rejected",
+      project_id: request.project_id,
+      diagnostics: [failure(error)],
+    };
+  }
+}

@@ -66,6 +66,12 @@ export interface Adapter {
     inventory: Inventory,
   ): Promise<NativePlan>;
   inventory(context: AdapterContext, transitive: boolean): Promise<Inventory>;
+  verify?(
+    context: AdapterContext,
+    request: Exclude<DependencyRequest, { operation: "list" }>,
+    before: Inventory,
+    after: Inventory,
+  ): Promise<void>;
 }
 export function sameGroup(a: Group, b: Group): boolean {
   return (
