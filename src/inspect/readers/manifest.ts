@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { parseDocument } from "yaml";
+import { projectId } from "../identity";
 import type {
   Diagnostic,
   Ecosystem,
@@ -42,7 +43,8 @@ function project(
   name?: string,
 ): Project {
   return {
-    id: `${path}:${ecosystem}`,
+    project_id: projectId(ecosystem, file),
+    managerRoot: path,
     path,
     manifest: file,
     ecosystem,
@@ -82,8 +84,11 @@ function js(file: string, path: string, source: string): ParsedManifest {
       "packageManager",
     ) as string;
     const match = /^(npm|pnpm|yarn|bun)@(.+)$/.exec(manager);
-    if (match?.[1]) p.managerCandidates.push(match[1]);
-    else
+    if (match?.[1]) {
+      p.managerCandidates.push(match[1]);
+      p.managerVersion = match[2];
+    } else {
+      p.status = "ambiguous";
       diagnostics.push(
         diagnostic(
           "unsupported-manager",
@@ -92,6 +97,7 @@ function js(file: string, path: string, source: string): ParsedManifest {
           "packageManager",
         ),
       );
+    }
     p.evidence.push(evidence(file, "packageManager", manager));
   }
   const engines = optionalObject(data.engines, "engines");
@@ -173,14 +179,6 @@ function js(file: string, path: string, source: string): ParsedManifest {
       excludes: [],
       unsupported: true,
     };
-    diagnostics.push(
-      diagnostic(
-        "unsupported-workspace",
-        file,
-        "package.json workspace declarations are detected; only pnpm YAML membership is resolved",
-        "workspaces",
-      ),
-    );
   }
   return {
     project: { project: p, references },
@@ -192,6 +190,10 @@ function python(file: string, path: string, source: string): ParsedManifest {
   const data = parseToml(source) as ObjectValue;
   const tool = optionalObject(data.tool, "tool"),
     uv = optionalObject(tool.uv, "tool.uv");
+  const requiredVersion = optionalString(
+    uv["required-version"],
+    "tool.uv.required-version",
+  );
   const diagnostics: Diagnostic[] = [];
   const references: LocalReference[] = [];
   const uvSources: Record<string, LocalReference | null> = {};
@@ -272,6 +274,12 @@ function python(file: string, path: string, source: string): ParsedManifest {
     );
     if (poetry) p.managerCandidates.push("poetry");
     if (Object.keys(uv).length) p.managerCandidates.push("uv");
+    if (requiredVersion) {
+      p.managerVersion = requiredVersion;
+      p.evidence.push(
+        evidence(file, "tool.uv.required-version", requiredVersion),
+      );
+    }
     const runtime = optionalString(
       metadata["requires-python"],
       "project.requires-python",
@@ -348,6 +356,7 @@ function python(file: string, path: string, source: string): ParsedManifest {
       includes: strings(w.members, "tool.uv.workspace.members"),
       excludes: strings(w.exclude, "tool.uv.workspace.exclude"),
       uvSources,
+      ...(requiredVersion ? { managerVersion: requiredVersion } : {}),
     };
   }
   return {

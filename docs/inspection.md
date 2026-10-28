@@ -17,7 +17,7 @@ The root is canonicalized but never expanded to an ancestor Git repository. Git 
 
 Workspace membership and local dependencies are separate collections. Two packages in the same workspace do not automatically depend on one another. Edges require an explicit declaration: JavaScript `workspace:`, `file:` or `link:` references; uv workspace/path sources and supported direct Python paths; or a Go require matched with a local replacement. An unused Go replacement does not create an edge. uv sources can be inherited from a virtual workspace root without a root Python package.
 
-The initial workspace resolvers are uv, pnpm and Go. Other workspace declarations, conditional uv sources, catalog references, unsupported aliases and unsupported native patterns produce unresolved diagnostics. Native workspace patterns support literal paths, `*` and `**`; they retain their manager's rules rather than reusing inspection-filter semantics. In the pinned pnpm interpretation, omitted `packages` selects only the root package, and ordinary `*` patterns do not include hidden names. Inspection exclusions can still remove a declared member; that loss is reported instead of silently overriding the user's rules.
+Workspace resolvers cover uv, pnpm, npm, Yarn Classic and modern Yarn, Bun, and Go. JavaScript `package.json` workspaces accept an array or an object with a `packages` array; manager metadata and lockfile presence determine which resolver owns the declaration. Unknown or conflicting evidence leaves the workspace unresolved. pnpm uses its YAML declaration. Conditional uv sources, catalog references, unsupported aliases and unsupported native patterns produce unresolved diagnostics. Native workspace patterns support literal paths, `*` and `**`; they retain their manager's rules rather than reusing inspection-filter semantics. In the pinned pnpm interpretation, omitted `packages` selects only the root package, and ordinary `*` patterns do not include hidden names. Inspection exclusions can still remove a declared member; that loss is reported instead of silently overriding the user's rules.
 
 Duplicate names, conflicting manager evidence and targets outside the selected root are reported. Name similarity or a compatible version string alone never creates a local edge. Framework names are hints from declared dependencies, not verification that an application runs. A tooling-only `pyproject.toml` can declare a workspace without becoming a Python project.
 
@@ -73,18 +73,24 @@ Installing the extension enables its trusted startup hook, including config and 
 
 ## Report contract
 
-Schema version 1 includes:
+Schema version 2 includes:
 
 | Field | Meaning |
 | --- | --- |
 | `schemaVersion` | Stored report schema version |
 | `scanId`, `startedAt`, `completedAt` | Identity and times of the actual scan; cache hits keep these values |
 | `root` | Canonical inspection boundary |
-| `projects` | Relative path plus ecosystem identity, manifest, evidence, metadata and detection status |
+| `projects` | Stable `project_id`, relative `path`, ecosystem, manifest, evidence, metadata and detection status |
 | `workspaces` | Declaration, resolver kind, member project IDs and resolution status |
 | `localDependencies` | Source/target project IDs with explicit declaration evidence |
 | `diagnostics`, `excluded` | Ambiguity, unresolved declarations and traversal boundaries |
 | `complete`, `metrics` | Whether selected traversal completed, plus scan duration and I/O counters |
+
+Each `project_id` is the ecosystem followed by the normalized root-relative manifest path, for example `python:apps/api/pyproject.toml` or `javascript:package.json`. The project directory `path` is `.` at the root. A copied root, repeated inspection, or package name/version edit keeps the ID; moving the manifest changes it. Several ecosystems in one directory have distinct IDs. Workspace members and dependency `from`/`to` values use these same IDs.
+
+This pre-release schema change replaces the former project `id`; there is no compatibility alias. Existing disk snapshots are never cache inputs and are replaced with schema 2 on the next successful discovery.
+
+`managerRoot` is the root-relative package-manager operation directory: the nearest declared workspace owner, or the project's own directory when it has no membership. `workspace`, when present, identifies that workspace separately, including unresolved workspaces. Members inherit their nearest owner's manager and lockfile evidence; outer workspace managers do not contaminate nested owners. `managerVersion` preserves the declared `packageManager` version or uv `required-version`, including virtual uv roots; uv member configuration is ignored in favor of root settings. Conflicting manager or JavaScript manager-version evidence leaves the project ambiguous without selecting a manager. These fields describe inspection evidence; they do not assert that a manager is installed or that an unresolved workspace is safe to mutate.
 
 Projects and relationships are deterministically ordered. `complete: true` means the selected traversal completed; it does not claim support for every manifest capability. Unsupported expressions can therefore appear as diagnostics in a complete report.
 

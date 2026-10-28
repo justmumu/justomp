@@ -41,9 +41,15 @@ afterEach(async () => {
 test("clean getter reuses immutable report and never loads disk cache", async () => {
   const root = await fixture();
   await mkdir(join(root, ".justomp"));
-  await writeFile(join(root, ".justomp/packaging_structure.json"), "{bad");
+  await writeFile(
+    join(root, ".justomp/packaging_structure.json"),
+    JSON.stringify({ schemaVersion: 1, projects: [{ id: ".:javascript" }] }),
+  );
   const a = await getPackagingStructure(root);
   const file = join(root, ".justomp/packaging_structure.json");
+  expect(a.structure.schemaVersion).toBe(2);
+  expect(a.structure.projects[0]?.project_id).toBe("javascript:package.json");
+  expect(JSON.parse(await readFile(file, "utf8"))).toEqual(a.structure);
   const stamp = (await stat(file)).mtimeMs;
   const b = await getPackagingStructure(root);
   expect(b.cacheHit).toBe(true);

@@ -15,13 +15,16 @@ export interface Diagnostic {
   evidence?: Evidence;
 }
 export interface Project {
-  id: string;
+  project_id: string;
   path: string;
   ecosystem: Ecosystem;
   manifest: string;
   name?: string;
   runtime?: Record<string, string>;
   manager?: string;
+  managerVersion?: string;
+  managerRoot: string;
+  workspace?: string;
   managerCandidates: string[];
   frameworks: string[];
   status: "detected" | "ambiguous";
@@ -29,7 +32,7 @@ export interface Project {
 }
 export interface Workspace {
   id: string;
-  kind: "uv" | "pnpm" | "go" | "unsupported";
+  kind: "uv" | "pnpm" | "npm" | "yarn" | "bun" | "go" | "unsupported";
   path: string;
   declaration: string;
   members: string[];
@@ -47,7 +50,7 @@ export interface Excluded {
   reason: "rule" | "symlink" | "outside-scope";
 }
 export interface PackagingStructure {
-  schemaVersion: 1;
+  schemaVersion: 2;
   scanId: string;
   startedAt: string;
   completedAt: string;
@@ -83,6 +86,7 @@ export interface WorkspaceDeclaration {
   includes: string[];
   excludes: string[];
   unsupported?: boolean;
+  managerVersion?: string;
   uvSources?: Record<string, LocalReference | null>;
 }
 export interface ParsedProject {

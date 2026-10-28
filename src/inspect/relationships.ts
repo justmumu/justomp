@@ -45,6 +45,9 @@ export function resolveRelationships(input: RelationshipInput): void {
     uv: "tool.uv.workspace",
     pnpm: "packages",
     go: "use",
+    npm: "workspaces",
+    yarn: "workspaces",
+    bun: "workspaces",
     unsupported: "workspaces",
   };
   const note = (
@@ -75,7 +78,6 @@ export function resolveRelationships(input: RelationshipInput): void {
       status: declaration.unsupported ? "unresolved" : "resolved",
     };
     report.workspaces.push(w);
-    if (declaration.unsupported) continue;
     if (declaration.excludes.some((p) => /[?[\]{}()!\\]/.test(p))) {
       note(
         "unresolved-pattern",
@@ -86,18 +88,22 @@ export function resolveRelationships(input: RelationshipInput): void {
       continue;
     }
     const matches = (pattern: string, value: string) =>
-      nativeMatch(pattern, value, declaration.kind !== "pnpm");
+      nativeMatch(
+        pattern,
+        value,
+        declaration.kind === "uv" || declaration.kind === "go",
+      );
     const ecosystem =
       declaration.kind === "uv"
         ? "python"
-        : declaration.kind === "pnpm"
-          ? "javascript"
-          : "go";
+        : declaration.kind === "go"
+          ? "go"
+          : "javascript";
     if (declaration.kind !== "go") {
       const root = projects.find(
         (p) => p.path === declaration.path && p.ecosystem === ecosystem,
       );
-      if (root) w.members.push(root.id);
+      if (root) w.members.push(root.project_id);
     }
     for (const pattern of declaration.includes) {
       if (declaration.kind !== "go" && /[?[\]{}()!\\]/.test(pattern)) {
@@ -150,7 +156,7 @@ export function resolveRelationships(input: RelationshipInput): void {
             : matches(pattern, rel);
         if (!includes || declaration.excludes.some((e) => matches(e, rel)))
           continue;
-        w.members.push(p.id);
+        w.members.push(p.project_id);
         matched = true;
       }
       for (const excluded of report.excluded) {
@@ -160,7 +166,7 @@ export function resolveRelationships(input: RelationshipInput): void {
           patternMayContain(
             posix.normalize(pattern),
             rel,
-            declaration.kind !== "pnpm",
+            declaration.kind === "uv" || declaration.kind === "go",
           ) &&
           !declaration.excludes.some((e) => matches(e, rel))
         ) {
@@ -186,6 +192,19 @@ export function resolveRelationships(input: RelationshipInput): void {
     }
     w.members = [...new Set(w.members)].sort();
   }
+  for (const project of projects) {
+    const nearest = report.workspaces
+      .filter((w) => w.members.includes(project.project_id))
+      .sort(
+        (a, b) =>
+          (b.path === "." ? 0 : b.path.length) -
+          (a.path === "." ? 0 : a.path.length),
+      )[0];
+    if (nearest) {
+      project.workspace = nearest.id;
+      project.managerRoot = nearest.path;
+    }
+  }
   const identity = (ecosystem: string, name: string) =>
     ecosystem === "python" ? normalizePythonName(name) : name;
   const names = new Map<string, string[]>();
@@ -193,14 +212,14 @@ export function resolveRelationships(input: RelationshipInput): void {
     if (p.name) {
       const key = `${p.ecosystem}:${identity(p.ecosystem, p.name)}`;
       const found = names.get(key) ?? [];
-      found.push(p.id);
+      found.push(p.project_id);
       names.set(key, found);
     }
   for (const [name, ids] of names)
     if (ids.length > 1)
       note(
         "duplicate-name",
-        projects.find((p) => p.id === ids[0])?.manifest ?? ".",
+        projects.find((p) => p.project_id === ids[0])?.manifest ?? ".",
         `${name} identifies multiple projects: ${ids.join(", ")}`,
       );
   const edge = (
@@ -236,10 +255,8 @@ export function resolveRelationships(input: RelationshipInput): void {
       }
       candidates = candidates.filter((c) => c.path === resolved);
     } else if (workspace) {
-      const memberships = report.workspaces.filter(
-        (w) => w.kind !== "unsupported" && w.members.includes(p.id),
-      );
-      if (memberships.length === 0) {
+      const nearest = report.workspaces.find((w) => w.id === p.workspace);
+      if (!nearest || nearest.kind === "unsupported") {
         note(
           "unresolved",
           p.manifest,
@@ -248,14 +265,9 @@ export function resolveRelationships(input: RelationshipInput): void {
         );
         return;
       }
-      const nearest = memberships.sort(
-        (a, b) =>
-          (b.path === "." ? 0 : b.path.length) -
-          (a.path === "." ? 0 : a.path.length),
-      )[0] as Workspace;
       candidates = candidates.filter(
         (c) =>
-          nearest.members.includes(c.id) &&
+          nearest.members.includes(c.project_id) &&
           c.name &&
           identity(p.ecosystem, c.name) === identity(p.ecosystem, name),
       );
@@ -271,12 +283,19 @@ export function resolveRelationships(input: RelationshipInput): void {
     }
     const to = candidates[0];
     if (to)
-      report.localDependencies.push({ from: p.id, to: to.id, kind, evidence });
+      report.localDependencies.push({
+        from: p.project_id,
+        to: to.project_id,
+        kind,
+        evidence,
+      });
   };
   for (const item of parsed) {
     if (item.project.ecosystem === "python") {
       const workspace = report.workspaces
-        .filter((w) => w.kind === "uv" && w.members.includes(item.project.id))
+        .filter(
+          (w) => w.kind === "uv" && w.members.includes(item.project.project_id),
+        )
         .sort(
           (a, b) =>
             (b.path === "." ? 0 : b.path.length) -
@@ -311,7 +330,9 @@ export function resolveRelationships(input: RelationshipInput): void {
       );
     if (item.project.ecosystem !== "go") continue;
     const workspace = report.workspaces
-      .filter((w) => w.kind === "go" && w.members.includes(item.project.id))
+      .filter(
+        (w) => w.kind === "go" && w.members.includes(item.project.project_id),
+      )
       .sort(
         (a, b) =>
           (b.path === "." ? 0 : b.path.length) -
