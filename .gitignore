@@ -1,0 +1,4 @@
+node_modules/
+.justomp/
+.private/
+*.tgz

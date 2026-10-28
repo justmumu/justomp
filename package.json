@@ -1,0 +1,46 @@
+{
+  "name": "justomp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "docs/inspection.md"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./packaging": "./src/packaging/get-structure.ts"
+  },
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit && biome check . && bun test tests/unit",
+    "test:integration": "bun test tests/integration",
+    "bench:inspect": "bun tests/performance/inspect.bench.ts",
+    "format": "biome check --write ."
+  },
+  "dependencies": {
+    "chokidar": "6.0.0",
+    "smol-toml": "1.9.1",
+    "yaml": "2.9.1",
+    "picomatch": "4.0.7"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.13.3"
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "18.13.3",
+    "@types/bun": "1.4.4",
+    "@types/picomatch": "4.0.2",
+    "typescript": "7.0.2",
+    "@biomejs/biome": "2.6.3"
+  }
+}
