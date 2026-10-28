@@ -79,3 +79,41 @@ test("native two-step failure reports metadata and never rolls back", async () =
   );
   expect("native_steps" in result && result.native_steps?.length).toBe(2);
 });
+
+test("Python name aliases cannot target one declaration twice", async () => {
+  const root = await fixture();
+  await writeFile(
+    join(root, "pyproject.toml"),
+    '[project]\nname="app"\nversion="1"\n[tool.uv]\nrequired-version="0.11.6"\n',
+  );
+  const result = await executeDependency(
+    root,
+    "add",
+    {
+      project_id: "python:pyproject.toml",
+      group: { kind: "runtime" },
+      packages: [
+        { name: "Foo_Bar", source: { kind: "registry" } },
+        { name: "foo-bar", source: { kind: "registry" } },
+      ],
+    },
+    {},
+  );
+  expect(result.outcome).toBe("rejected");
+  expect(result.diagnostics?.[0]?.code).toBe("duplicate-dependency");
+});
+test("an existing dependency outside the inspected root prevents native mutation", async () => {
+  const root = await fixture();
+  const manifest =
+    '{"name":"fixture","packageManager":"npm@11.12.1","dependencies":{"outside":"file:../outside"}}';
+  await writeFile(join(root, "package.json"), manifest);
+  const result = await executeDependency(
+    root,
+    "sync",
+    { project_id: "javascript:package.json" },
+    {},
+  );
+  expect(result.outcome).toBe("rejected");
+  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest);
+});

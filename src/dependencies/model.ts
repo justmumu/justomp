@@ -85,7 +85,10 @@ export function selectDependency(
   group?: Group,
 ): Dependency {
   const matches = inventory.dependencies.filter(
-    (d) => d.direct && d.name === name && (!group || sameGroup(d.group, group)),
+    (d) =>
+      (d.direct || d.evidence.field === "require") &&
+      d.name === name &&
+      (!group || sameGroup(d.group, group)),
   );
   if (matches.length !== 1 || matches[0]?.ambiguous)
     throw new DependencyError(

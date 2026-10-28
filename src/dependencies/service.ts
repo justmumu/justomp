@@ -1,6 +1,7 @@
 import { realpath } from "node:fs/promises";
+import { normalizePythonName } from "../inspect/readers/manifest";
 import { getPackagingStructure } from "../packaging/get-structure";
-import { changes, fingerprint } from "./changes";
+import { changes, fingerprint, resolutionEvidence } from "./changes";
 import { resolveExecutable } from "./executable";
 import { readInventory } from "./inventory";
 import {
@@ -77,13 +78,16 @@ function verify(
   request: DependencyRequest,
   before: Inventory,
   after: Inventory,
+  ecosystem: string,
 ) {
   if (request.operation === "remove")
     for (const p of request.packages) {
       if (
         after.dependencies.some(
           (d) =>
-            d.direct && d.name === p.name && sameGroup(d.group, request.group),
+            (d.direct || d.evidence.field === "require") &&
+            d.name === p.name &&
+            sameGroup(d.group, request.group),
         )
       )
         throw new DependencyError(
@@ -103,7 +107,12 @@ function verify(
           "postcondition-failed",
           `${p.name} changed source unexpectedly`,
         );
-      if (p.version && !current.declared_specifier.includes(p.version))
+      if (
+        p.version &&
+        ecosystem !== "python" &&
+        current.declared_specifier.replace(/^v/, "") !==
+          p.version.replace(/^v/, "")
+      )
         throw new DependencyError(
           "postcondition-failed",
           `${p.name} did not retain the requested exact version`,
@@ -130,6 +139,41 @@ export async function executeDependency(
       const result = await withDomains([selected.domain], signal, async () => {
         const current = await target(root, request.project_id, signal, true);
         if (current.domain !== selected.domain) return undefined;
+        if (current.project.ecosystem === "python" && "packages" in request) {
+          for (const item of request.packages)
+            item.name = normalizePythonName(item.name);
+        }
+        if ("packages" in request) {
+          const keys = request.packages.map(
+            (item) =>
+              `${item.name}:${JSON.stringify("group" in item ? (item.group ?? null) : null)}`,
+          );
+          if (new Set(keys).size !== keys.length)
+            throw new DependencyError(
+              "duplicate-dependency",
+              "Package normalization produced duplicate targets",
+            );
+        }
+        const memberManifests = new Set(
+          current.structure.projects
+            .filter(
+              (p) =>
+                p.managerRoot === current.project.managerRoot &&
+                p.ecosystem === current.project.ecosystem,
+            )
+            .map((p) => p.manifest),
+        );
+        if (
+          current.structure.diagnostics.some(
+            (d) =>
+              memberManifests.has(d.path) && d.code === "external-reference",
+          )
+        ) {
+          throw new DependencyError(
+            "outside-root",
+            "An existing dependency source points outside the inspection root",
+          );
+        }
         const executable = await resolveExecutable(
           root,
           current.project,
@@ -215,6 +259,11 @@ export async function executeDependency(
           ]),
         ];
         const before = await fingerprint(root, metadata);
+        const beforeResolutions = await resolutionEvidence(
+          adapter,
+          context,
+          plan.affectedProjects,
+        );
         const native_steps: ({ label: string } & ProcessResult)[] = [];
         let error: unknown;
         try {
@@ -239,7 +288,12 @@ export async function executeDependency(
               );
           }
           const afterInventory = await adapter.inventory(context, false);
-          verify(request, beforeInventory, afterInventory);
+          verify(
+            request,
+            beforeInventory,
+            afterInventory,
+            current.project.ecosystem,
+          );
           await adapter.verify?.(
             context,
             request,
@@ -275,15 +329,27 @@ export async function executeDependency(
           structure_refresh_error = failure(e);
         }
         const changedPaths = new Set(metadata_changes.map((c) => c.path));
+        const afterResolutions = await resolutionEvidence(
+          adapter,
+          context,
+          plan.affectedProjects,
+        );
         const affected_projects = current.structure.projects
           .filter((p) => plan.affectedProjects.includes(p.project_id))
-          .map((p) => ({
-            project_id: p.project_id,
-            relative_path: p.path,
-            effect: changedPaths.has(p.manifest)
+          .flatMap((p) => {
+            const previous = beforeResolutions.get(p.project_id),
+              next = afterResolutions.get(p.project_id);
+            const effect = changedPaths.has(p.manifest)
               ? "manifest_changed"
-              : "resolution_scope",
-          }));
+              : previous === undefined || next === undefined
+                ? "resolution_scope"
+                : previous !== next
+                  ? "resolutions_changed"
+                  : undefined;
+            return effect
+              ? [{ project_id: p.project_id, relative_path: p.path, effect }]
+              : [];
+          });
         const hadEffects =
           metadata_changes.length > 0 ||
           native_steps.some((s) => s.exit_code === 0);

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
 
@@ -9,14 +10,14 @@ test("runner captures bounded output and process failure independently", async (
       "-e",
       'console.log("x".repeat(200000));console.error("oops");process.exit(3)',
     ],
-    { cwd: "/private/tmp", limit: 2048 },
+    { cwd: tmpdir(), limit: 2048 },
   );
   expect(r.exit_code).toBe(3);
   expect(r.stderr).toContain("oops");
   expect(r.truncated).toBe(true);
   expect(r.stdout.length).toBeLessThanOrEqual(2048);
   await expect(
-    runProcess("/missing/justomp-manager", [], { cwd: "/private/tmp" }),
+    runProcess("/missing/justomp-manager", [], { cwd: tmpdir() }),
   ).rejects.toThrow();
 });
 test("cancellation kills the supervised process before releasing a shared domain", async () => {
@@ -27,7 +28,7 @@ test("cancellation kills the supervised process before releasing a shared domain
     const running = runProcess(
       process.execPath,
       ["-e", "setInterval(()=>{},1000)"],
-      { cwd: "/private/tmp", signal: controller.signal },
+      { cwd: tmpdir(), signal: controller.signal },
     );
     setTimeout(() => controller.abort(), 40);
     expect((await running).cancelled).toBe(true);
@@ -61,7 +62,7 @@ test("cancellation also stops a grandchild that ignores SIGTERM", async () => {
   const controller = new AbortController();
   const program = `const {spawn}=require('node:child_process');spawn(process.execPath,['-e','process.on("SIGTERM",()=>{});console.log(process.pid);setInterval(()=>{},1000)'],{stdio:['ignore','inherit','inherit']});setInterval(()=>{},1000);`;
   const promise = runProcess(process.execPath, ["-e", program], {
-    cwd: "/private/tmp",
+    cwd: tmpdir(),
     signal: controller.signal,
   });
   setTimeout(() => controller.abort(), 150);

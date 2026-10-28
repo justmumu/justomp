@@ -50,6 +50,7 @@ export async function resolveExecutable(
   const cwd = await safePath(root, project.path),
     owner = await safePath(root, project.managerRoot);
   const env = managerEnvironment(manager, owner);
+  if (manager === "uv") env.UV_PROJECT = cwd;
   if (manager === "go")
     env.GOWORK =
       (await readOptional(join(owner, "go.work"))) !== undefined
@@ -146,7 +147,7 @@ export async function resolveExecutable(
     uv: ">=0.11.0 <0.12.0",
     npm: ">=11.0.0 <12.0.0",
     pnpm: ">=10.0.0 <11.0.0",
-    yarn: ">=1.22.0 <2.0.0 || >=4.0.0 <5.0.0",
+    yarn: ">=1.22.0 <2.0.0 || >=4.12.0 <5.0.0",
     bun: ">=1.4.0 <1.5.0",
     go: ">=1.25.0 <1.26.0",
   };
