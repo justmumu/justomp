@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { bunAdapter } from "../../../../src/dependencies/adapters/bun";
 import { verifyJs } from "../../../../src/dependencies/adapters/js-common";
@@ -110,7 +109,7 @@ for (const [name, adapter] of [
 test("direct Bun resolution excludes another version reachable through a child", async () => {
   const f = await fixture({ dependencies: { foo: "2.0.0", parent: "1.0.0" } });
   try {
-    await writeFile(
+    f.write(
       join(f.root, "bun.lock"),
       JSON.stringify({
         lockfileVersion: 1,

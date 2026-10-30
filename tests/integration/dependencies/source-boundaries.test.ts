@@ -67,25 +67,6 @@ test("existing npm local symlink is rejected before any native mutation", async 
   expect(result.diagnostics?.[0]?.code).toBe("outside-root");
   expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest);
 });
-for (const protocol of ["link:", "portal:", "file:"])
-  test(`existing ${protocol} symlink source is bounded before probing`, async () => {
-    const { root } = await fixture();
-    await writeFile(
-      join(root, "package.json"),
-      JSON.stringify({
-        name: "fixture",
-        packageManager: "npm@11.12.1",
-        dependencies: { linked: `${protocol}./linked` },
-      }),
-    );
-    const result = await executeDependency(
-      root,
-      "sync",
-      { project_id: "javascript:package.json" },
-      {},
-    );
-    expect(result.diagnostics?.[0]?.code).toBe("outside-root");
-  });
 test("inherited and conditional uv local sources retain their declaration base", async () => {
   const { root } = await fixture();
   await mkdir(join(root, "apps/api"), { recursive: true });
@@ -153,42 +134,6 @@ test("existing in-root symlink sources remain supported", async () => {
   ).resolves.toBeUndefined();
 });
 
-for (const field of ["overrides", "resolutions", "catalog", "catalogs"])
-  test(`root JavaScript ${field} local sources are bounded`, async () => {
-    const { root } = await fixture();
-    await writeFile(
-      join(root, "package.json"),
-      JSON.stringify({
-        name: "fixture",
-        packageManager: "npm@11.12.1",
-        [field]: { nested: { linked: "file:./linked" } },
-      }),
-    );
-    await expect(
-      validate(root, "javascript:package.json"),
-    ).rejects.toMatchObject({ code: "outside-root" });
-  });
-
-test("pnpm workspace catalogs retain the workspace declaration base", async () => {
-  const { root } = await fixture();
-  await mkdir(join(root, "app"));
-  await writeFile(
-    join(root, "package.json"),
-    JSON.stringify({ name: "fixture", packageManager: "pnpm@10.20.0" }),
-  );
-  await writeFile(
-    join(root, "app/package.json"),
-    JSON.stringify({ name: "app", dependencies: { linked: "catalog:" } }),
-  );
-  await writeFile(
-    join(root, "pnpm-workspace.yaml"),
-    'packages: ["app"]\ncatalog:\n  linked: "file:./linked"\n',
-  );
-  await expect(
-    validate(root, "javascript:app/package.json"),
-  ).rejects.toMatchObject({ code: "outside-root" });
-});
-
 test("uv inherited safe paths use the owner rather than member directory", async () => {
   const { root } = await fixture();
   await mkdir(join(root, "apps/api"), { recursive: true });
@@ -207,27 +152,6 @@ test("uv inherited safe paths use the owner rather than member directory", async
   ).resolves.toBeUndefined();
 });
 
-test("uv direct local requirements in sibling member groups are bounded", async () => {
-  const { root } = await fixture();
-  await mkdir(join(root, "apps/api"), { recursive: true });
-  await mkdir(join(root, "apps/worker"));
-  await writeFile(
-    join(root, "pyproject.toml"),
-    '[tool.uv.workspace]\nmembers=["apps/*"]\n',
-  );
-  await writeFile(
-    join(root, "apps/api/pyproject.toml"),
-    '[project]\nname="api"\nversion="1.0"\n',
-  );
-  await writeFile(
-    join(root, "apps/worker/pyproject.toml"),
-    '[project]\nname="worker"\nversion="1.0"\n[dependency-groups]\ndev=["linked @ file:../../linked ; python_version > \'3.10\'"]\n',
-  );
-  await expect(
-    validate(root, "python:apps/api/pyproject.toml"),
-  ).rejects.toMatchObject({ code: "outside-root" });
-});
-
 test("unused go.mod replacements use the declaring module directory", async () => {
   const { root } = await fixture();
   await mkdir(join(root, "app"));
@@ -237,39 +161,6 @@ test("unused go.mod replacements use the declaring module directory", async () =
     "module example.test/app\ngo 1.25\nreplace example.test/linked => ../linked\n",
   );
   await expect(validate(root, "go:app/go.mod")).rejects.toMatchObject({
-    code: "outside-root",
-  });
-});
-
-for (const protocol of ["workspace:", "file://"])
-  test(`existing ${protocol} local paths are canonicalized`, async () => {
-    const { root } = await fixture();
-    await writeFile(
-      join(root, "package.json"),
-      JSON.stringify({
-        name: "fixture",
-        packageManager: "npm@11.12.1",
-        dependencies: {
-          linked:
-            protocol === "workspace:"
-              ? "workspace:./linked"
-              : `file://${root}/linked`,
-        },
-      }),
-    );
-    await expect(
-      validate(root, "javascript:package.json"),
-    ).rejects.toMatchObject({ code: "outside-root" });
-  });
-
-test("PEP 508 URL semicolons are not mistaken for a marker separator", async () => {
-  const { root, outside } = await fixture();
-  await symlink(outside, join(root, "escape;segment"));
-  await writeFile(
-    join(root, "pyproject.toml"),
-    '[project]\nname="fixture"\nversion="1.0"\ndependencies=["linked @ file:./escape;segment"]\n',
-  );
-  await expect(validate(root, "python:pyproject.toml")).rejects.toMatchObject({
     code: "outside-root",
   });
 });

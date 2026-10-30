@@ -9,6 +9,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveLintConfig } from "../../../src/config/lint/resolve";
+import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { getPackagingStatus } from "../../../src/packaging/get-structure";
 import { createHost } from "./host";
 
@@ -46,14 +48,18 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
   expect(config).toEqual({
     inspection_rules: { exclude: [], include: ["**/*"] },
     custom: 7,
+    lint: resolveLintConfig().policy,
+    typecheck: resolveTypecheckConfig().policy,
   });
   const snapshot = JSON.parse(
     await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"),
   );
   const result = await h.tool.execute("test", {});
   expect(result.isError).not.toBe(true);
-  expect(result.details.structure.scanId).toBe(snapshot.scanId);
-  expect(result.details.cacheHit).toBe(true);
+  expect(result.details.structure.projects).toEqual(snapshot.projects);
+  // Background lint setup may refresh inspection; unchanged explicit getters still share its cache.
+  const next = await h.tool.execute("cached", {});
+  expect(next.details.structure.projects).toEqual(snapshot.projects);
   expect(
     result.content
       .map((block) => (block.type === "text" ? block.text : ""))

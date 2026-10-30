@@ -23,7 +23,7 @@ Duplicate names, conflicting manager evidence and targets outside the selected r
 
 ## Optional configuration
 
-All fields in `.justomp/config.json` are optional. Code defaults are:
+All fields in `.justomp/config.json` are optional. The inspection defaults are shown below; the same file also receives [lint defaults](lint-defaults.json) and [typecheck defaults](typecheck-defaults.json).
 
 ```json
 {
@@ -41,35 +41,35 @@ All fields in `.justomp/config.json` are optional. Code defaults are:
 }
 ```
 
-The plugin creates this file during the first session start if it is absent. On later starts it fills only missing attributes. Existing arrays replace defaults completely; they are never merged with defaults. `exclude: []` remains empty and removes the default exclusions. `include: []` remains empty and selects no projects. If only `exclude` is present, startup writes only the missing `include` default. Unknown fields survive completion. A startup with no missing fields does not rewrite the file.
+The plugin creates this file during the first session start if it is absent. On later starts it fills only missing attributes. Existing arrays replace defaults completely; they are never merged with defaults. `exclude: []` remains empty and removes the default exclusions. `include: []` remains empty and selects no projects. If only inspection `exclude` is present, startup adds the missing inspection `include` without changing `exclude`; it also fills missing lint and typecheck attributes. Unknown fields survive completion. A startup with no missing fields does not rewrite the file.
 
 Invalid JSON, wrong field types and unsupported patterns fail without rewriting the config. `null` is a present invalid value, not a missing value. Startup validates the whole configuration before writing any defaults.
 
-Each getter reads config contents before making a cache decision. Equal file size or preserved modification time does not hide an edit. Changed effective rules replace the watcher scope and require inspection. Removed fields use defaults in memory until the next session startup; the getter does not flush them. Deleting the file also uses defaults in memory, and the next startup recreates it.
+Each getter reads config contents before making a cache decision. Equal file size or preserved modification time does not hide an edit. Changed effective rules replace the watcher scope and require inspection. Removed fields use defaults in memory until startup or explicit lint/typecheck preparation completes them; the getter does not flush them. Deleting the file also uses defaults in memory, and the next startup recreates it.
 
 Patterns use root-relative `/` paths, literals, `*` and `**`. Absolute paths, escaping `..`, negation and other glob syntax are rejected. Exclusions win over includes, including an excluded ancestor. Required ancestors of an include can be traversed. A matching directory rule applies to its subtree. `**/node_modules` matches the exact directory name at every depth, not `my_node_modules_notes`. Generic names such as `build`, `dist`, `vendor` and `env` are not excluded by default.
 
-The scanner and watcher apply the same rules before descending or creating child subscriptions. Default dot exclusion covers `.git`, `.venv` and other hidden names without metadata exceptions. Removing that exclusion permits hidden projects. The service's own config, snapshot and temporary files remain excluded as discovery inputs to prevent a feedback loop; other explicitly included `.justomp` content is not automatically hidden.
+The scanner and watcher apply the same rules before descending or creating child subscriptions. Default dot exclusion covers `.git`, `.venv` and other hidden names without metadata exceptions. Removing that exclusion permits hidden projects. Every `.justomp` subtree, projection temporary file and managed lint config filename remains excluded as a discovery input, even with `exclude: []`. This keeps downloaded tools and generated metadata out of project discovery.
 
 ## Cache, publication and failure
 
 A process shares one watcher and refresh job per canonical root, including when OMP reloads extension modules separately. Session owners retain the root and release it on shutdown. A single caller's cancellation does not cancel a refresh that another caller still needs. When all callers cancel, or the last owning session shuts down, pending work is aborted and joined before cleanup completes.
 
-The first request waits for watcher readiness, inspects the tree and publishes a snapshot. Relevant manifest, workspace, lockfile and directory events invalidate the process-local report. Events do not start inspection or write JSON: the next getter refreshes. Ordinary source-file changes are not discovery inputs. On macOS, access-time-only notifications from reading a manifest are ignored when its identity and change metadata remain the same.
+The first request waits for watcher readiness, inspects the tree and publishes a snapshot. Relevant manifest, workspace, lockfile and directory events invalidate the process-local report. The bare inspection service only invalidates: its next getter refreshes. The extension’s lint and typecheck coordinators subscribe to these notifications and can trigger background inspection/preparation; the getter itself still never installs tools. Ordinary source-file changes are not discovery inputs. On macOS, access-time-only notifications from reading a manifest are ignored when its identity and change metadata remain the same.
 
-A healthy, unchanged watcher allows a clean getter to reuse the immutable report. It rereads the small config file, but performs no tree traversal, manifest parsing or snapshot rewrite. `refresh: true` explicitly bypasses the cache. A process never loads the existing disk JSON as cache input, even after a restart.
+A healthy, unchanged watcher allows a clean getter to reuse the immutable report. It rereads the small config file, but performs no tree traversal, manifest parsing or snapshot rewrite. `refresh: true` explicitly bypasses the cache. A process never loads the existing disk JSON as cache input, even after a restart. `publish: false` allows API callers such as check-only lint/typecheck to obtain a current structure without writing the snapshot; a later normal getter still publishes it.
 
 Publication writes a unique temporary file in `.justomp`, closes it, then atomically replaces `packaging_structure.json`. Only complete inspections are published. Malformed manifests, unreadable required inputs, invalid config or publication errors fail the call; a previous successful file may remain, but is not returned as success. Partial findings can accompany an error. A changed revision during inspection or publication prevents the result from becoming clean and requires another scan within the request budget.
 
-The getter has a 25-second budget. The OMP adapter uses a 24-second deadline within the host's normal handler budget. Persistent churn or insufficient time produces an error rather than an indefinitely pending scan. These budgets include inspection work; event delivery is still governed by the operating system.
+The getter has a 25-second budget. The OMP adapter uses a 24-second deadline within the host's normal handler budget. Persistent churn or insufficient time produces an error rather than an indefinitely pending scan. These budgets include inspection work, not background native lint/typecheck preparation; event delivery is still governed by the operating system.
 
 Known watcher errors, coverage loss, unverified filesystems and an environment request for Chokidar polling disable cache reuse. Calls then perform full inspection and report the reason. The extension does not silently poll, raise OS limits or start a daemon. Local APFS and Linux tmpfs are exercised by the test workflow; network filesystems are not verified. The native backend's directory coverage count is not interchangeable with kernel watch records or file-descriptor counts.
 
-The JSON is the last complete publication, not an atomic snapshot of the whole filesystem. Delayed or lost native notifications can make a cached report temporarily stale. Multiple processes can publish complete files in completion order; the disk file has no global newest-scan guarantee. Consumers must use their getter's returned structure, and future mutation tools must verify the target inputs relevant to their operation.
+The JSON is the last complete publication, not an atomic snapshot of the whole filesystem. Delayed or lost native notifications can make a cached report temporarily stale. Multiple processes can publish complete files in completion order; the disk file has no global newest-scan guarantee. Consumers must use their getter's returned structure, and mutation tools must verify the target inputs relevant to their operation.
 
 The config and snapshot paths reject known symlinks. Same-process config completion is serialized; concurrent file creation cannot overwrite an existing file. Updating an existing config performs an immediate content/inode recheck before replacement. Arbitrary external editors still have a check/rename race; this is not a universal cross-editor compare-and-swap or an OS security boundary.
 
-Installing the extension enables its trusted startup hook, including config and snapshot writes. The custom tool separately declares OMP's `write` tier and respects the host's tool approval decision. Tool approvals do not sandbox lifecycle hook code. The extension does not modify source files or `.gitignore`; users choose whether to ignore the generated snapshot and commit their config.
+Installing the extension enables its trusted startup hook, including config/snapshot writes and subsequent [lint](lint.md) and [typecheck tooling/policy preparation](typecheck.md). That preparation can change dependency metadata and managed native configs. The custom tool separately declares OMP's `write` tier and respects the host's tool approval decision. Tool approvals do not sandbox lifecycle hook code. Inspection, lint and typecheck do not fix source files, and the extension does not edit `.gitignore`. Users choose how to retain policy and preparation targets across checkouts. `project_lint` and `project_typecheck` have their own `exec` approvals; denying a tool does not disable startup preparation. Full typecheck can generate required Next types and local declarations.
 
 ## Report contract
 

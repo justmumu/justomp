@@ -35,7 +35,7 @@ export async function readOptional(path: string): Promise<string | undefined> {
 }
 // uv's required-version uses PEP 440, notably != and compatible-release ~=.
 // Unknown forms fail explicitly instead of being misread as npm semver.
-function uvRequirement(version: string, requirement: string): boolean {
+export function uvRequirement(version: string, requirement: string): boolean {
   const actual = version.split(".").map(Number);
   const compare = (wanted: number[]) => {
     for (let i = 0; i < Math.max(actual.length, wanted.length); i++) {
@@ -106,7 +106,6 @@ const pnpmScopeKeys = [
 // YAML above both (and above environment settings). Do not treat INI strings
 // containing quotes or interpolation as literal filesystem paths.
 export async function pnpmDirectories(cwd: string, owner: string) {
-  const settings: Record<string, unknown> = {};
   const environment = Object.fromEntries(
     Object.entries(process.env)
       .filter(([key]) => /^npm_config_/i.test(key))
@@ -125,28 +124,52 @@ export async function pnpmDirectories(cwd: string, owner: string) {
     join(owner, ".npmrc"),
     join(cwd, ".npmrc"),
   ]);
-  for (const file of files) {
-    const text = await readOptional(file);
-    let section = false;
-    for (const line of text?.split("\n") ?? []) {
-      if (/^\s*[#;]/.test(line)) continue;
-      if (/^\s*\[/.test(line)) section = true;
-      const match = /^\s*([^=]+?)\s*=\s*(.*?)\s*$/.exec(line);
-      if (!match?.[1]) continue;
-      const key = match[1];
-      const normalized = key.replace(/["'[\]]/g, "");
-      if (!pnpmScopeKeys.some((field) => field === normalized)) continue;
-      if (section || key !== normalized)
-        throw new DependencyError(
-          "unsupported-config",
-          "Scoped pnpm destination settings require plain INI keys outside sections",
-        );
-      settings[key] = match[2];
-    }
+  const settings: Record<string, unknown> = {};
+  for (const file of files) mergePnpmRc(settings, await readOptional(file));
+  const workspace = await readOptional(join(owner, "pnpm-workspace.yaml"));
+  return resolvePnpmDirectories(cwd, owner, settings, environment, workspace);
+}
+export function parsePnpmDirectories(
+  cwd: string,
+  owner: string,
+  texts: readonly (string | undefined)[],
+  environment: Record<string, unknown>,
+  workspace?: string,
+) {
+  const settings: Record<string, unknown> = {};
+  for (const text of texts) mergePnpmRc(settings, text);
+  return resolvePnpmDirectories(cwd, owner, settings, environment, workspace);
+}
+function mergePnpmRc(
+  settings: Record<string, unknown>,
+  text: string | undefined,
+): void {
+  let section = false;
+  for (const line of text?.split("\n") ?? []) {
+    if (/^\s*[#;]/.test(line)) continue;
+    if (/^\s*\[/.test(line)) section = true;
+    const match = /^\s*([^=]+?)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!match?.[1]) continue;
+    const key = match[1];
+    const normalized = key.replace(/["'[\]]/g, "");
+    if (!pnpmScopeKeys.some((field) => field === normalized)) continue;
+    if (section || key !== normalized)
+      throw new DependencyError(
+        "unsupported-config",
+        "Scoped pnpm destination settings require plain INI keys outside sections",
+      );
+    settings[key] = match[2];
   }
+}
+function resolvePnpmDirectories(
+  cwd: string,
+  owner: string,
+  settings: Record<string, unknown>,
+  environment: Record<string, unknown>,
+  workspace?: string,
+) {
   for (const key of pnpmScopeKeys)
     if (environment[key] !== undefined) settings[key] = environment[key];
-  const workspace = await readOptional(join(owner, "pnpm-workspace.yaml"));
   if (workspace !== undefined) {
     const doc = parseDocument(workspace);
     if (doc.errors.length)

@@ -1,7 +1,8 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { InspectionRules } from "../config/inspection/model";
 import { loadConfig } from "../config/load";
-import type { InspectionRules, PackagingStructure } from "../inspect/model";
+import type { PackagingStructure } from "../inspect/model";
 import { inspectProject } from "../inspect/scan";
 import { publishSnapshot } from "./snapshot";
 import { StructureWatcher, type WatchStatus } from "./watcher";
@@ -28,6 +29,7 @@ interface Job {
   controller: AbortController;
   promise: Promise<{ structure: PackagingStructure; publishMs: number }>;
   waiters: number;
+  publish: boolean;
 }
 interface State {
   root: string;
@@ -35,14 +37,17 @@ interface State {
   rules: InspectionRules;
   watcher: StructureWatcher;
   snapshot?: PackagingStructure;
+  published?: PackagingStructure;
   revision: number;
   job?: Job;
   closed: boolean;
+  projectKey?: string;
 }
 interface Registry {
   states: Map<string, State>;
   aliases: Map<string, string>;
   leases: Map<string, number>;
+  listeners?: Map<string, Set<() => void>>;
 }
 // OMP reloads dependency graphs with import query strings; module state is not process state.
 const registryKey = Symbol.for("justomp.packaging.v1");
@@ -53,6 +58,25 @@ host[registryKey] ??= {
   leases: new Map(),
 };
 const { states, aliases, leases } = host[registryKey];
+host[registryKey].listeners ??= new Map();
+const listeners = host[registryKey].listeners;
+function notify(root: string) {
+  for (const listener of listeners.get(root) ?? []) listener();
+}
+/** Subscribes only to discovery changes; never starts preparation itself. */
+export async function subscribePackagingStructure(
+  root: string,
+  listener: () => void,
+): Promise<() => void> {
+  const key = await realpath(root);
+  const entries = listeners.get(key) ?? new Set<() => void>();
+  entries.add(listener);
+  listeners.set(key, entries);
+  return () => {
+    entries.delete(listener);
+    if (!entries.size) listeners.delete(key);
+  };
+}
 function freeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) freeze(child);
@@ -139,13 +163,24 @@ async function refreshState(
           "Inspection rules changed during refresh; call again",
         );
       signal.throwIfAborted();
-      const publishMs = await publishSnapshot(structure, signal);
+      const published = state.job?.publish !== false;
+      const publishMs = published
+        ? await publishSnapshot(structure, signal)
+        : 0;
       signal.throwIfAborted();
       if (state.closed)
         throw new StructureError("closed", "Packaging inspection closed");
       if (revision !== state.watcher.revision) continue;
+      const projectKey = JSON.stringify(
+        structure.projects.map((p) => p.project_id).sort(),
+      );
+      const changed =
+        state.projectKey !== undefined && state.projectKey !== projectKey;
+      state.projectKey = projectKey;
       state.snapshot = freeze(structure);
+      if (published) state.published = state.snapshot;
       state.revision = revision;
+      if (changed) notify(state.root);
       return { structure: state.snapshot, publishMs };
     }
   } catch (error) {
@@ -161,6 +196,7 @@ async function refreshState(
 function joinJob(
   state: State,
   signal: AbortSignal,
+  publish: boolean,
 ): Promise<{ structure: PackagingStructure; publishMs: number }> {
   let job = state.job;
   if (!job) {
@@ -180,6 +216,7 @@ function joinJob(
     const current: Job = {
       controller,
       waiters: 0,
+      publish,
       promise: Promise.resolve().then(() =>
         refreshState(state, controller.signal),
       ),
@@ -193,6 +230,7 @@ function joinJob(
       })
       .catch(() => undefined);
   }
+  if (publish) job.publish = true;
   const shared = job;
   shared.waiters++;
   return new Promise((resolveResult, reject) => {
@@ -229,7 +267,7 @@ function joinJob(
 /** Read current rules and return a process-local watched snapshot, never the disk JSON. */
 export async function getPackagingStructure(
   root: string,
-  options: { refresh?: boolean; signal?: AbortSignal } = {},
+  options: { refresh?: boolean; signal?: AbortSignal; publish?: boolean } = {},
 ): Promise<PackagingResult> {
   const started = performance.now();
   const controller = new AbortController();
@@ -268,6 +306,7 @@ export async function getPackagingStructure(
         revision: -1,
         closed: false,
       };
+      state.watcher.subscribe(() => notify(canonical));
       states.set(canonical, state);
       if (previous) await stop(previous);
     }
@@ -276,10 +315,11 @@ export async function getPackagingStructure(
       !options.refresh &&
       state.watcher.healthy &&
       state.snapshot !== undefined &&
+      (options.publish === false || state.published === state.snapshot) &&
       state.revision === state.watcher.revision;
     const result = cacheHit
       ? { structure: state.snapshot as PackagingStructure, publishMs: 0 }
-      : await joinJob(state, signal);
+      : await joinJob(state, signal, options.publish !== false);
     signal.throwIfAborted();
     if (state.closed)
       throw new StructureError(
@@ -287,6 +327,14 @@ export async function getPackagingStructure(
         "Packaging scope changed during request",
       );
     if (state.watcher.healthy && state.revision !== state.watcher.revision)
+      return await getPackagingStructure(root, {
+        ...options,
+        refresh: true,
+        signal,
+      });
+    // A default caller can join after a read-only job crossed its publication checkpoint.
+    // Refresh through the normal cancellable job so shutdown/revision guarantees remain shared.
+    if (options.publish !== false && state.published !== result.structure)
       return await getPackagingStructure(root, {
         ...options,
         refresh: true,

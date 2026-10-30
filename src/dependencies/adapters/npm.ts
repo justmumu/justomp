@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join, posix, relative } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { readOptional } from "../executable";
 import { object, readInventory, sourceOf } from "../inventory";
 import {
@@ -59,8 +60,7 @@ async function inventory(
     for (const kind of jsGroups) {
       const field = declarationField({ kind });
       if (
-        JSON.stringify(object(manifest[field])) !==
-        JSON.stringify(object(declaration[field]))
+        !isDeepStrictEqual(object(manifest[field]), object(declaration[field]))
       )
         throw new Error("npm lock declarations are stale");
     }

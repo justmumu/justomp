@@ -1,7 +1,3 @@
-export interface InspectionRules {
-  readonly include: readonly string[];
-  readonly exclude: readonly string[];
-}
 export type Ecosystem = "javascript" | "python" | "go";
 export interface Evidence {
   file: string;

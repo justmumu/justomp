@@ -17,6 +17,8 @@ import type {
 import { runProcess } from "../../../../src/dependencies/runner";
 import { inspectProject } from "../../../../src/inspect/scan";
 import managerVersions from "../../../fixtures/dependencies/manager-versions.json";
+import { measuredVersion } from "../../../fixtures/dependencies/measured-version";
+import { registryArchives } from "./registry-archives";
 
 export async function fixture(manager: "npm" | "pnpm") {
   const expectedVersion = managerVersions.managers[manager];
@@ -25,30 +27,7 @@ export async function fixture(manager: "npm" | "pnpm") {
   );
   const project = join(root, "project");
   await mkdir(project);
-  const archives = new Map<string, Uint8Array>();
-  for (const name of ["fixture-dep", "fixture-child"])
-    for (const version of ["1.0.0", "1.1.0", "2.0.0"]) {
-      const folder = join(root, `${name}-${version}`);
-      await mkdir(join(folder, "package"), { recursive: true });
-      await writeFile(
-        join(folder, "package/package.json"),
-        JSON.stringify({
-          name,
-          version,
-          ...(name === "fixture-dep"
-            ? { dependencies: { "fixture-child": "1.0.0" } }
-            : {}),
-        }),
-      );
-      const tar = join(folder, "package.tgz");
-      const result = await runProcess(
-        "tar",
-        ["-czf", tar, "-C", folder, "package"],
-        { cwd: root },
-      );
-      if (result.exit_code) throw new Error(result.stderr);
-      archives.set(`${name}-${version}.tgz`, await readFile(tar));
-    }
+  const archives = await registryArchives("npm");
   let available = ["1.0.0"];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -121,18 +100,13 @@ export async function fixture(manager: "npm" | "pnpm") {
       { cwd, env },
     );
   const detected = await native(["--version"]);
-  const version = detected.stdout.trim();
-  if (
-    detected.exit_code !== 0 ||
-    detected.truncated ||
-    detected.cancelled ||
-    version !== expectedVersion
-  ) {
+  let version: string;
+  try {
+    version = measuredVersion(manager, expectedVersion, detected);
+  } catch (error) {
     await server.stop(true);
     await rm(root, { recursive: true, force: true });
-    throw new Error(
-      `Native ${manager} test requires ${expectedVersion}; measured ${version}. ${detected.stderr}`,
-    );
+    throw error;
   }
   const context = async (path = "."): Promise<AdapterContext> => {
     const structure = await inspectProject({ root: project });

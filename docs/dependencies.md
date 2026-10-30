@@ -70,6 +70,8 @@ Calls sharing a native lock/workspace or canonical environment destination queue
 
 `list_projects` uses OMP's `write` approval tier for snapshot publication. All five dependency tools use `exec`; host denial prevents the tool body and native mutation from running. Native lifecycle/build scripts use the existing manager policy. Approval is not an OS sandbox, and a daemonized process that escapes the supervised process group is outside the runner's guarantee.
 
+Lint preparation also uses these native managers under the same queue lease, installing exact dev-tool targets and projecting shared policy. It can run at session startup without a dependency-tool call. [Lint lifecycle and ownership](lint.md) describe those effects and the separate check-only API/CLI. Checks do not call the public dependency mutation service or install missing dependencies.
+
 ## Tested manager families and native limits
 
 | Variant | Exact tested binary | Accepted family | Native groups |

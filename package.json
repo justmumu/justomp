@@ -11,12 +11,18 @@
     "src",
     "README.md",
     "docs/inspection.md",
-    "docs/dependencies.md"
+    "docs/dependencies.md",
+    "docs/lint.md",
+    "docs/lint-defaults.json",
+    "docs/typecheck.md",
+    "docs/typecheck-defaults.json"
   ],
   "exports": {
     ".": "./src/index.ts",
     "./packaging": "./src/packaging/get-structure.ts",
-    "./dependencies": "./src/dependencies/index.ts"
+    "./dependencies": "./src/dependencies/index.ts",
+    "./lint": "./src/lint/index.ts",
+    "./typecheck": "./src/typecheck/index.ts"
   },
   "omp": {
     "extensions": [
@@ -28,7 +34,10 @@
     "test:integration": "bun test tests/integration",
     "bench:inspect": "bun tests/performance/inspect.bench.ts",
     "format": "biome check --write .",
-    "test:dependencies": "bun test tests/integration/dependencies tests/integration/omp"
+    "test:dependencies": "bun test tests/integration/dependencies tests/integration/omp",
+    "test:lint": "bun test tests/integration/lint tests/integration/omp/lint.test.ts tests/integration/omp/lint.native.test.ts",
+    "test:typecheck": "bun test tests/integration/typecheck tests/integration/omp/typecheck.test.ts tests/integration/omp/typecheck.native.test.ts",
+    "test:cost": "bun scripts/test-cost.ts"
   },
   "dependencies": {
     "chokidar": "6.0.0",
@@ -45,5 +54,9 @@
     "@types/picomatch": "4.0.2",
     "typescript": "7.0.2",
     "@biomejs/biome": "2.6.3"
+  },
+  "bin": {
+    "justomp-lint": "./src/lint/cli.ts",
+    "justomp-typecheck": "./src/typecheck/cli.ts"
   }
 }

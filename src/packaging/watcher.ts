@@ -2,8 +2,8 @@ import type { Stats } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { FSWatcher } from "chokidar";
+import type { InspectionRules } from "../config/inspection/model";
 import { createMatcher, isDiscoveryInput } from "../inspect/exclusions";
-import type { InspectionRules } from "../inspect/model";
 export interface WatchStatus {
   ready: boolean;
   healthy: boolean;
@@ -25,6 +25,17 @@ export class StructureWatcher {
   reason: string | undefined;
   private watcher: FSWatcher | undefined;
   private stopped = false;
+  private listeners = new Set<() => void>();
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  private changed() {
+    this.revision++;
+    for (const listener of this.listeners) listener();
+  }
   private fingerprints = new Map<string, string>();
   constructor(
     readonly root: string,
@@ -41,7 +52,7 @@ export class StructureWatcher {
   }
   lose(reason: string) {
     this.reason = reason;
-    this.revision++;
+    this.changed();
   }
   status(): WatchStatus {
     return {
@@ -122,7 +133,7 @@ export class StructureWatcher {
           ? matcher.mayTraverse(p)
           : matcher.includes(p) && isDiscoveryInput(p)
       )
-        this.revision++;
+        this.changed();
     });
     watcher.on("error", (error) =>
       this.lose(
@@ -164,5 +175,6 @@ export class StructureWatcher {
     this.stopped = true;
     await this.watcher?.close();
     this.fingerprints.clear();
+    this.listeners.clear();
   }
 }

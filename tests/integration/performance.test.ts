@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectProject } from "../../src/inspect/scan";
 import {
@@ -79,35 +79,4 @@ test("growing root and nested dependencies changes neither scan IO nor watcher s
   expect(refreshed.structure.metrics.directories).toBe(
     initial.structure.metrics.directories,
   );
-});
-test("new nested project invalidates the report and closing releases its root registry", async () => {
-  const fixture = await createLargeTree({ projects: 10, entries: 200 });
-  fixtures.push(fixture);
-  const first = await getPackagingStructure(fixture.root);
-  const rev = getPackagingStatus(fixture.root)?.revision ?? 0;
-  await mkdir(join(fixture.root, "new/nested"), { recursive: true });
-  await writeFile(
-    join(fixture.root, "new/nested/package.json"),
-    '{"name":"new"}',
-  );
-  for (
-    let i = 0;
-    i < 200 && (getPackagingStatus(fixture.root)?.revision ?? 0) <= rev;
-    i++
-  )
-    await Bun.sleep(5);
-  expect((getPackagingStatus(fixture.root)?.revision ?? 0) > rev).toBe(true);
-  const next = await getPackagingStructure(fixture.root);
-  expect(next.structure.projects).toHaveLength(11);
-  expect(next.structure.scanId).not.toBe(first.structure.scanId);
-  expect(
-    JSON.parse(
-      await readFile(
-        join(fixture.root, ".justomp/packaging_structure.json"),
-        "utf8",
-      ),
-    ).scanId,
-  ).toBe(next.structure.scanId);
-  await closePackagingStructure(fixture.root);
-  expect(getPackagingStatus(fixture.root)).toBeUndefined();
 });

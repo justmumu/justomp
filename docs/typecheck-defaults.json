@@ -1,0 +1,28 @@
+{
+  "typecheck": {
+    "python": {
+      "pyright": {
+        "typeCheckingMode": "strict",
+        "diagnostics": {
+          "reportImplicitOverride": "error",
+          "reportUnnecessaryTypeIgnoreComment": "error",
+          "reportMissingTypeStubs": "error"
+        }
+      }
+    },
+    "javascript": {
+      "compilerOptions": {
+        "strict": true,
+        "allowJs": true,
+        "checkJs": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noImplicitOverride": true,
+        "skipLibCheck": false
+      }
+    },
+    "go": {
+      "build_tags": []
+    }
+  }
+}

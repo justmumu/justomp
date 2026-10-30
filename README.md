@@ -1,6 +1,6 @@
 # justomp
 
-An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects and managing their dependencies with installed native package managers. It discovers projects, workspace membership and local sources below the session directory. Dependency operations can install packages and run native lifecycle scripts.
+An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, and checking lint, format and type policy across projects. It discovers projects, workspace membership and local sources below the session directory. Dependency operations, lint preparation and typecheck preparation can install packages and run native lifecycle scripts.
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
 
@@ -13,11 +13,15 @@ Start a new OMP session in the project you want to inspect. Local installation l
 
 Start with `list_projects({})` to get project IDs, then `dependency_list({project_id})` to inspect declarations and supported groups. Use `dependency_add`, `dependency_remove`, `dependency_update` and `dependency_sync` for native changes. Each operation selects its manager from project metadata; the agent supplies no executable, command or working directory. See [dependency tools and tested capabilities](docs/dependencies.md) for request examples, approval behavior and native limits.
 
-`project_inspect` remains available with optional `refresh: true`. It returns a summary and structured report without running project code or package managers. Session startup calls the same inspection service, fills missing configuration attributes, and publishes `.justomp/packaging_structure.json`. Snapshot schema version 2 uses `project_id` instead of `id` in projects and relationship references; this is a pre-release API change. The ID is stable while its manifest's relative location stays the same.
+Use `project_lint({project_id})` for a selected project’s lint and format checks. It can prepare native dev tools and shared configuration before checking. Python uses Ruff, JS/TS uses ESLint + Prettier, and Go uses golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
+
+Use `project_typecheck({project_id})` to prepare and check a selected project with native Pyright, TypeScript or Go. Full preparation includes required Next types and local declarations; Go compiles tests without running them. See [typecheck setup, API/CLI and verified limits](docs/typecheck.md).
+
+`project_inspect` remains available with optional `refresh: true`. It returns a summary and structured report without running project code or package managers. Session startup calls the same inspection service, fills missing configuration attributes, and publishes `.justomp/packaging_structure.json`. It then starts background lint and typecheck tooling/policy preparation outside the inspection deadline; that preparation can install tools and update manifests, locks and native config. Snapshot schema version 2 uses `project_id` instead of `id` in projects and relationship references; this is a pre-release API change. The ID is stable while its manifest's relative location stays the same.
 
 ## Configuration
 
-Do not create a config file just to enable the extension. At session startup, the extension creates `.justomp/config.json` when absent, using these defaults:
+Do not create a config file just to enable the extension. At session startup, the extension creates `.justomp/config.json` when absent. The inspection portion of its defaults is:
 
 ```json
 {
@@ -35,17 +39,19 @@ Do not create a config file just to enable the extension. At session startup, th
 }
 ```
 
-Every field is optional. Startup fills only absent fields. Existing arrays replace defaults, including empty arrays, and unknown fields are preserved. For example, an existing `exclude: []` remains empty; startup adds the missing `include` only. Invalid config is reported without rewriting it.
+The same file also contains `lint` and `typecheck` policies for Python, JavaScript and Go. See the [inspection and lint defaults](docs/lint-defaults.json) and [typecheck defaults](docs/typecheck-defaults.json), which together describe the root config.
 
-Patterns are root-relative paths with `/`, `*` and `**`. Exclusions win, including excluded ancestors. An empty `include` selects no projects. An empty `exclude` removes the default exclusions, so dependency and hidden directories may then be inspected. `.git` is not used to find or limit the project root.
+Every field is optional. Startup fills only absent fields. Existing arrays replace defaults, including empty arrays, and unknown fields are preserved. For example, an existing `exclude: []` remains empty; startup adds missing fields without changing that array. Lint rule maps and Pyright diagnostic maps also replace their defaults, including `{}`. Explicit `false` values remain unchanged. Invalid config is reported without rewriting it.
 
-Each tool/getter call rereads the small config file. Rule changes replace the watcher scope and trigger inspection; the getter never fills missing config fields on disk. That completion belongs to the next session startup.
+Patterns are root-relative paths with `/`, `*` and `**`. Exclusions win, including excluded ancestors. An empty `include` selects no projects. An empty `exclude` removes the default exclusions, so dependency and hidden directories may then be inspected. `.justomp` internals and generated lint configs remain excluded. `.git` is not used to find or limit the project root.
+
+Each tool/getter call rereads the small config file. Rule changes replace the watcher scope and trigger inspection; the getter never fills missing config fields on disk. Startup or explicit lint/typecheck preparation completes missing fields; a getter or check-only call does not.
 
 ## Freshness and writes
 
-A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next call refreshes it. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
+A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next getter refreshes it. Active lint and typecheck lifecycles refresh discovery and prepare newly discovered projects in the background. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
 
-`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits its startup config/snapshot writes. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
+`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint` and `project_typecheck` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
 
 Watcher failure or an unverified filesystem disables cache reuse and uses full inspection per call. There is no polling fallback or debounce-driven scan. Shutdown releases subscriptions; sessions using the same root share the watcher until the last session releases it. Set `refresh: true` for an explicit full inspection.
 
@@ -74,14 +80,44 @@ A session can retain its root once and release it at shutdown. Failed or incompl
 
 ## Development
 
+Configuration definitions live under `src/config/`: `inspection/` owns discovery defaults, types and validation; `lint/` and `typecheck/` own their shared policy types and resolution, with `python/`, `javascript/` and `go/` holding each ecosystem's defaults. `load.ts` reads and completes the single config file. Runtime inspection, lint and typecheck execution stay in `src/inspect/`, `src/lint/` and `src/typecheck/`; lint/typecheck projections live below their respective runtime directories.
+
 ```sh
 bun run check
 bun run test:integration
 # Focused native-manager and OMP suites (requires provisioned managers):
 bun run test:dependencies
+bun run test:lint
+bun run test:typecheck
 bun run bench:inspect
 ```
 
-The integration suite uses temporary projects. Native dependency suites require the explicit [tested manager versions and provisioning](docs/dependencies.md#reproducing-native-tests); missing managers fail the suite instead of silently skipping it. Its installed-package smoke test packs and installs this package into a temporary directory with lifecycle scripts disabled; it may download missing npm dependencies. OMP integration tests use the real loader, runner and approval wrapper with isolated temporary auth storage, without a model request.
+The integration suite uses temporary projects. Native dependency suites require the explicit [tested manager versions and provisioning](docs/dependencies.md#reproducing-native-tests); missing managers fail the suite instead of silently skipping it. Its installed-package smoke test packs and installs this package into a temporary directory with lifecycle scripts disabled; it may download missing npm dependencies. OMP integration tests use the real runner and approval wrapper with isolated temporary auth storage, without a model request. Native and installed-package cases exercise the file loader; local ownership cases bind the real extension factory with injected tool adapters.
+
+The installed `justomp-lint --root <directory> --project-id <id>` CLI and `checkProjectLint` API are check-only. They require prepared tools and do not install, repair or write project metadata. The `justomp-typecheck` CLI defaults to full preparation and checking; pass `--check-only` for the readonly mode. `prepareProjectTypecheck`, `checkProjectTypecheck` and `typecheckProject` are exported from `justomp/typecheck`. No Git hooks are installed; CI must receive the shared policy and explicitly prepare its environment.
 
 See [inspection details and measurements](docs/inspection.md) for the supported relationship rules and measured costs.
+
+### Test evidence and cost
+
+`bun run test:cost` runs `check` and the complete integration tree once, then
+writes logs, unit and integration JUnit timings, and a JSON report under `.private/test-cost/`.
+The command fails for failed/skipped/incomplete tests or a warm total above
+300 seconds. `--baseline <report.json>` also requires at least a 60% reduction
+against a successful warm run in the same recorded environment. This is an
+optimization acceptance target, not a claim about current performance or CI.
+Use `--cold` for a separate run with fresh package-manager stores; it still
+requires all tests to pass. It does not erase machine caches or reinstall the
+host tools, so it is not a cold operating-system benchmark.
+
+Provision the native fixture tools pinned in `tests/fixtures/dependencies/manager-versions.json`
+and described in the lint/typecheck documentation first. The command inherits their environment
+variables. Feature test aliases overlap; do not concatenate them to measure the
+full gate. `.native.test.ts` files exercise installed managers/compilers; other
+integration files exercise local filesystem, watcher, process or host boundaries.
+Fixture timings are a subset of wall time, not additional time to sum into it.
+
+Before adding expensive tests, follow the
+[test evidence and cost rule](compound-packs/testing/test-evidence-and-cost.md).
+It is activated as a repository CE pack, with an AGENTS.md reference for direct
+work and review paths that do not load packs automatically.

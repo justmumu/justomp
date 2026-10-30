@@ -1,9 +1,64 @@
 import { expect, test } from "bun:test";
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
 import { readInventory } from "../../../../src/dependencies/inventory";
-import { uvFixture } from "../../../fixtures/dependencies/uv/fixture";
+import { uvFixture } from "./uv-fixture";
+
+test("uv verifies release normalization from supplied declaration and resolution", async () => {
+  const fixture = await uvFixture();
+  try {
+    const before = await readInventory(fixture.root, fixture.context.project);
+    const after = structuredClone(before);
+    const current = after.dependencies[0];
+    if (!current) throw new Error("Missing supplied dependency");
+    current.declared_specifier = "==1.0";
+    current.resolutions = [{ version: "1.0.0", evidence: "uv.lock" }];
+    await uvAdapter.verify?.(
+      fixture.context,
+      {
+        operation: "update",
+        project_id: fixture.context.project.project_id,
+        packages: [{ name: "uv-demo", version: "v1.0" }],
+      },
+      before,
+      after,
+    );
+  } finally {
+    fixture.close();
+  }
+});
+
+test("uv inventory applies inherited sources and only traverses the selected member graph", async () => {
+  const f = await uvFixture("");
+  try {
+    f.write(
+      "pyproject.toml",
+      `${await f.manifest()}[tool.uv.sources]\nuv-other={workspace=true}\n`,
+    );
+    Object.assign(f.context.project, {
+      project_id: "python:packages/selected/pyproject.toml",
+      path: "packages/selected",
+      manifest: "packages/selected/pyproject.toml",
+      name: "uv-selected",
+      workspace: "uv:.",
+    });
+    f.context.cwd = `${f.root}/packages/selected`;
+    f.write(
+      "packages/selected/pyproject.toml",
+      '[project]\nname="uv-selected"\nversion="1.0.0"\ndependencies=["uv-other"]\n',
+    );
+    f.write(
+      "uv.lock",
+      `version=1\nrevision=3\n[[package]]\nname="uv-selected"\nversion="1.0.0"\nsource={editable="packages/selected"}\ndependencies=[{name="uv-other"}]\n[[package]]\nname="uv-other"\nversion="1.0.0"\nsource={editable="packages/other"}\n[[package]]\nname="uv-unrelated"\nversion="1.0.0"\nsource={editable="packages/unrelated"}\ndependencies=[{name="uv-demo"}]\n[[package]]\nname="uv-demo"\nversion="1.0.0"\nsource={registry="https://example.test"}\n`,
+    );
+    const inventory = await uvAdapter.inventory(f.context, true);
+    expect(inventory.complete).toBe(true);
+    expect(inventory.dependencies[0]?.source.kind).toBe("workspace");
+    expect(inventory.dependencies.map((d) => d.name)).toEqual(["uv-other"]);
+  } finally {
+    f.close();
+  }
+});
 
 test("uv rejects missing lock before locked sync and unsupported groups", async () => {
   const fixture = await uvFixture();
@@ -36,7 +91,7 @@ test("uv rejects missing lock before locked sync and unsupported groups", async 
 test("uv refuses ambiguous occurrences and exact conversion of non-registry sources", async () => {
   const fixture = await uvFixture();
   try {
-    await writeFile(
+    fixture.write(
       join(fixture.root, "pyproject.toml"),
       `[project]\nname="uv-app"\nversion="1.0.0"\ndependencies=["uv-demo; python_version < '3.12'", "uv-demo; python_version >= '3.12'"]\n`,
     );
@@ -84,7 +139,7 @@ test("uv reports missing or unsupported lock graphs as incomplete", async () => 
     expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(
       false,
     );
-    await writeFile(join(fixture.root, "uv.lock"), "version=99\npackage=[]\n");
+    fixture.write(join(fixture.root, "uv.lock"), "version=99\npackage=[]\n");
     expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(
       false,
     );
@@ -97,13 +152,13 @@ test("uv lock inventory retains alternate marker resolutions and rejects broken 
   const fixture = await uvFixture();
   try {
     const lock = `version=1\nrevision=3\n[[package]]\nname="uv-app"\nversion="1.0.0"\nsource={virtual="."}\ndependencies=[{name="uv-demo",version="1.0.0",marker="python_full_version < '3.12'"},{name="uv-demo",version="1.5.0",marker="python_full_version >= '3.12'"}]\n[[package]]\nname="uv-demo"\nversion="1.0.0"\nsource={registry="https://example.invalid/simple"}\n[[package]]\nname="uv-demo"\nversion="1.5.0"\nsource={registry="https://example.invalid/simple"}\n`;
-    await writeFile(join(fixture.root, "uv.lock"), lock);
+    fixture.write(join(fixture.root, "uv.lock"), lock);
     const inventory = await uvAdapter.inventory(fixture.context, true);
     expect(inventory.complete).toBe(true);
     expect(
       inventory.dependencies[0]?.resolutions?.map((r) => r.version),
     ).toEqual(["1.0.0", "1.5.0"]);
-    await writeFile(
+    fixture.write(
       join(fixture.root, "uv.lock"),
       lock.replace('version="1.5.0",marker', 'version="9.0.0",marker'),
     );
@@ -118,7 +173,7 @@ test("uv lock inventory retains alternate marker resolutions and rejects broken 
 test("uv rejects a registry add shadowed by an undeclared native source", async () => {
   const fixture = await uvFixture("");
   try {
-    await writeFile(
+    fixture.write(
       join(fixture.root, "pyproject.toml"),
       (await fixture.manifest()) +
         '\n[tool.uv.sources]\nuv-demo={path="packages/demo"}\n',

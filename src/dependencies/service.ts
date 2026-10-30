@@ -1,5 +1,4 @@
 import { realpath } from "node:fs/promises";
-import { normalizePythonName } from "../inspect/readers/manifest";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { changes, fingerprint, resolutionEvidence } from "./changes";
 import {
@@ -23,6 +22,7 @@ import {
 } from "./model";
 import { safePath } from "./paths";
 import { withDomains } from "./queue";
+import { normalizeDependencyRequest, validateDependencyGroup } from "./request";
 import { runProcess } from "./runner";
 import {
   type DependencyRequest,
@@ -150,48 +150,7 @@ export async function executeDependency(
         const current = await target(root, request.project_id, signal, true);
         if (JSON.stringify(current.scope.domains) !== JSON.stringify(domains))
           return undefined;
-        if (current.project.ecosystem === "python" && "packages" in request) {
-          for (const item of request.packages)
-            item.name = normalizePythonName(item.name);
-        }
-        if ("packages" in request) {
-          for (const item of request.packages) {
-            const valid =
-              current.project.ecosystem === "javascript"
-                ? /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(item.name)
-                : current.project.ecosystem !== "python" ||
-                  /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(item.name);
-            if (!valid)
-              throw new DependencyError(
-                "invalid-package",
-                `${item.name} is not a valid ${current.project.ecosystem} package name`,
-              );
-          }
-          const keys = request.packages.map(
-            (item) =>
-              `${item.name}:${JSON.stringify("group" in item ? (item.group ?? null) : null)}`,
-          );
-          if (new Set(keys).size !== keys.length)
-            throw new DependencyError(
-              "duplicate-dependency",
-              "Package normalization produced duplicate targets",
-            );
-        }
-        if (
-          current.project.ecosystem === "javascript" &&
-          request.operation === "update"
-        )
-          for (const item of request.packages)
-            if (
-              item.version &&
-              !/^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(
-                item.version,
-              )
-            )
-              throw new DependencyError(
-                "invalid-version",
-                "JavaScript exact updates require a complete major.minor.patch version",
-              );
+        normalizeDependencyRequest(request, current.project.ecosystem);
         const memberManifests = new Set(
           current.structure.projects
             .filter(
@@ -277,11 +236,7 @@ export async function executeDependency(
             },
           };
         }
-        if ("group" in request && !adapter.groups.includes(request.group.kind))
-          throw new DependencyError(
-            "unsupported-group",
-            `${key} has no native ${request.group.kind} group`,
-          );
+        validateDependencyGroup(request, adapter.groups, key);
         const beforeInventory = await readInventory(root, current.project);
         if (request.operation === "remove")
           for (const p of request.packages)

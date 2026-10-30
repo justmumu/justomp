@@ -568,3 +568,90 @@ export const uvAdapter: Adapter = {
     }
   },
 };
+
+/** Caller holds the shared manager lease. Declarations precede the single lock solve. */
+export async function planUvDevBatch(
+  contexts: AdapterContext[],
+  name: string,
+  version: string,
+): Promise<NativeStep[]> {
+  const first = contexts[0];
+  if (!first) return [];
+  const steps: NativeStep[] = [];
+  for (const context of contexts) {
+    const inventory = await readInventory(context.root, context.project);
+    const occurrences = inventory.dependencies.filter(
+      (item) => item.name === name,
+    );
+    let configuredSource = false;
+    for (const manifest of new Set([
+      join(context.owner, "pyproject.toml"),
+      join(context.root, context.project.manifest),
+    ])) {
+      const data = object(toml(await readFile(manifest, "utf8")));
+      if (
+        Object.keys(object(object(object(data.tool).uv).sources)).some(
+          (key) => normalizePythonName(key) === name,
+        )
+      )
+        configuredSource = true;
+    }
+    const data = object(
+      toml(
+        await readFile(join(context.root, context.project.manifest), "utf8"),
+      ),
+    );
+    const legacy = object(object(data.tool).uv)["dev-dependencies"];
+    if (
+      occurrences.length > 1 ||
+      occurrences.some(
+        (item) =>
+          item.group.kind !== "dev" ||
+          item.source.kind !== "registry" ||
+          item.ambiguous ||
+          item.marker ||
+          item.extras?.length,
+      ) ||
+      configuredSource ||
+      (Array.isArray(legacy) &&
+        legacy.some(
+          (item) =>
+            typeof item === "string" &&
+            normalizePythonName(item.split(/[\s[<>=!~;@]/)[0] ?? "") === name,
+        ))
+    )
+      throw new DependencyError(
+        "lint-dependency-conflict",
+        `${name} requires one unconditional registry dev declaration; resolve existing groups, sources, markers or extras explicitly`,
+      );
+    steps.push(
+      step(
+        context,
+        ["add", "--frozen", "--dev", `${name}==${version}`],
+        `Pin ${name} in ${context.project.project_id}`,
+      ),
+    );
+  }
+  const owner = { ...first, cwd: first.owner };
+  steps.push(step(owner, ["lock"], "Resolve shared Python lock"));
+  // --all-packages includes every workspace member's dev group, including virtual members.
+  steps.push(
+    step(
+      owner,
+      [
+        "sync",
+        "--locked",
+        "--group",
+        "dev",
+        ...(contexts.length > 1 || first.project.workspace
+          ? ["--all-packages"]
+          : []),
+      ],
+      "Sync locked lint environment",
+    ),
+  );
+  return steps.map((item) => ({
+    ...item,
+    env: { ...item.env, UV_PROJECT: item.cwd ?? first.owner },
+  }));
+}

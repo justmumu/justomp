@@ -34,6 +34,39 @@ export async function readInventory(
   project: Project,
 ): Promise<Inventory> {
   const text = await readFile(join(root, project.manifest), "utf8");
+  const data = manifestData(project, text);
+  const ownerText =
+    project.ecosystem === "python" && project.managerRoot !== project.path
+      ? await readFile(
+          join(root, project.managerRoot, "pyproject.toml"),
+          "utf8",
+        )
+      : undefined;
+  return inventoryFromDocument(project, text, data, ownerText);
+}
+export function parseInventory(
+  project: Project,
+  text: string,
+  ownerText?: string,
+): Inventory {
+  return inventoryFromDocument(
+    project,
+    text,
+    manifestData(project, text),
+    ownerText,
+  );
+}
+function manifestData(project: Project, text: string): Record<string, unknown> {
+  if (project.ecosystem === "javascript") return object(JSON.parse(text));
+  if (project.ecosystem === "python") return object(toml(text));
+  return {};
+}
+function inventoryFromDocument(
+  project: Project,
+  text: string,
+  data: Record<string, unknown>,
+  ownerText?: string,
+): Inventory {
   const dependencies: Dependency[] = [];
   const add = (
     name: string,
@@ -52,7 +85,6 @@ export async function readInventory(
       ...extra,
     });
   if (project.ecosystem === "javascript") {
-    const data = object(JSON.parse(text));
     for (const [field, kind] of [
       ["dependencies", "runtime"],
       ["devDependencies", "dev"],
@@ -68,19 +100,11 @@ export async function readInventory(
         add(name, { kind }, spec, `${field}.${name}`);
       }
   } else if (project.ecosystem === "python") {
-    const data = object(toml(text)),
-      metadata = object(data.project),
+    const metadata = object(data.project),
       uv = object(object(data.tool).uv);
     let inherited: Record<string, unknown> = {};
-    if (project.managerRoot !== project.path) {
-      const owner = object(
-        toml(
-          await readFile(
-            join(root, project.managerRoot, "pyproject.toml"),
-            "utf8",
-          ),
-        ),
-      );
+    if (ownerText !== undefined) {
+      const owner = object(toml(ownerText));
       inherited = object(object(object(owner.tool).uv).sources);
     }
     const sources = { ...inherited, ...object(uv.sources) };

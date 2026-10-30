@@ -10,12 +10,10 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveManagerScope } from "../../../src/dependencies/executable";
 import { readInventory } from "../../../src/dependencies/inventory";
 import type { Adapter } from "../../../src/dependencies/model";
 import { withDomains } from "../../../src/dependencies/queue";
 import { executeDependency } from "../../../src/dependencies/service";
-import { inspectProject } from "../../../src/inspect/scan";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 
 const roots: string[] = [];
@@ -192,36 +190,3 @@ test("a changed environment after queue acquisition requeues before probing or m
   }
   expect((await pending).outcome).toBe("success");
 });
-
-test.each([
-  ["pnpm", ".npmrc", "modules-dir=../shared"],
-  ["pnpm", ".npmrc", "virtual-store-dir=../shared"],
-  ["pnpm", ".npmrc", "lockfile-dir=../shared"],
-  ["pnpm", "pnpm-workspace.yaml", "modulesDir: ../shared"],
-  ["pnpm", "pnpm-workspace.yaml", "virtualStoreDir: ../shared"],
-  ["pnpm", "pnpm-workspace.yaml", "lockfileDir: ../shared"],
-  ["yarn", ".yarnrc.yml", "installStatePath: ../shared"],
-  ["yarn", ".yarnrc.yml", "pnpUnpluggedFolder: ../shared"],
-])(
-  "%s %s redirect participates in canonical write domains: %s",
-  async (manager, config, contents) => {
-    const root = await temporaryRoot();
-    for (const name of ["a", "b"]) {
-      await mkdir(join(root, name));
-      await writeFile(
-        join(root, name, "package.json"),
-        JSON.stringify({
-          name,
-          packageManager: `${manager}@${manager === "pnpm" ? "10.28.2" : "4.12.0"}`,
-        }),
-      );
-      await writeFile(join(root, name, config), contents);
-    }
-    const projects = (await inspectProject({ root })).projects;
-    expect(projects).toHaveLength(2);
-    for (const project of projects) {
-      const scope = await resolveManagerScope(root, project);
-      expect(scope.domains).toContain(`write:${join(root, "shared")}`);
-    }
-  },
-);

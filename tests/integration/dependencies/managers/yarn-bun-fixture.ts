@@ -18,6 +18,7 @@ import type {
 } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
 import { inspectProject } from "../../../../src/inspect/scan";
+import { registryArchives } from "./registry-archives";
 
 export type Variant = "classic" | "modern" | "bun";
 export async function fixture(variant: Variant, workspace = false) {
@@ -26,35 +27,7 @@ export async function fixture(variant: Variant, workspace = false) {
   );
   const home = join(root, ".fixture-home");
   await mkdir(home);
-  const packages = new Map<string, Uint8Array>();
-  for (const name of ["u6-dep", "u6-child", "u6-other"]) {
-    for (const version of ["1.0.0", "1.1.0", "2.0.0"]) {
-      const dir = join(home, `${name}-${version}`);
-      await mkdir(join(dir, "package"), { recursive: true });
-      await writeFile(
-        join(dir, "package/package.json"),
-        JSON.stringify({
-          name,
-          version,
-          main: "index.js",
-          ...(name === "u6-dep"
-            ? { dependencies: { "u6-child": "1.0.0" } }
-            : {}),
-        }),
-      );
-      await writeFile(
-        join(dir, "package/index.js"),
-        `module.exports=${JSON.stringify(version)};`,
-      );
-      const archive = spawnSync(
-        "tar",
-        ["-czf", "-", "package/package.json", "package/index.js"],
-        { cwd: dir },
-      );
-      if (archive.status !== 0) throw new Error("fixture tar failed");
-      packages.set(`${name}-${version}.tgz`, archive.stdout);
-    }
-  }
+  const packages = await registryArchives("yarn");
   let latest = "1.0.0";
   const server = Bun.serve({
     port: 0,

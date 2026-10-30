@@ -13,7 +13,6 @@ test("Yarn variants expose the native JS groups independently", () => {
   expect(yarnModernAdapter.groups).toEqual(yarnClassicAdapter.groups);
 });
 
-import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fixture } from "./yarn-bun-fixture";
 
@@ -91,7 +90,7 @@ test("exact pins use group-local add and source-changing updates reject before n
 test("malformed or truncated Yarn graphs cannot masquerade as complete inventories", async () => {
   const f = await fixture({ dependencies: { foo: "^1.0.0" } });
   try {
-    await writeFile(join(f.root, "yarn.lock"), "fixture");
+    f.write(join(f.root, "yarn.lock"), "fixture");
     for (const adapter of [yarnClassicAdapter, yarnModernAdapter]) {
       f.context.run = async () => ({
         exit_code: 0,

@@ -1,20 +1,30 @@
 import { realpath } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadConfig } from "../config/load";
+import { retainLintCoordinator } from "../lint/coordinator";
+import { lintAdapters } from "../lint/service";
 import {
   getPackagingStructure,
   type PackagingResult,
   retainPackagingStructure,
   StructureError,
 } from "../packaging/get-structure";
+import { retainTypecheckCoordinator } from "../typecheck/coordinator";
+import { typecheckAdapters } from "../typecheck/service";
 
 import { registerDependencyTools } from "./dependency-tools";
+import { registerLintTools } from "./lint-tools";
+import { registerTypecheckTools } from "./typecheck-tools";
 
 interface Scope {
   root: string;
   controller: AbortController;
   release: () => Promise<void>;
   pending: Set<Promise<unknown>>;
+  lint?: Promise<Awaited<ReturnType<typeof retainLintCoordinator>>>;
+  unsubscribeLint?: () => void;
+  typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>>;
+  unsubscribeTypecheck?: () => void;
 }
 function describeError(error: unknown) {
   const code =
@@ -41,6 +51,123 @@ export default function registerInspection(pi: ExtensionAPI): void {
     void job.finally(() => pending.delete(job)).catch(() => undefined);
     return job;
   }
+  async function releaseScope(active: Scope | undefined): Promise<void> {
+    if (!active) return;
+    // Release both owners before joining: either job may be waiting on the other's lease.
+    const released = await Promise.allSettled([
+      active.lint?.then(
+        (owned) => owned.release(),
+        () => undefined,
+      ),
+      active.typecheck?.then(
+        (owned) => owned.release(),
+        () => undefined,
+      ),
+    ]);
+    active.unsubscribeLint?.();
+    active.unsubscribeTypecheck?.();
+    await Promise.allSettled([...active.pending]);
+    await active.release();
+    const errors = released.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (errors.length)
+      throw new AggregateError(
+        errors.map((result) => result.reason),
+        "Native preparation shutdown failed",
+      );
+  }
+
+  async function lintCoordinator(root: string, ctx: ExtensionContext) {
+    const active = scope;
+    if (!active || active.root !== root || active.controller.signal.aborted)
+      throw new StructureError(
+        "root-changed",
+        "Session root changed before lint preparation",
+      );
+    if (!active.lint) {
+      active.lint = retainLintCoordinator(root, lintAdapters).then(
+        async (owned) => {
+          if (active.controller.signal.aborted) {
+            await owned.release();
+            throw active.controller.signal.reason;
+          }
+          const progress = owned.coordinator.subscribeProgress((value) =>
+            reportPreparation(
+              ctx,
+              "lint",
+              { root, preparation: value },
+              "info",
+            ),
+          );
+          const reports = owned.coordinator.subscribe((value) => {
+            if (!value.complete || value.changes.length)
+              reportPreparation(
+                ctx,
+                "lint",
+                { root, preparation: value },
+                value.complete ? "info" : "error",
+              );
+          });
+          active.unsubscribeLint = () => {
+            progress();
+            reports();
+          };
+          return owned;
+        },
+      );
+      void active.lint.catch(() => {
+        if (!active.controller.signal.aborted) active.lint = undefined;
+      });
+    }
+    return (await active.lint).coordinator;
+  }
+  async function typecheckCoordinator(root: string, ctx: ExtensionContext) {
+    const active = scope;
+    if (!active || active.root !== root || active.controller.signal.aborted)
+      throw new StructureError(
+        "root-changed",
+        "Session root changed before typecheck preparation",
+      );
+    if (!active.typecheck) {
+      active.typecheck = retainTypecheckCoordinator(
+        root,
+        typecheckAdapters,
+      ).then(async (owned) => {
+        if (active.controller.signal.aborted) {
+          await owned.release();
+          throw active.controller.signal.reason;
+        }
+        const progress = owned.coordinator.subscribeProgress((value) =>
+          reportPreparation(
+            ctx,
+            "typecheck",
+            { root, preparation: value },
+            "info",
+          ),
+        );
+        const reports = owned.coordinator.subscribe((value) => {
+          const { projects: _projects, ...preparation } = value;
+          if (!value.complete || value.changes.length)
+            reportPreparation(
+              ctx,
+              "typecheck",
+              { root, preparation },
+              value.complete ? "info" : "error",
+            );
+        });
+        active.unsubscribeTypecheck = () => {
+          progress();
+          reports();
+        };
+        return owned;
+      });
+      void active.typecheck.catch(() => {
+        if (!active.controller.signal.aborted) active.typecheck = undefined;
+      });
+    }
+    return (await active.typecheck).coordinator;
+  }
   function selectRoot(root: string): Promise<Scope> {
     const next = transition.then(async () => {
       if (closed)
@@ -54,8 +181,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
       previous?.controller.abort(
         new StructureError("root-changed", "Session root changed"),
       );
-      await Promise.allSettled([...(previous?.pending ?? [])]);
-      await previous?.release();
+      await releaseScope(previous);
       if (closed)
         throw new StructureError("closed", "Inspection session has shut down");
       const release = await retainPackagingStructure(canonical);
@@ -99,6 +225,16 @@ export default function registerInspection(pi: ExtensionAPI): void {
   }
   registerDependencyTools(pi, (root, signal, work) =>
     track(withRoot(root, signal, work)),
+  );
+  registerLintTools(
+    pi,
+    (root, signal, work) => track(withRoot(root, signal, work)),
+    lintCoordinator,
+  );
+  registerTypecheckTools(
+    pi,
+    (root, signal, work) => track(withRoot(root, signal, work)),
+    typecheckCoordinator,
   );
   async function inspect(
     root: string,
@@ -192,7 +328,25 @@ export default function registerInspection(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     closed = false;
     try {
-      await track(inspect(ctx.cwd, false, true));
+      const inspected = await track(inspect(ctx.cwd, false, true));
+      // Native setup is tracked separately from the inspection handler's deadline.
+      void track(
+        withRoot(inspected.structure.root, undefined, async (root, signal) => {
+          signal.throwIfAborted();
+          const coordinators = await Promise.all([
+            lintCoordinator(root, ctx),
+            typecheckCoordinator(root, ctx),
+          ]);
+          signal.throwIfAborted();
+          // Coordinators own/join native jobs; a session only retains ownership.
+          for (const coordinator of coordinators)
+            void coordinator.reconcile().catch((error) => {
+              if (!signal.aborted) reportStartupError(ctx, error);
+            });
+        }),
+      ).catch((error) => {
+        if (!closed) reportStartupError(ctx, error);
+      });
     } catch (error) {
       reportStartupError(ctx, error);
     }
@@ -206,14 +360,26 @@ export default function registerInspection(pi: ExtensionAPI): void {
     scope?.controller.abort(
       new StructureError("closed", "Inspection session has shut down"),
     );
-    await Promise.allSettled([...pending]);
     const previous = scope;
     scope = undefined;
-    await previous?.release();
+    await releaseScope(previous);
+    await Promise.allSettled([...pending]);
   });
 }
 function reportStartupError(ctx: ExtensionContext, error: unknown): void {
   const message = `justomp: ${describeError(error).message}`;
   if (ctx.hasUI) ctx.ui.notify(message, "error");
   else console.error(message);
+}
+
+function reportPreparation(
+  ctx: ExtensionContext,
+  kind: "lint" | "typecheck",
+  value: object,
+  level: "info" | "error",
+): void {
+  const message = `justomp ${kind}: ${JSON.stringify(value)}`;
+  if (ctx.hasUI) ctx.ui.notify(message, level);
+  else if (level === "error") console.error(message);
+  else console.info(message);
 }

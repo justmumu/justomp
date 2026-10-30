@@ -2,12 +2,23 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { validateRules } from "../inspect/exclusions";
-import type { InspectionRules } from "../inspect/model";
-import { DEFAULT_RULES } from "./defaults";
+import { INSPECTION_DEFAULTS } from "./inspection/defaults";
+import type { InspectionRules } from "./inspection/model";
+import { validateRules } from "./inspection/validate";
+import type { LintPolicy } from "./lint/model";
+import { lintPolicyKey, resolveLintConfig } from "./lint/resolve";
+import type { TypecheckPolicy } from "./typecheck/model";
+import {
+  resolveTypecheckConfig,
+  typecheckPolicyKey,
+} from "./typecheck/resolve";
 export interface LoadedConfig {
   rules: InspectionRules;
   key: string;
+  lint: LintPolicy;
+  lintKey: string;
+  typecheck: TypecheckPolicy;
+  typecheckKey: string;
   wrote: boolean;
 }
 export class ConfigError extends Error {
@@ -39,6 +50,8 @@ async function read(root: string): Promise<{
   text: string | null;
   object: Record<string, unknown>;
   rules: InspectionRules;
+  lint: LintPolicy;
+  typecheck: TypecheckPolicy;
   missing: boolean;
   identity: string | null;
 }> {
@@ -78,17 +91,37 @@ async function read(root: string): Promise<{
     : {};
   const include = Object.hasOwn(raw, "include")
     ? raw.include
-    : DEFAULT_RULES.include;
+    : INSPECTION_DEFAULTS.include;
   const exclude = Object.hasOwn(raw, "exclude")
     ? raw.exclude
-    : DEFAULT_RULES.exclude;
+    : INSPECTION_DEFAULTS.exclude;
   const rules = { include, exclude };
   validateRules(rules);
+  let lint: ReturnType<typeof resolveLintConfig>;
+  let typecheck: ReturnType<typeof resolveTypecheckConfig>;
+  try {
+    lint = resolveLintConfig(
+      Object.hasOwn(object, "lint") ? object.lint : undefined,
+    );
+    typecheck = resolveTypecheckConfig(
+      Object.hasOwn(object, "typecheck") ? object.typecheck : undefined,
+    );
+  } catch (error) {
+    throw new ConfigError(
+      `Invalid config.json: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   return {
     text,
     object,
     rules,
-    missing: !Object.hasOwn(raw, "include") || !Object.hasOwn(raw, "exclude"),
+    lint: lint.policy,
+    typecheck: typecheck.policy,
+    missing:
+      lint.missing ||
+      typecheck.missing ||
+      !Object.hasOwn(raw, "include") ||
+      !Object.hasOwn(raw, "exclude"),
     identity,
   };
 }
@@ -103,6 +136,10 @@ async function execute(
   const result = {
     rules: initial.rules,
     key: JSON.stringify(initial.rules),
+    lint: initial.lint,
+    lintKey: lintPolicyKey(initial.lint),
+    typecheck: initial.typecheck,
+    typecheckKey: typecheckPolicyKey(initial.typecheck),
     wrote: false,
   };
   if (!flush || !initial.missing) return result;
@@ -113,6 +150,8 @@ async function execute(
   const raw = initial.object.inspection_rules ?? {};
   const object = {
     ...initial.object,
+    lint: initial.lint,
+    typecheck: initial.typecheck,
     inspection_rules: { ...(raw as Record<string, unknown>), ...initial.rules },
   };
   const temporary = join(directory, `.config-${randomUUID()}.tmp`);
