@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
+import { resolveTestConfig } from "../../../src/config/test/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { getPackagingStatus } from "../../../src/packaging/get-structure";
 import { createHost } from "./host";
@@ -50,6 +51,7 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
     custom: 7,
     lint: resolveLintConfig().policy,
     typecheck: resolveTypecheckConfig().policy,
+    test: resolveTestConfig().policy,
   });
   const snapshot = JSON.parse(
     await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"),

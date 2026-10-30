@@ -4,16 +4,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
+import { testDeadline } from "../../../src/testing/execution";
 
 test("runner captures bounded output and process failure independently", async () => {
+  const protocol: Buffer[] = [];
   const r = await runProcess(
     process.execPath,
     [
       "-e",
       'console.log("x".repeat(200000));console.error("oops");process.exit(3)',
     ],
-    { cwd: tmpdir(), limit: 2048 },
+    {
+      cwd: tmpdir(),
+      limit: 2048,
+      onStdout: (chunk: Buffer) => {
+        protocol.push(chunk);
+      },
+    },
   );
+  expect(Buffer.concat(protocol).length).toBe(200001);
   expect(r.exit_code).toBe(3);
   expect(r.stderr).toContain("oops");
   expect(r.truncated).toBe(true);
@@ -22,24 +31,28 @@ test("runner captures bounded output and process failure independently", async (
     runProcess("/missing/justomp-manager", [], { cwd: tmpdir() }),
   ).rejects.toThrow();
 });
-test("cancellation kills the supervised process before releasing a shared domain", async () => {
-  const controller = new AbortController();
+test("test deadline kills the supervised process before releasing a shared domain", async () => {
+  const deadline = testDeadline(0.04);
   const events: string[] = [];
   const first = withDomains(["runner-test"], undefined, async () => {
     events.push("first");
     const running = runProcess(
       process.execPath,
       ["-e", "setInterval(()=>{},1000)"],
-      { cwd: tmpdir(), signal: controller.signal },
+      { cwd: tmpdir(), signal: deadline.signal },
     );
-    setTimeout(() => controller.abort(), 40);
     expect((await running).cancelled).toBe(true);
     events.push("terminated");
   });
   const second = withDomains(["runner-test"], undefined, async () => {
     events.push("second");
   });
-  await Promise.all([first, second]);
+  try {
+    await Promise.all([first, second]);
+  } finally {
+    deadline.dispose();
+  }
+  expect(deadline.signal.reason.code).toBe("timeout");
   expect(events).toEqual(["first", "terminated", "second"]);
 });
 

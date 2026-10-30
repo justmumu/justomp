@@ -19,3 +19,10 @@ test("published typecheck default example matches field-completed policy", async
     typecheck: resolveTypecheckConfig().policy,
   });
 });
+
+import testExample from "../../../docs/test-defaults.json";
+import { resolveTestConfig } from "../../../src/config/test/resolve";
+
+test("documented test policy matches code defaults", () => {
+  expect(testExample.test).toEqual(resolveTestConfig().policy);
+});

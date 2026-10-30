@@ -15,14 +15,17 @@
     "docs/lint.md",
     "docs/lint-defaults.json",
     "docs/typecheck.md",
-    "docs/typecheck-defaults.json"
+    "docs/typecheck-defaults.json",
+    "docs/testing.md",
+    "docs/test-defaults.json"
   ],
   "exports": {
     ".": "./src/index.ts",
     "./packaging": "./src/packaging/get-structure.ts",
     "./dependencies": "./src/dependencies/index.ts",
     "./lint": "./src/lint/index.ts",
-    "./typecheck": "./src/typecheck/index.ts"
+    "./typecheck": "./src/typecheck/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "omp": {
     "extensions": [

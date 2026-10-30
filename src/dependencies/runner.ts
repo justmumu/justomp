@@ -8,6 +8,8 @@ export function runProcess(
     env?: Record<string, string | undefined>;
     signal?: AbortSignal;
     limit?: number;
+    /** Authoritative bounded protocol consumer, independent of console capture. */
+    onStdout?: (chunk: Buffer) => void;
   },
 ): Promise<ProcessResult> {
   options.signal?.throwIfAborted();
@@ -17,6 +19,7 @@ export function runProcess(
       stderr = Buffer.alloc(0),
       truncated = false,
       cancelled = false;
+    let protocolError: unknown;
     let force: ReturnType<typeof setTimeout> | undefined;
     const child = spawn(command, args, {
       cwd: options.cwd,
@@ -35,6 +38,14 @@ export function runProcess(
     };
     child.stdout.on("data", (chunk: Buffer) => {
       stdout = collect(stdout, chunk);
+      if (!protocolError && options.onStdout) {
+        try {
+          options.onStdout(chunk);
+        } catch (error) {
+          protocolError = error;
+          abort();
+        }
+      }
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = collect(stderr, chunk);
@@ -72,6 +83,10 @@ export function runProcess(
       // Also terminate descendants that closed inherited stdio before their parent.
       if (cancelled) kill("SIGKILL");
       cleanup();
+      if (protocolError) {
+        reject(protocolError);
+        return;
+      }
       resolve({
         exit_code,
         signal,

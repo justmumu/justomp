@@ -9,11 +9,13 @@ import {
   retainPackagingStructure,
   StructureError,
 } from "../packaging/get-structure";
+import { retainTestCoordinator } from "../testing/coordinator";
+import { testAdapters } from "../testing/service";
 import { retainTypecheckCoordinator } from "../typecheck/coordinator";
 import { typecheckAdapters } from "../typecheck/service";
-
 import { registerDependencyTools } from "./dependency-tools";
 import { registerLintTools } from "./lint-tools";
+import { registerTestTools } from "./test-tools";
 import { registerTypecheckTools } from "./typecheck-tools";
 
 interface Scope {
@@ -25,6 +27,8 @@ interface Scope {
   unsubscribeLint?: () => void;
   typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>>;
   unsubscribeTypecheck?: () => void;
+  testing?: Promise<Awaited<ReturnType<typeof retainTestCoordinator>>>;
+  unsubscribeTesting?: () => void;
 }
 function describeError(error: unknown) {
   const code =
@@ -53,9 +57,13 @@ export default function registerInspection(pi: ExtensionAPI): void {
   }
   async function releaseScope(active: Scope | undefined): Promise<void> {
     if (!active) return;
-    // Release both owners before joining: either job may be waiting on the other's lease.
+    // Release all owners before joining: either job may be waiting on the other's lease.
     const released = await Promise.allSettled([
       active.lint?.then(
+        (owned) => owned.release(),
+        () => undefined,
+      ),
+      active.testing?.then(
         (owned) => owned.release(),
         () => undefined,
       ),
@@ -66,6 +74,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
     ]);
     active.unsubscribeLint?.();
     active.unsubscribeTypecheck?.();
+    active.unsubscribeTesting?.();
     await Promise.allSettled([...active.pending]);
     await active.release();
     const errors = released.filter(
@@ -168,6 +177,50 @@ export default function registerInspection(pi: ExtensionAPI): void {
     }
     return (await active.typecheck).coordinator;
   }
+  async function testCoordinator(root: string, ctx: ExtensionContext) {
+    const active = scope;
+    if (!active || active.root !== root || active.controller.signal.aborted)
+      throw new StructureError(
+        "root-changed",
+        "Session root changed before test preparation",
+      );
+    if (!active.testing) {
+      active.testing = retainTestCoordinator(root, testAdapters).then(
+        async (owned) => {
+          if (active.controller.signal.aborted) {
+            await owned.release();
+            throw active.controller.signal.reason;
+          }
+          const progress = owned.coordinator.subscribeProgress((value) =>
+            reportPreparation(
+              ctx,
+              "test",
+              { root, preparation: value },
+              "info",
+            ),
+          );
+          const reports = owned.coordinator.subscribe((value) => {
+            if (!value.complete || value.changes.length)
+              reportPreparation(
+                ctx,
+                "test",
+                { root, preparation: value },
+                value.complete ? "info" : "error",
+              );
+          });
+          active.unsubscribeTesting = () => {
+            progress();
+            reports();
+          };
+          return owned;
+        },
+      );
+      void active.testing.catch(() => {
+        if (!active.controller.signal.aborted) active.testing = undefined;
+      });
+    }
+    return (await active.testing).coordinator;
+  }
   function selectRoot(root: string): Promise<Scope> {
     const next = transition.then(async () => {
       if (closed)
@@ -235,6 +288,11 @@ export default function registerInspection(pi: ExtensionAPI): void {
     pi,
     (root, signal, work) => track(withRoot(root, signal, work)),
     typecheckCoordinator,
+  );
+  registerTestTools(
+    pi,
+    (root, signal, work) => track(withRoot(root, signal, work)),
+    testCoordinator,
   );
   async function inspect(
     root: string,
@@ -336,6 +394,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
           const coordinators = await Promise.all([
             lintCoordinator(root, ctx),
             typecheckCoordinator(root, ctx),
+            testCoordinator(root, ctx),
           ]);
           signal.throwIfAborted();
           // Coordinators own/join native jobs; a session only retains ownership.
@@ -374,7 +433,7 @@ function reportStartupError(ctx: ExtensionContext, error: unknown): void {
 
 function reportPreparation(
   ctx: ExtensionContext,
-  kind: "lint" | "typecheck",
+  kind: "lint" | "typecheck" | "test",
   value: object,
   level: "info" | "error",
 ): void {

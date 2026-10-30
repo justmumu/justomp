@@ -7,6 +7,8 @@ import type { InspectionRules } from "./inspection/model";
 import { validateRules } from "./inspection/validate";
 import type { LintPolicy } from "./lint/model";
 import { lintPolicyKey, resolveLintConfig } from "./lint/resolve";
+import type { TestPolicy } from "./test/model";
+import { resolveTestConfig, testPolicyKey } from "./test/resolve";
 import type { TypecheckPolicy } from "./typecheck/model";
 import {
   resolveTypecheckConfig,
@@ -19,6 +21,8 @@ export interface LoadedConfig {
   lintKey: string;
   typecheck: TypecheckPolicy;
   typecheckKey: string;
+  test: TestPolicy;
+  testKey: string;
   wrote: boolean;
 }
 export class ConfigError extends Error {
@@ -52,6 +56,7 @@ async function read(root: string): Promise<{
   rules: InspectionRules;
   lint: LintPolicy;
   typecheck: TypecheckPolicy;
+  test: TestPolicy;
   missing: boolean;
   identity: string | null;
 }> {
@@ -99,7 +104,11 @@ async function read(root: string): Promise<{
   validateRules(rules);
   let lint: ReturnType<typeof resolveLintConfig>;
   let typecheck: ReturnType<typeof resolveTypecheckConfig>;
+  let test: ReturnType<typeof resolveTestConfig>;
   try {
+    test = resolveTestConfig(
+      Object.hasOwn(object, "test") ? object.test : undefined,
+    );
     lint = resolveLintConfig(
       Object.hasOwn(object, "lint") ? object.lint : undefined,
     );
@@ -117,7 +126,9 @@ async function read(root: string): Promise<{
     rules,
     lint: lint.policy,
     typecheck: typecheck.policy,
+    test: test.policy,
     missing:
+      test.missing ||
       lint.missing ||
       typecheck.missing ||
       !Object.hasOwn(raw, "include") ||
@@ -140,6 +151,8 @@ async function execute(
     lintKey: lintPolicyKey(initial.lint),
     typecheck: initial.typecheck,
     typecheckKey: typecheckPolicyKey(initial.typecheck),
+    test: initial.test,
+    testKey: testPolicyKey(initial.test),
     wrote: false,
   };
   if (!flush || !initial.missing) return result;
@@ -152,6 +165,7 @@ async function execute(
     ...initial.object,
     lint: initial.lint,
     typecheck: initial.typecheck,
+    test: initial.test,
     inspection_rules: { ...(raw as Record<string, unknown>), ...initial.rules },
   };
   const temporary = join(directory, `.config-${randomUUID()}.tmp`);

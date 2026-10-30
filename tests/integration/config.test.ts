@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { INSPECTION_DEFAULTS } from "../../src/config/inspection/defaults";
 import { resolveLintConfig } from "../../src/config/lint/resolve";
 import { loadConfig } from "../../src/config/load";
+import { resolveTestConfig } from "../../src/config/test/resolve";
 import { resolveTypecheckConfig } from "../../src/config/typecheck/resolve";
 
 const roots: string[] = [];
@@ -51,6 +52,7 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     extra: 4,
     lint: resolveLintConfig().policy,
     typecheck: resolveTypecheckConfig().policy,
+    test: resolveTestConfig().policy,
     inspection_rules: { exclude: [], custom: true, include: ["**/*"] },
   });
   const stamp = (await stat(join(root, ".justomp/config.json"))).mtimeMs;
@@ -201,4 +203,21 @@ test("invalid typecheck values are not rewritten by config flush", async () => {
     "typecheck.go.build_tags",
   );
   expect(await readFile(path, "utf8")).toBe(before);
+});
+
+test("test policy flush preserves false and zero without changing other policy hashes", async () => {
+  const root = await fixture({
+    test: { python: { coverage: { enabled: false, minimum: 0 } } },
+  });
+  const before = await loadConfig(root, { flush: true });
+  expect(before.test.python.coverage).toEqual({ enabled: false, minimum: 0 });
+  const path = join(root, ".justomp/config.json");
+  const raw = JSON.parse(await readFile(path, "utf8"));
+  raw.test.python.coverage.minimum = 80;
+  await writeFile(path, JSON.stringify(raw));
+  const after = await loadConfig(root);
+  expect(after.testKey).not.toBe(before.testKey);
+  expect(after.key).toBe(before.key);
+  expect(after.lintKey).toBe(before.lintKey);
+  expect(after.typecheckKey).toBe(before.typecheckKey);
 });

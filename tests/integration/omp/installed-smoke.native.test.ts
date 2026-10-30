@@ -57,6 +57,13 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "prepareProjectTypecheck",
       "typecheckProject",
     ]);
+    const testingExports = JSON.parse(
+      await command(installation, [
+        "-e",
+        'import {testProject} from "justomp/testing"; import * as root from "justomp"; console.log(JSON.stringify(typeof testProject === "function" && root.testProject === testProject));',
+      ]),
+    );
+    expect(testingExports).toBe(true);
     const entry = join(installation, "node_modules/justomp/src/index.ts");
     expect(await realpath(entry)).toStartWith(await realpath(installation));
     for (const path of [
@@ -65,6 +72,11 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/lint-defaults.json",
       "docs/typecheck.md",
       "docs/typecheck-defaults.json",
+      "docs/testing.md",
+      "docs/test-defaults.json",
+      "src/testing/go/inventory.go",
+      "src/testing/python/managed_pytest.py",
+      "src/testing/javascript/bun-import-all.ts",
       "src/lint/javascript/formatter.cjs",
     ])
       expect(
@@ -98,6 +110,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       for (const name of [
         "project_lint",
         "project_typecheck",
+        "project_test",
         "list_projects",
         "dependency_list",
         "dependency_add",

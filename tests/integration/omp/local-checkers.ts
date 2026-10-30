@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import type { LintOperationContext } from "../../../src/lint/adapters/types";
 import { lintAdapters } from "../../../src/lint/service";
 import register from "../../../src/omp/extension";
+import { pythonTestAdapter } from "../../../src/testing/python/adapter";
 import { typecheckAdapters } from "../../../src/typecheck/service";
 import { createHost } from "./host";
 
@@ -62,6 +63,12 @@ async function verify(
 /** Keep real host, watcher, projection and ownership behavior; supply local tool outcomes. */
 export function localPythonCheckers() {
   const mocks = [
+    spyOn(pythonTestAdapter, "resolve").mockResolvedValue({
+      pytest: "9.0.2",
+      "pytest-cov": "7.0.0",
+    }),
+    spyOn(pythonTestAdapter, "preflight").mockResolvedValue(undefined),
+    spyOn(pythonTestAdapter, "verify").mockResolvedValue(true),
     spyOn(lintAdapters.python, "preflight").mockResolvedValue(undefined),
     spyOn(lintAdapters.python, "prepareBatch").mockImplementation((ctx) =>
       install(ctx, "ruff"),
