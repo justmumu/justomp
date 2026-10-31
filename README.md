@@ -21,6 +21,8 @@ Use `project_test({project_id})` for unit tests with pytest, Vitest, Bun or Go. 
 
 `project_inspect` remains available with optional `refresh: true`. It returns a summary and structured report without running project code or package managers. Session startup calls the same inspection service, fills missing configuration attributes, and publishes `.justomp/packaging_structure.json`. It then starts background lint, typecheck and test tooling/policy preparation outside the inspection deadline; that preparation can install tools and update manifests, locks and native config. Snapshot schema version 2 uses `project_id` instead of `id` in projects and relationship references; this is a pre-release API change. The ID is stable while its manifest's relative location stays the same.
 
+General `write`/`edit` calls deny changes to discovered manifests, locks and Justomp-managed configuration. `bash` runs foreground commands in a fresh OS sandbox; custom tools keep their existing write behavior. macOS uses `sandbox-exec`; Linux requires bubblewrap 0.8 or newer with usable user namespaces. Eval is outside this protection. See [file protection and its limits](docs/protection.md), including the accepted Linux concurrent-replacement limit and foreground-only bash behavior.
+
 ## Configuration
 
 Do not create a config file just to enable the extension. At session startup, the extension creates `.justomp/config.json` when absent. The inspection portion of its defaults is:
