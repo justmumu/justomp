@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as yaml } from "yaml";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
+import { formatPrettier } from "../../../src/format/engines/prettier";
+import { formatterFor } from "../../../src/format/selection";
 import type { PackagingStructure, Project } from "../../../src/inspect/model";
 import { applyProjection, planProjection } from "../../../src/lint/projection";
 import { collectLintScope } from "../../../src/lint/scope";
@@ -235,4 +237,55 @@ test("a dependency directory cannot hide the selected project root", async () =>
   await expect(collectLintScope(f.target)).rejects.toThrow(
     "overlaps the selected project root",
   );
+});
+
+// Existing projection boundary: formatting must not cause subsequent preparation writes.
+// Three small filesystem fixtures, no native tool setup or installs.
+test("formatting managed projections preserves readiness and subsequent bytes", async () => {
+  const policy = resolveLintConfig().policy;
+  for (const ecosystem of ["python", "javascript", "go"] as const) {
+    const { target } = await fixture(ecosystem);
+    const initial = await planProjection(target, policy);
+    await applyProjection(initial);
+    const expected = new Map<string, string>();
+    for (const file of initial.files) {
+      const formatter = formatterFor(file.path, ecosystem);
+      if (formatter?.engine !== "prettier")
+        throw new Error("missing config formatter");
+      const text = await formatPrettier(file.content, formatter.parser, {
+        ...policy.javascript.prettier,
+        tabWidth: 4,
+        endOfLine: "crlf",
+      });
+      await writeFile(file.path, text);
+      expected.set(file.path, text);
+    }
+    const next = await planProjection(target, policy);
+    expect(next.files.filter((f) => f.changed).map((f) => f.path)).toEqual([]);
+    expect(next.current).toBe(true);
+    expect(await applyProjection(next)).toEqual([]);
+    for (const [path, text] of expected)
+      expect(await readFile(path, "utf8")).toBe(text);
+    if (ecosystem === "python") {
+      const path = initial.configs.format;
+      const formatted = await readFile(path, "utf8");
+      const drift = formatted.replace(
+        /("?line-length"?\s*=\s*)120\b/,
+        "$1120.0",
+      );
+      expect(drift).not.toBe(formatted);
+      await writeFile(path, drift);
+      const repair = await planProjection(target, policy);
+      expect(repair.current).toBe(false);
+      expect(await applyProjection(repair)).toEqual([
+        {
+          project_id: target.project.project_id,
+          path: "pyproject.toml",
+          kind: "updated",
+        },
+      ]);
+      expect((await planProjection(target, policy)).current).toBe(true);
+      expect(await readFile(path, "utf8")).not.toContain("120.0");
+    }
+  }
 });

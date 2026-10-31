@@ -8,6 +8,7 @@ export type RuleMap = Record<string, RuleSetting>;
 export interface PythonPolicy extends PolicyObject {
   ruff: PolicyObject & {
     "line-length": number;
+    exclude: string[];
     "extend-exclude": string[];
     lint: PolicyObject & {
       select: string[];

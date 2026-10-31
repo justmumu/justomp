@@ -1,8 +1,7 @@
 # File protection
 
-Justomp denies general file-tool writes to discovered project metadata. Existing
-custom tools keep their current dependency, lint, typecheck and test preparation
-behavior. The protection installs automatically with the extension; no new config
+Justomp denies general file-tool writes to discovered project metadata. Trusted custom tools keep their metadata-writing behavior;
+`project_format` can also format supported protected files. The protection installs automatically with the extension; no new config
 fields, capability tokens or allow lists are needed.
 
 ## Covered tools and targets

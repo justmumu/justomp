@@ -1,5 +1,6 @@
 import { relative, resolve } from "node:path";
 import type { LintPolicy } from "../config/lint/model";
+import { equivalentConfig, hasProjectionMarker } from "../format/readiness";
 import {
   type FileSnapshot,
   publishProjectionFile,
@@ -49,7 +50,20 @@ export async function planProjection(
         `Config filename is not owned by justomp: ${path}`,
       );
     const content = render(before.text);
-    files.push({ path, before, content, changed: before.text !== content });
+    const parser = name.endsWith(".toml")
+      ? "toml"
+      : name.endsWith(".mjs")
+        ? "babel"
+        : name.endsWith(".yml")
+          ? "yaml"
+          : "json";
+    const changed = !(await equivalentConfig(before.text, content, parser));
+    files.push({
+      path,
+      before,
+      content: changed ? content : (before.text ?? content),
+      changed,
+    });
     return path;
   };
   let lint: string, format: string;
@@ -67,7 +81,7 @@ export async function planProjection(
     lint = await add(
       "eslint.justomp.config.mjs",
       () => projectJavascript(target, policy.javascript, scope),
-      (text) => text.startsWith(JS_MARKER),
+      (text) => hasProjectionMarker(text, JS_MARKER),
     );
     format = await add(
       "prettier.justomp.json",
@@ -85,7 +99,7 @@ export async function planProjection(
     lint = format = await add(
       "golangci.justomp.yml",
       () => GO_MARKER + projectGo(policy.go),
-      (text) => text.startsWith(GO_MARKER),
+      (text) => hasProjectionMarker(text, GO_MARKER),
     );
   }
   return {

@@ -40,6 +40,7 @@ export async function createHost(
       ...Object.fromEntries(
         [
           "project_lint",
+          "project_format",
           "project_typecheck",
           "project_test",
           "project_integration_test",

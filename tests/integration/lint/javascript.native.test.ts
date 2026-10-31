@@ -1,6 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  formatPrettier,
+  prettierVersion,
+} from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { cleanups, fixture } from "./javascript-fixture";
 
@@ -13,6 +17,10 @@ for (const manager of ["npm", "yarn-modern"] as const)
     await f.prepare();
     const ctx = await f.checkContext();
     expect(await javascriptAdapter.verify(ctx)).toBe(true);
+    expect(
+      JSON.parse(await readFile(join(f.root, "package.json"), "utf8"))
+        .devDependencies.prettier,
+    ).toBeUndefined();
     expect(
       JSON.parse(await readFile(join(f.root, "package.json"), "utf8"))
         .devDependencies.typescript,
@@ -54,7 +62,18 @@ for (const manager of ["npm", "yarn-modern"] as const)
       expect.objectContaining({ project_path: "index.ts" }),
     );
     expect(await f.bytes()).toEqual(before);
+    expect(checks[1]?.version).toBe(prettierVersion);
     if (manager === "npm") {
+      const source = await readFile(join(f.root, "index.ts"), "utf8");
+      await writeFile(
+        join(f.root, "index.ts"),
+        await formatPrettier(
+          source,
+          "typescript",
+          ctx.policy.javascript.prettier,
+        ),
+      );
+      expect((await javascriptAdapter.check(ctx))[1]?.status).toBe("passed");
       await unlink(join(f.root, "node_modules/eslint/bin/eslint.js"));
       expect(await javascriptAdapter.verify(await f.checkContext())).toBe(
         false,

@@ -60,7 +60,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
     const testingExports = JSON.parse(
       await command(installation, [
         "-e",
-        'import {testProject} from "justomp/testing"; import * as root from "justomp"; console.log(JSON.stringify(typeof testProject === "function" && root.testProject === testProject));',
+        'import {testProject} from "justomp/testing"; import {formatProject} from "justomp/format"; import * as root from "justomp"; console.log(JSON.stringify(typeof testProject === "function" && root.testProject === testProject && root.formatProject === formatProject));',
       ]),
     );
     expect(testingExports).toBe(true);
@@ -71,6 +71,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/protection.md",
       "src/protection/sandbox.ts",
       "docs/lint.md",
+      "docs/format.md",
       "docs/lint-defaults.json",
       "docs/typecheck.md",
       "docs/typecheck-defaults.json",
@@ -111,6 +112,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       expect(result.details.structure.projects).toEqual([]);
       for (const name of [
         "project_lint",
+        "project_format",
         "project_typecheck",
         "project_test",
         "project_integration_test",
@@ -142,6 +144,26 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         expect(code, errors).toBe(2);
         expect(JSON.parse(out).error.code).toBe("project-not-found");
       }
+      // Shipped plugin/WASM resources and tool wiring, using the existing installation.
+      await writeFile(
+        join(project, "pyproject.toml"),
+        '[project]\nname="packed"\nversion="0.1.0"\n[tool.uv]\npackage=false\n',
+      );
+      const formatted = await host
+        .getTool("project_format")
+        .execute("installed-format", {
+          project_id: "python:pyproject.toml",
+          files: ["pyproject.toml"],
+        });
+      expect(formatted.details.success, JSON.stringify(formatted.details)).toBe(
+        true,
+      );
+      expect(await Bun.file(join(project, "pyproject.toml")).text()).toContain(
+        'name = "packed"',
+      );
+      expect(await Bun.file(join(project, "package.json")).exists()).toBe(
+        false,
+      );
       expect(await Bun.file(join(project, "package-lock.json")).exists()).toBe(
         false,
       );

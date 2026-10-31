@@ -5,6 +5,11 @@ import type { DependencyRequest } from "../../dependencies/model";
 import { redact } from "../../dependencies/model";
 import { within } from "../../dependencies/paths";
 import {
+  checkPrettierFile,
+  prettierVersion,
+} from "../../format/engines/prettier";
+import { formatterFor } from "../../format/selection";
+import {
   applicationVersions,
   nodeVersion,
   toolMetadata,
@@ -18,7 +23,10 @@ import {
   succeeded,
 } from "../javascript/native";
 import { resolveJavascript } from "../javascript/resolve";
-import { requiredJavascriptTools } from "../javascript/tools";
+import {
+  nativeJavascriptTools,
+  requiredJavascriptTools,
+} from "../javascript/tools";
 import { type LintCheck, type LintDiagnostic, LintError } from "../model";
 import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
@@ -34,7 +42,9 @@ async function operations(context: LintOperationContext) {
       const native = await lintManagerContext(target, context.signal);
       const adapter = nativeAdapter(native);
       const before = await adapter.inventory(native, false);
-      const tools = context.versions[target.project.project_id] ?? {};
+      const tools = nativeJavascriptTools(
+        context.versions[target.project.project_id] ?? {},
+      );
       const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
       const additions: Extract<
         DependencyRequest,
@@ -154,7 +164,9 @@ export const javascriptAdapter: LintAdapter = {
   async preflight(context) {
     const all = await operations(context);
     for (const { target, native } of all) {
-      const tools = context.versions[target.project.project_id] ?? {};
+      const tools = nativeJavascriptTools(
+        context.versions[target.project.project_id] ?? {},
+      );
       for (const name of await requiredJavascriptTools(
         target,
         context.policy.javascript,
@@ -228,6 +240,7 @@ export const javascriptAdapter: LintAdapter = {
     }
   },
   async verify(context) {
+    const tools = nativeJavascriptTools(context.versions);
     try {
       const native = await lintManagerContext(context.target, context.signal);
       const inventory = await nativeAdapter(native).inventory(native, false);
@@ -235,10 +248,10 @@ export const javascriptAdapter: LintAdapter = {
       const installed = await installedPackages(
         context.target,
         native,
-        Object.keys(context.versions),
+        Object.keys(tools),
         context.signal,
       );
-      for (const [name, version] of Object.entries(context.versions)) {
+      for (const [name, version] of Object.entries(tools)) {
         const declarations = inventory.dependencies.filter(
           (item) => item.name === name,
         );
@@ -257,27 +270,23 @@ export const javascriptAdapter: LintAdapter = {
       }
       validateCompatibility(
         installed,
-        context.versions,
+        tools,
         await applicationVersions(context.target, native, context.signal, true),
         await nodeVersion(context.target, native, context.signal),
       );
-      for (const name of ["eslint", "prettier"]) {
-        const result = await localTool(
-          context.target,
-          native,
-          { package: name, binary: name },
-          ["--version"],
-          context.signal,
-        );
-        if (
-          !succeeded(result) ||
-          !result.stdout
-            .split("\n")
-            .some((line) => line.replace(/^v/, "") === context.versions[name])
-        )
-          return false;
-      }
-      return true;
+      const result = await localTool(
+        context.target,
+        native,
+        { package: "eslint", binary: "eslint" },
+        ["--version"],
+        context.signal,
+      );
+      return (
+        succeeded(result) &&
+        result.stdout
+          .split("\n")
+          .some((line) => line.replace(/^v/, "") === tools.eslint)
+      );
     } catch {
       context.signal.throwIfAborted();
       return false;
@@ -292,7 +301,10 @@ export const javascriptAdapter: LintAdapter = {
         kind,
         status: scope.empty ? "no-sources" : "not-run",
         tool,
-        version: context.versions[tool] ?? null,
+        version:
+          kind === "format"
+            ? prettierVersion
+            : (context.versions[tool] ?? null),
         exit_code: null,
         duration_ms: 0,
         diagnostics: [],
@@ -303,25 +315,41 @@ export const javascriptAdapter: LintAdapter = {
       if (scope.empty) continue;
       const start = performance.now();
       try {
+        context.signal.throwIfAborted();
+        if (kind === "format") {
+          for (const file of scope.files) {
+            context.signal.throwIfAborted();
+            const formatter = formatterFor(file, "javascript");
+            if (formatter?.engine !== "prettier")
+              throw new Error(`No bundled formatter for ${file}`);
+            if (
+              !(await checkPrettierFile(
+                join(context.target.scope.cwd, file),
+                formatter.parser,
+                context.policy.javascript.prettier,
+              ))
+            )
+              check.diagnostics.push({
+                kind,
+                severity: "error",
+                message: "File does not match the shared Prettier format",
+                ...diagnosticPath(context, file),
+              });
+          }
+          context.signal.throwIfAborted();
+          check.exit_code = check.diagnostics.length ? 1 : 0;
+          check.status = check.diagnostics.length ? "failed" : "passed";
+          continue;
+        }
         const native = await lintManagerContext(context.target, context.signal);
-        const args =
-          kind === "lint"
-            ? [
-                "--no-config-lookup",
-                "--no-fix",
-                "--config",
-                context.projection.configs.lint,
-                "--format",
-                join(import.meta.dir, "../javascript/formatter.cjs"),
-              ]
-            : [
-                "--list-different",
-                "--config",
-                context.projection.configs.format,
-                "--no-editorconfig",
-                "--ignore-path",
-                process.platform === "win32" ? "NUL" : "/dev/null",
-              ];
+        const args = [
+          "--no-config-lookup",
+          "--no-fix",
+          "--config",
+          context.projection.configs.lint,
+          "--format",
+          join(import.meta.dir, "../javascript/formatter.cjs"),
+        ];
         const result = await localTool(
           context.target,
           native,
@@ -337,29 +365,8 @@ export const javascriptAdapter: LintAdapter = {
           !result.truncated &&
           (result.exit_code === 0 || result.exit_code === 1)
         ) {
-          check.diagnostics =
-            kind === "lint"
-              ? eslintDiagnostics(context, result.stdout)
-              : result.stdout
-                  .split("\n")
-                  .map((line) => line.trim().replace(/^\.\//, ""))
-                  .filter((line) => scope.files.includes(line))
-                  .map((filename) => ({
-                    kind,
-                    severity: "error",
-                    message: "File does not match the shared Prettier format",
-                    ...diagnosticPath(context, filename),
-                  }));
-          if (
-            kind === "format" &&
-            result.exit_code === 1 &&
-            check.diagnostics.length === 0
-          )
-            check.reason = redact(
-              result.stderr ||
-                "Prettier failed without reporting a source format difference",
-            );
-          else check.status = result.exit_code === 0 ? "passed" : "failed";
+          check.diagnostics = eslintDiagnostics(context, result.stdout);
+          check.status = result.exit_code === 0 ? "passed" : "failed";
         } else
           check.reason = redact(
             result.stderr ||

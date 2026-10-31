@@ -66,7 +66,10 @@ test("Pyright projection detects new sources, empty scope and unowned output wit
   const first = await f.plan();
   const generated = first.files[0];
   if (!generated) throw new Error("missing projection");
-  f.docs.set(generated.path, generated.content);
+  f.docs.set(
+    generated.path,
+    generated.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"),
+  );
   expect((await f.plan()).current).toBe(true);
   f.collect.mockResolvedValue(scope("new.py"));
   expect((await f.plan()).current).toBe(false);

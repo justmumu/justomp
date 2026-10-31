@@ -5,6 +5,7 @@ import {
   publishProjectionFile,
   readProjectionFile,
 } from "./files";
+import { nativeJavascriptTools } from "./javascript/tools";
 import { type LintEcosystem, LintError } from "./model";
 import { validateToolVersions } from "./versions";
 
@@ -41,6 +42,8 @@ function parseState(text: string): LintState {
     )
       throw new Error("Invalid lint receipt");
     validateToolVersions(receipt.tools);
+    if (receipt.ecosystem === "javascript")
+      receipt.tools = nativeJavascriptTools(receipt.tools);
   }
   if (state.python) {
     if (

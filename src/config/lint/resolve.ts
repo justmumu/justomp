@@ -2,12 +2,7 @@ import { createHash } from "node:crypto";
 import { LintError } from "../../lint/model";
 import { GO_DEFAULTS } from "./go/defaults";
 import { JAVASCRIPT_DEFAULTS } from "./javascript/defaults";
-import type {
-  GoPolicy,
-  JavascriptPolicy,
-  LintPolicy,
-  PythonPolicy,
-} from "./model";
+import type { LintPolicy } from "./model";
 import { PYTHON_DEFAULTS } from "./python/defaults";
 
 const defaults: LintPolicy = {
@@ -99,9 +94,7 @@ export function resolveLintConfig(value?: unknown): {
 }
 
 /** Object ordering is immaterial; native rule option and pattern arrays retain order. */
-export function lintPolicyKey(
-  policy: LintPolicy | PythonPolicy | JavascriptPolicy | GoPolicy,
-): string {
+export function lintPolicyKey(policy: unknown): string {
   function canonical(value: unknown): unknown {
     if (Array.isArray(value)) return value.map(canonical);
     if (value && typeof value === "object")

@@ -47,8 +47,10 @@ export async function publishProjectionFile(
   path: string,
   before: FileSnapshot,
   content: string,
+  checkPath?: () => Promise<void>,
 ): Promise<void> {
   const verify = async () => {
+    await checkPath?.();
     const now = await readProjectionFile(root, path);
     if (now.identity !== before.identity || now.text !== before.text)
       throw new LintError(
@@ -71,6 +73,7 @@ export async function publishProjectionFile(
       before.mode & 0o777,
     );
     try {
+      await file.chmod(before.mode & 0o777);
       await file.writeFile(content, "utf8");
       await file.sync();
     } finally {

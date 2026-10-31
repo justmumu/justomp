@@ -3,10 +3,15 @@ import type { InspectionRules } from "../config/inspection/model";
 
 import { validateRules } from "../config/inspection/validate";
 
-export function isInternalPath(path: string): boolean {
+export function isInternalStatePath(path: string): boolean {
   return (
     /(?:^|\/)\.justomp(?:\/|$)/.test(path) ||
-    /(?:^|\/)\.justomp-projection-[^/]+\.tmp$/.test(path) ||
+    /(?:^|\/)\.justomp-projection-[^/]+\.tmp$/.test(path)
+  );
+}
+export function isInternalPath(path: string): boolean {
+  return (
+    isInternalStatePath(path) ||
     /(?:^|\/)(?:eslint\.justomp\.config\.mjs|prettier\.justomp\.json|golangci\.justomp\.yml)$/.test(
       path,
     )

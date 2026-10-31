@@ -7,6 +7,28 @@ import {
 const pythonPolicy = {
   ruff: {
     "line-length": 120,
+    exclude: [
+      ".bzr",
+      ".direnv",
+      ".eggs",
+      ".git",
+      ".git-rewrite",
+      ".hg",
+      ".mypy_cache",
+      ".nox",
+      ".pants.d",
+      ".pytype",
+      ".ruff_cache",
+      ".svn",
+      ".tox",
+      ".venv",
+      "__pypackages__",
+      "_build",
+      "buck-out",
+      "dist",
+      "node_modules",
+      "venv",
+    ],
     "extend-exclude": [".private"],
     lint: {
       select:
@@ -39,7 +61,9 @@ test("Python defaults match the recorded policy without project-specific src", (
 test("missing structural leaves fill while arrays and user rule maps replace", () => {
   const input = {
     future: { value: 2 },
-    python: { ruff: { lint: { ignore: [], "per-file-ignores": {} } } },
+    python: {
+      ruff: { exclude: [], lint: { ignore: [], "per-file-ignores": {} } },
+    },
     javascript: {
       eslint: {
         rules: {},
@@ -51,6 +75,7 @@ test("missing structural leaves fill while arrays and user rule maps replace", (
   const { policy, missing } = resolveLintConfig(input);
   expect(missing).toBe(true);
   expect(policy.python.ruff["line-length"]).toBe(120);
+  expect(policy.python.ruff.exclude).toEqual([]);
   expect(policy.python.ruff.lint.ignore).toEqual([]);
   expect(policy.python.ruff.lint["per-file-ignores"]).toEqual({});
   expect(policy.javascript.eslint.rules).toEqual({});

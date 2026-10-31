@@ -38,7 +38,9 @@ Existing Ruff declarations in another group, conditional or non-registry declara
 
 ### JavaScript and TypeScript versions
 
-Preparation chooses a compatible stable ESLint core/plugin set for the installed Node, application TypeScript and Next major. It retains existing exact targets on ordinary preparation and resolves newly needed tools when the source/framework requirements change. Tools are dev dependencies installed through npm, pnpm, Yarn Classic, modern Yarn or Bun. Node must also be installed for the local lint executables.
+Preparation chooses a compatible stable ESLint core/plugin set for the installed Node, application TypeScript and Next major. It retains existing exact targets on ordinary preparation and resolves newly needed tools when the source/framework requirements change. ESLint, its plugins and required compiler support are dev dependencies installed through npm, pnpm, Yarn Classic, modern Yarn or Bun. Node must also be installed for the local lint executables.
+
+Prettier is bundled with Justomp and shared with [project_format](format.md). Its settings come from `format.prettier`, with per-attribute fallback to legacy `lint.javascript.prettier` and then defaults. Lint no longer installs or verifies a target Prettier package; existing user dependencies remain untouched.
 
 Typed files use typescript-eslint's project service and the project's TSConfig. Files outside that configuration produce an explicit diagnostic. Type analysis may read imported files outside the selected source list; those files do not become separate lint targets. Typed linting therefore costs more than scanning only the named files. See [typescript-eslint's typed linting model](https://typescript-eslint.io/getting-started/typed-linting/).
 
@@ -48,7 +50,7 @@ Incompatible TypeScript, Node or plugin peers are reported. Preparation does not
 
 Preparation downloads an exact official golangci-lint v2 release, verifies its SHA-256 checksum, and atomically publishes the binary below `.justomp/tools/`. It does not add a Go application dependency. The installed Go version and the binary's build Go version must support the project/workspace requirement. No toolchain download or upgrade is performed.
 
-One `golangci-lint run` checks linters and enabled formatters. The adapter separates diagnostics by their linter/formatter names; it never invokes `fmt` or enables `--fix`. Native compiler/type-analysis failure leaves both stages `not-run`. See the [native CLI commands](https://golangci-lint.run/docs/configuration/cli/).
+One `golangci-lint run` checks linters and enabled formatters. The adapter separates diagnostics by their linter/formatter names; the lint check never invokes `fmt` or enables `--fix`. Native compiler/type-analysis failure leaves both stages `not-run`. See the [native CLI commands](https://golangci-lint.run/docs/configuration/cli/).
 
 Checks disable module downloads and use readonly module metadata. Go's workspace mode can still write `go.work.sum`; the native Go 1.25.6 tests reproduce this behavior. The adapter copies the workspace description and sums to a temporary directory, rebases member/replacement paths with native `go work edit -print`, and removes the copy after the process closes. Original modules, workspace files and sources stay unchanged. Go's [workspace requirement commit path](https://go.dev/src/cmd/go/internal/modload/init.go) explains why readonly mode alone is insufficient.
 
@@ -84,7 +86,7 @@ The [inspection and lint default example](lint-defaults.json) records those sect
 
 Python source-layout and target-version metadata may remain local. Other existing Ruff options, such as `exclude`, `include`, `extend` or `preview`, must be represented in the shared `lint.python.ruff` policy. If a local option is absent there, preparation reports a conflict without erasing it: move the option to the root policy or remove it from the project. Explicit root values, including `exclude: []`, are projected normally. This also applies when removing an extra option from the root policy leaves its previous native value behind.
 
-The generated JS/Go filenames carry ownership markers. A foreign file at one of those paths is a conflict, not an overwrite. Other native config files remain present, but checks pass the managed config path explicitly rather than merging them. Editor auto-discovery can therefore differ; point the editor at the managed file if it should use the same policy.
+The generated JS/Go filenames carry ownership markers. A foreign file at one of those paths is a conflict, not an overwrite. Other native config files remain present. Native checks pass the managed config path explicitly rather than merging them; bundled Prettier receives resolved options directly without config/editorconfig/plugin discovery. Formatting-only changes to owned configuration do not trigger rewrites during preparation. Editor auto-discovery can therefore differ; point the editor at the managed file if it should use the same policy.
 
 The lint source list is separate from `inspection_rules`. Checks include supported source extensions under the selected project, including ordinary hidden source files. They exclude dependency/build/cache directories, justomp outputs, symlinks and separately discovered child projects. Canonical custom uv environments and supported pnpm module/store destinations are excluded too. Parent checks do not lint a child project twice. Native TS/Go loaders may still read dependencies needed to analyze the selected target.
 
@@ -126,7 +128,7 @@ It writes one JSON result to stdout. Exit codes are `0` for both checks passing,
 
 Local `.justomp` files are not automatically supplied to another checkout or CI machine. The extension does not edit `.gitignore`. Decide how the shared policy and retained exact targets reach CI, then explicitly prepare and verify the environment before using check-only. A fresh preparation without retained targets can resolve versions and change manifests/locks; CI that forbids those changes must provision retained targets and reject unexpected metadata changes. Native readiness is verified even when state is supplied.
 
-No Git hook or CI workflow is installed by this feature. Use [`project_typecheck`](typecheck.md) for native project typechecking. Staged-content checking, test execution tools, format/fix tools and a user-facing bulk lint-tool upgrade command remain separate work.
+No Git hook or CI workflow is installed by this feature. Use [`project_typecheck`](typecheck.md) for native project typechecking. Use [project_test and project_integration_test](testing.md) for test execution. Staged-content checking, automatic format hooks, lint-fix tools and a user-facing bulk lint-tool upgrade command remain separate work. Explicit writing is available through [project_format](format.md).
 
 ## Native verification and reproduction
 
@@ -135,7 +137,7 @@ The fixed native test matrix uses these tool sets:
 | Ecosystem | Exact tools |
 | --- | --- |
 | Python | uv 0.11.6; Ruff 0.17.2 and 0.17.3 |
-| JS/TS | ESLint and `@eslint/js` 9.39.5; typescript-eslint 8.72.1; TypeScript 5.9.3; Prettier 3.6.2 |
+| JS/TS | ESLint and `@eslint/js` 9.39.5; typescript-eslint 8.72.1; TypeScript 5.9.3; bundled Prettier 3.9.10 (legacy receipt fixture retains 3.6.2) |
 | Framework/import rules | simple-import-sort 12.1.1; react-hooks 7.0.1; jsx-a11y 6.10.2; Next plugin 15.5.6 |
 | JS managers/runtime | npm 11.12.1; pnpm 10.20.0; Yarn Classic 1.22.22; Yarn PnP 4.12.0; Bun 1.4.2; Node 26.0.0 |
 | Go | Go 1.25.6; golangci-lint 2.15.0 |

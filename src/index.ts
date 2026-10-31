@@ -1,3 +1,4 @@
+export { formatProject } from "./format/index";
 export { checkProjectLint, prepareLintProjects } from "./lint/index";
 export { default } from "./omp/extension";
 export { integrationTestProject, testProject } from "./testing/index";
