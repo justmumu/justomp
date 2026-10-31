@@ -91,7 +91,7 @@ export class TestCoordinator {
     const config = await loadConfig(this.root, {
       signal: this.controller.signal,
     });
-    return JSON.stringify([structure.projects, config.testKey]);
+    return JSON.stringify([structure.projects, config.testingKey]);
   }
   reconcile(): Promise<TestPreparation> {
     if (this.closed)

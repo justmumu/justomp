@@ -44,7 +44,7 @@ export function testResult(outcome: TestOutcome): ProjectTestResult {
   if (outcome.tests.total === 0 && !errors.some((e) => e.code === "no-tests"))
     errors.push({
       code: "no-tests",
-      message: "No unit tests were collected for this selection",
+      message: `No ${outcome.suite ?? "unit"} tests were collected for this selection`,
     });
   if (
     outcome.coverage.status === "below-threshold" &&

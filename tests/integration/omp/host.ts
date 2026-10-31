@@ -40,6 +40,7 @@ export async function createHost(
           "project_lint",
           "project_typecheck",
           "project_test",
+          "project_integration_test",
           "dependency_list",
           "dependency_add",
           "dependency_remove",

@@ -15,6 +15,11 @@ test("OMP project_test validates before setup, reports results and joins executi
   );
   await mkdir(join(root, "tests/unit"), { recursive: true });
   await writeFile(join(root, "tests/unit/test_app.py"), "# test fixture");
+  await mkdir(join(root, "tests/integration"));
+  await writeFile(
+    join(root, "tests/integration/test_api.py"),
+    "# integration fixture",
+  );
   let blocked = false,
     entered = () => {},
     joined = false;
@@ -74,11 +79,36 @@ test("OMP project_test validates before setup, reports results and joins executi
       result.details,
     );
     expect((result.details as { success: boolean }).success).toBe(true);
+    const integrationTool = host.getTool("project_integration_test");
+    expect(
+      host.runner.getRegisteredTool("project_integration_test")?.definition
+        .approval,
+    ).toBe("exec");
+    const integration = await integrationTool.execute("integration", {
+      project_id: "python:pyproject.toml",
+    });
+    expect(integration.details).toMatchObject({
+      suite: "integration",
+      success: true,
+      coverage: { status: "disabled" },
+    });
+    expect(
+      JSON.parse((integration.content[0] as { text: string }).text),
+    ).toEqual(integration.details);
+    const invalid = await integrationTool.execute("invalid", {
+      project_id: "python:pyproject.toml",
+      test_files: ["tests/unit/test_app.py"],
+    });
+    expect(invalid.isError).toBe(true);
+    expect(invalid.details).toMatchObject({
+      suite: "integration",
+      success: false,
+    });
     blocked = true;
     const ready = new Promise<void>((r) => {
       entered = r;
     });
-    const running = tool.execute("blocked", {
+    const running = integrationTool.execute("blocked", {
       project_id: "python:pyproject.toml",
     });
     await ready;

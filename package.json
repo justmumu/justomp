@@ -17,7 +17,8 @@
     "docs/typecheck.md",
     "docs/typecheck-defaults.json",
     "docs/testing.md",
-    "docs/test-defaults.json"
+    "docs/test-defaults.json",
+    "docs/integration-test-defaults.json"
   ],
   "exports": {
     ".": "./src/index.ts",

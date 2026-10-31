@@ -1,5 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 import * as configModule from "../../../src/config/load";
 import {
   resolveTestConfig,
@@ -12,6 +13,7 @@ import type {
   TestAdapter,
 } from "../../../src/testing/adapters";
 import * as artifacts from "../../../src/testing/artifacts";
+import type { TestSuite } from "../../../src/testing/model";
 import { preparationReport } from "../../../src/testing/prepare";
 import * as scopeModule from "../../../src/testing/scope";
 import { runTestTarget } from "../../../src/testing/service";
@@ -28,9 +30,10 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
       structure: { projects: [], workspaces: [], localDependencies: [] },
       scope: { cwd: "/repo", owner: "/repo", env: {}, domains: ["/repo/lock"] },
     } as unknown as TestTarget;
-  let configRead = 0;
-  let changed = false,
-    cleanupFails = false,
+  const integrationPolicy = resolveIntegrationTestConfig().policy;
+  let changedSuite: TestSuite | undefined;
+  let mutated = false;
+  let cleanupFails = false,
     abort = false;
   const controller = new AbortController();
   const native: NativeTestResult = {
@@ -51,18 +54,27 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     prepare: async () => {},
     verify: async () => true,
     run: async () => {
+      mutated = changedSuite !== undefined;
       if (abort) controller.abort();
       return structuredClone(native);
     },
   };
   const mocks = [
-    spyOn(configModule, "loadConfig").mockImplementation(
-      async () =>
-        ({
-          test: policy,
-          testKey: changed ? String(++configRead) : "same",
-        }) as Awaited<ReturnType<typeof configModule.loadConfig>>,
-    ),
+    spyOn(configModule, "loadConfig").mockImplementation(async () => {
+      const unit = structuredClone(policy);
+      const integration = structuredClone(integrationPolicy);
+      if (mutated) {
+        const other = changedSuite === "unit" ? unit : integration;
+        other.javascript.include.push("custom/**/*.test.ts");
+      }
+      return {
+        test: unit,
+        integrationTest: integration,
+        testKey: testPolicyKey(unit),
+        integrationTestKey: testPolicyKey(integration),
+        testingKey: testPolicyKey({ unit, integration }),
+      } as Awaited<ReturnType<typeof configModule.loadConfig>>;
+    }),
     spyOn(packaging, "getPackagingStructure").mockResolvedValue({
       structure: target.structure,
     } as Awaited<ReturnType<typeof packaging.getPackagingStructure>>),
@@ -90,20 +102,24 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
             ready: true,
             runner: "vitest",
             tools: { vitest: "4.0.0" },
-            policy_hash: testPolicyKey(policy.javascript),
+            policy_hash: testPolicyKey({
+              unit: policy.javascript,
+              integration: resolveIntegrationTestConfig().policy.javascript,
+            }),
           },
         },
         waves: { vitest: { complete: true, projects: ["id"] } },
       },
     } as unknown as TestStateStore),
   ];
-  const run = () =>
+  const run = (suite: TestSuite = "unit") =>
     runTestTarget(
       target,
       { project_id: "id", timeout_seconds: 300 },
       controller.signal,
       preparationReport(),
       { vitest: adapter },
+      suite,
     );
   try {
     cleanupFails = true;
@@ -116,10 +132,17 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     expect(failure.tests.total).toBe(2);
     expect(failure.complete).toBe(false);
     cleanupFails = false;
-    changed = true;
-    const stale = await run();
-    expect(stale.errors.some((e) => e.code === "sources-changed")).toBe(true);
-    changed = false;
+    native.errors = [];
+    native.tests = { total: 2, passed: 2, failed: 0, skipped: 0, cases: [] };
+    for (const suite of ["unit", "integration"] as const) {
+      mutated = false;
+      changedSuite = suite === "unit" ? "integration" : "unit";
+      const stale = await run(suite);
+      expect(stale.errors.map((e) => e.code)).toEqual(["sources-changed"]);
+      expect(stale).toMatchObject({ suite, success: false, complete: false });
+    }
+    mutated = false;
+    changedSuite = undefined;
     abort = true;
     const cancelled = await run();
     expect(cancelled.errors.some((e) => e.code === "cancelled")).toBe(true);

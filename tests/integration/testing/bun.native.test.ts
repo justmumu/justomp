@@ -45,6 +45,23 @@ test("Bun exact selection reports pass/fail and imports unused sources in global
     expect(targeted.tests.passed).toBe(1);
     expect(targeted.coverage).toBeUndefined();
     await f.put(
+      "integration.toml",
+      '[test]\npreload=["./setup.ts"]\ncoverage=true\n',
+    );
+    await f.put(
+      "tests/integration/flow.test.ts",
+      "import {test,expect} from 'bun:test';test('flow',()=>expect(globalThis.nativeSetup).toBe(true));",
+    );
+    const integration = await f.run(
+      ["tests/integration/flow.test.ts"],
+      ["missing.ts"],
+      "full",
+      { suite: "integration", configFile: "integration.toml" },
+    );
+    expect(integration.errors).toEqual([]);
+    expect(integration.tests).toMatchObject({ total: 1, passed: 1 });
+    expect(integration.coverage).toBeUndefined();
+    await f.put(
       "src/mocked.ts",
       "export function neverLoaded() { return 42; }",
     );

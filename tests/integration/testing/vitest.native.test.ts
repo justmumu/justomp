@@ -26,6 +26,24 @@ test("Vitest exact escaped include preserves native setup and ignores sibling pr
     expect(full.tests).toMatchObject({ total: 2, passed: 1, failed: 1 });
     expect(full.coverage?.total).toBeGreaterThan(0);
     expect(full.coverage?.covered).toBe(0);
+    await f.put(
+      "integration.config.ts",
+      "export default {test:{setupFiles:['./integration-setup.ts'],coverage:{enabled:true}}};",
+    );
+    await f.put("integration-setup.ts", "globalThis.integrationSetup=true;");
+    await f.put(
+      "tests/integration/flow.test.ts",
+      "import {test,expect} from 'vitest';test('flow',()=>expect(globalThis.integrationSetup).toBe(true));",
+    );
+    const integration = await f.run(
+      ["tests/integration/flow.test.ts"],
+      ["src/unused.ts"],
+      "full",
+      { suite: "integration", configFile: "integration.config.ts" },
+    );
+    expect(integration.errors).toEqual([]);
+    expect(integration.tests).toMatchObject({ total: 1, passed: 1 });
+    expect(integration.coverage).toBeUndefined();
   } finally {
     await f.dispose();
   }

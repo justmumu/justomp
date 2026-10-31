@@ -67,22 +67,42 @@ export async function nativeFixture(
       tests: string[],
       sources: string[],
       mode: "full" | "targeted" = "full",
+      options: {
+        suite?: "unit" | "integration";
+        integration?: string[];
+        configFile?: string;
+      } = {},
     ) => {
       const artifacts = join(root, `.reports-${++calls}`);
       await mkdir(artifacts);
       const context: TestRunContext = {
-        target,
+        target: {
+          ...target,
+          ...(options.configFile
+            ? { configFile: join(root, options.configFile) }
+            : {}),
+        },
         tools,
         signal,
+        suite: options.suite ?? "unit",
         mode,
         artifacts,
         remainingMs: () => 30000,
-        scope: { tests, selected: tests, sources, fingerprint: "" },
+        scope: {
+          tests,
+          selected: tests,
+          sources,
+          fingerprint: "",
+          integration: options.integration ?? [],
+        },
         policy: {
           include: [],
           exclude: [],
           source: { include: [], exclude: [] },
-          coverage: { enabled: true, minimum: 70 },
+          coverage: {
+            enabled: options.suite !== "integration",
+            minimum: options.suite === "integration" ? 0 : 70,
+          },
         },
       };
       return adapter.run(context);

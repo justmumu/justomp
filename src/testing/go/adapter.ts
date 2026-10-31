@@ -14,6 +14,10 @@ import type {
 import { TestError, type TestSummary, unknownTests } from "../model";
 import { coverageEnabled } from "../native-tools";
 import { testIssue } from "../prepare";
+import {
+  type IntegrationConstraint,
+  validateIntegrationConstraints,
+} from "./constraints";
 import { goCoverage } from "./coverage";
 import { testGoFlags } from "./environment";
 import {
@@ -111,7 +115,10 @@ export const goTestAdapter: TestAdapter = {
           context.signal,
           context.target.scope,
         );
-      const flags = testGoFlags(context.target.scope.env.GOFLAGS ?? "");
+      const flags = testGoFlags(
+        context.target.scope.env.GOFLAGS ?? "",
+        context.suite,
+      );
       await withGoEnvironment(context.target, native, async (baseEnv) => {
         const env = { ...baseEnv, GOFLAGS: flags };
         const enabled = coverageEnabled(context);
@@ -167,6 +174,15 @@ export const goTestAdapter: TestAdapter = {
                 `Selected Go file is inactive in this build environment: ${file}`,
               );
         const inventoryFile = join(context.artifacts, "go-files.json");
+        const constraintsFile = join(context.artifacts, "go-constraints.json");
+        await writeFile(
+          constraintsFile,
+          JSON.stringify(
+            (context.scope.integration ?? []).map((file) =>
+              resolve(context.target.scope.cwd, file),
+            ),
+          ),
+        );
         await writeFile(
           inventoryFile,
           JSON.stringify(
@@ -179,6 +195,7 @@ export const goTestAdapter: TestAdapter = {
             "run",
             fileURLToPath(new URL("./inventory.go", import.meta.url)),
             inventoryFile,
+            constraintsFile,
           ],
           {
             cwd: context.target.scope.cwd,
@@ -192,15 +209,26 @@ export const goTestAdapter: TestAdapter = {
             "collection-failed",
             parsed.stderr || "Go test inventory failed",
           );
-        const inventory = (JSON.parse(parsed.stdout) as GoRunnable[]).map(
-          (r) => ({
-            ...r,
-            file: relative(context.target.scope.cwd, r.file).replaceAll(
+        const parsedInventory = JSON.parse(parsed.stdout) as {
+          runnables: GoRunnable[];
+          constraints: IntegrationConstraint[];
+        };
+        validateIntegrationConstraints(
+          parsedInventory.constraints.map((entry) => ({
+            ...entry,
+            file: relative(context.target.scope.cwd, entry.file).replaceAll(
               "\\",
               "/",
             ),
-          }),
+          })),
         );
+        const inventory = parsedInventory.runnables.map((r) => ({
+          ...r,
+          file: relative(context.target.scope.cwd, r.file).replaceAll(
+            "\\",
+            "/",
+          ),
+        }));
         const plans = packages.map((pkg) => {
           const files = [
               ...(pkg.TestGoFiles ?? []),

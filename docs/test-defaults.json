@@ -58,7 +58,8 @@
         "**/*_test.go"
       ],
       "exclude": [
-        "tests/integration/**"
+        "tests/integration/**",
+        "**/*_integration_test.go"
       ],
       "source": {
         "include": [

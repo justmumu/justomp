@@ -1,6 +1,6 @@
 # justomp
 
-An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint, format and type policy, and running project unit tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
+An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint, format and type policy, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
 
@@ -17,7 +17,7 @@ Use `project_lint({project_id})` for a selected project’s lint and format chec
 
 Use `project_typecheck({project_id})` to prepare and check a selected project with native Pyright, TypeScript or Go. Full preparation includes required Next types and local declarations; Go compiles tests without running them. See [typecheck setup, API/CLI and verified limits](docs/typecheck.md).
 
-Use `project_test({project_id})` for unit tests with pytest, Vitest, Bun or Go. Optional `test_files` selects exact project-relative files; full runs enforce coverage (default 70%). See [test setup, coverage and results](docs/testing.md).
+Use `project_test({project_id})` for unit tests with pytest, Vitest, Bun or Go. Optional `test_files` selects exact project-relative files; full runs enforce coverage (default 70%). Use `project_integration_test({project_id})` for the separate integration scope, with coverage off by default. Both share runner preparation; services remain the test infrastructure’s responsibility. See [test setup, coverage and results](docs/testing.md).
 
 `project_inspect` remains available with optional `refresh: true`. It returns a summary and structured report without running project code or package managers. Session startup calls the same inspection service, fills missing configuration attributes, and publishes `.justomp/packaging_structure.json`. It then starts background lint, typecheck and test tooling/policy preparation outside the inspection deadline; that preparation can install tools and update manifests, locks and native config. Snapshot schema version 2 uses `project_id` instead of `id` in projects and relationship references; this is a pre-release API change. The ID is stable while its manifest's relative location stays the same.
 
@@ -53,7 +53,7 @@ Each tool/getter call rereads the small config file. Rule changes replace the wa
 
 A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next getter refreshes it. Active lint, typecheck and test lifecycles refresh discovery and prepare newly discovered projects in the background. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
 
-`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_typecheck` and `project_test` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
+`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_typecheck`, `project_test` and `project_integration_test` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
 
 Watcher failure or an unverified filesystem disables cache reuse and uses full inspection per call. There is no polling fallback or debounce-driven scan. Shutdown releases subscriptions; sessions using the same root share the watcher until the last session releases it. Set `refresh: true` for an explicit full inspection.
 

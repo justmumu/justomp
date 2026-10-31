@@ -26,3 +26,12 @@ import { resolveTestConfig } from "../../../src/config/test/resolve";
 test("documented test policy matches code defaults", () => {
   expect(testExample.test).toEqual(resolveTestConfig().policy);
 });
+
+import integrationExample from "../../../docs/integration-test-defaults.json";
+import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
+
+test("documented integration policy matches code defaults", () => {
+  expect<unknown>(integrationExample.integration_test).toEqual(
+    resolveIntegrationTestConfig().policy,
+  );
+});

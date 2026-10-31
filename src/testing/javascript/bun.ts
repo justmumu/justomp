@@ -60,7 +60,10 @@ export const bunTestAdapter: TestAdapter = {
         : undefined;
     if (preload) await writeFile(preload, bunPreload(context));
     const existing = parse(
-      (await readOptional(join(context.target.scope.cwd, "bunfig.toml"))) ?? "",
+      (await readOptional(
+        context.target.configFile ??
+          join(context.target.scope.cwd, "bunfig.toml"),
+      )) ?? "",
     );
     const config = join(context.artifacts, "bunfig.toml");
     await writeFile(config, stringify(bunConfig(context, existing, preload)));

@@ -1,4 +1,4 @@
-import { TestError } from "../model";
+import { TestError, type TestSuite } from "../model";
 
 const build = new Set([
   "tags",
@@ -42,8 +42,9 @@ const owned = new Set([
   "parallel",
 ]);
 /** Go's quoted.Fields treats quotes only at field starts, without shell expansion. */
-export function testGoFlags(input: string): string {
+export function testGoFlags(input: string, suite: TestSuite = "unit"): string {
   const fields: string[] = [];
+  let tags: string[] | undefined;
   let rest = input;
   while (rest.trimStart()) {
     rest = rest.trimStart();
@@ -69,7 +70,22 @@ export function testGoFlags(input: string): string {
         "unsupported-config",
         `Unsupported GOFLAGS control: ${field}`,
       );
-    fields.push(raw);
+    if (name === "tags")
+      tags = field
+        .slice(field.indexOf("=") + 1)
+        .split(/[ ,]+/)
+        .filter(Boolean);
+    else fields.push(raw);
   }
-  return [...fields, "-mod=readonly"].join(" ");
+  const effectiveTags = [
+    ...new Set((tags ?? []).filter((tag) => tag !== "integration")),
+  ];
+  if (suite === "integration") effectiveTags.push("integration");
+  return [
+    ...fields,
+    ...(tags || effectiveTags.length
+      ? [`-tags=${effectiveTags.join(",")}`]
+      : []),
+    "-mod=readonly",
+  ].join(" ");
 }
