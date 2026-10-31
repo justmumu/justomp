@@ -1,6 +1,6 @@
 import { redact } from "../dependencies/model";
 import type { Project } from "../inspect/model";
-import type { LintCheck, LintPreparation, LintResult } from "./model";
+import type { LintCheck, LintFix, LintPreparation, LintResult } from "./model";
 
 export interface LintOutcome {
   preparation: LintPreparation;
@@ -8,6 +8,7 @@ export interface LintOutcome {
   policyHash: string;
   selectedReady: boolean;
   failure?: string;
+  fix?: LintFix;
 }
 /** Compose the public result from completed stages and preparation evidence. */
 export function lintResult(
@@ -15,11 +16,23 @@ export function lintResult(
   outcome: LintOutcome,
   aborted: boolean,
 ): LintResult {
-  const { preparation, checks, policyHash, selectedReady, failure } = outcome;
-  const cancelled = aborted || checks.some((c) => c.cancelled);
-  const truncated = checks.some((c) => c.truncated);
+  const { preparation, checks, policyHash, selectedReady, failure, fix } =
+    outcome;
+  const cancelled =
+    aborted ||
+    fix?.cancelled === true ||
+    fix?.status === "cancelled" ||
+    checks.some((c) => c.cancelled);
+  const truncated = fix?.truncated === true || checks.some((c) => c.truncated);
+  const fixComplete =
+    !fix ||
+    fix.status === "completed" ||
+    fix.status === "unsupported" ||
+    (fix.status === "not-run" && fix.reason === "no-sources");
   const complete =
     !failure &&
+    fixComplete &&
+    (!fix || (fix.observation_complete && !fix.errors.length)) &&
     selectedReady &&
     !cancelled &&
     !truncated &&
@@ -31,13 +44,18 @@ export function lintResult(
     policy_hash: policyHash,
     success: complete && checks.every((c) => c.status === "passed"),
     preparation,
+    ...(fix ? { fix } : {}),
     checks,
     diagnostics: checks.flatMap((c) => c.diagnostics),
     complete,
     truncated,
     cancelled,
-    partial_change: !preparation.complete && preparation.changes.length > 0,
+    partial_change:
+      (!preparation.complete && preparation.changes.length > 0) ||
+      (!complete && (fix?.changed_files.length ?? 0) > 0),
     incomplete_stages: [
+      ...(!fixComplete ? ["fix"] : []),
+      ...(fix && !fix.observation_complete ? ["observation"] : []),
       ...(!selectedReady ? ["preparation"] : []),
       ...checks
         .filter((c) => c.status === "not-run" || c.truncated || c.cancelled)
@@ -49,6 +67,7 @@ export function lintResult(
     remediation: [
       ...new Set([
         ...(failure ? [redact(failure)] : []),
+        ...(fix?.errors.map((issue) => redact(issue.message)) ?? []),
         ...checks.flatMap((c) => (c.reason ? [c.reason] : [])),
         ...(!selectedReady
           ? [

@@ -7,6 +7,7 @@ import { formatPython } from "../../../src/format/engines/python";
 import { collectFormatScope } from "../../../src/format/scope";
 import { selectFormatFiles } from "../../../src/format/selection";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
+import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { VERSION } from "../../fixtures/lint/python/fixture";
 import { cleanups, fixture } from "./python-fixture";
@@ -37,6 +38,25 @@ test("native Python pins dev Ruff, verifies environment, and checks both stages 
       expect(checks[1]?.diagnostics[0]?.project_path).toBe("module.py");
     if (lint === "failed")
       expect(checks[0]?.diagnostics.some((d) => d.rule === "F401")).toBe(true);
+    if (lint === "failed") {
+      const fix = pendingLintFix("python");
+      const metadata = await readFile(join(f.root, "pyproject.toml"), "utf8");
+      await applyLintFix(context, pythonAdapter, fix);
+      expect(fix).toMatchObject({
+        status: "completed",
+        changed_files: ["module.py"],
+        observation_complete: true,
+      });
+      expect(await readFile(join(f.root, "module.py"), "utf8")).not.toBe(
+        source,
+      );
+      expect(
+        (await pythonAdapter.check(context)).map((check) => check.status),
+      ).toEqual(["passed", "failed"]);
+      expect(await readFile(join(f.root, "pyproject.toml"), "utf8")).toBe(
+        metadata,
+      );
+    }
     if (format === "failed") {
       const manifest = await readFile(join(f.root, "pyproject.toml"), "utf8");
       const untouched = "OTHER = 'unchanged'\n";

@@ -57,6 +57,23 @@ export interface LintPreparation {
   cancelled: boolean;
   errors: { code: string; message: string; project_id?: string }[];
 }
+export interface LintFix {
+  requested: true;
+  /** null until a target has been resolved. */
+  supported: boolean | null;
+  status: "not-run" | "completed" | "unsupported" | "failed" | "cancelled";
+  /** Observed source differences, relative to the repository root. */
+  changed_files: string[];
+  observation_complete: boolean;
+  errors: { code: string; message: string; path?: string }[];
+  reason?: string;
+  tool?: string;
+  version?: string | null;
+  exit_code?: number | null;
+  duration_ms?: number;
+  truncated?: boolean;
+  cancelled?: boolean;
+}
 export interface LintResult {
   project_id: string;
   relative_path: string;
@@ -64,6 +81,7 @@ export interface LintResult {
   policy_hash: string;
   success: boolean;
   preparation: LintPreparation;
+  fix?: LintFix;
   checks: LintCheck[];
   diagnostics: LintDiagnostic[];
   complete: boolean;

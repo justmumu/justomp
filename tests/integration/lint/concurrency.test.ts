@@ -8,6 +8,7 @@ import {
   retainLintCoordinator,
   withReadyLintTarget,
 } from "../../../src/lint/coordinator";
+import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import { resolveLintTarget } from "../../../src/lint/targets";
 import { getPackagingStructure } from "../../../src/packaging/get-structure";
 import { fixture } from "./fixture";
@@ -30,6 +31,8 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   const f = await fixture();
   const coordinator = await f.start();
   await coordinator.reconcile();
+  // Keep the deliberately stale environment from being repaired by the watcher.
+  await coordinator.shutdown();
   const selected = await target(f.root);
   const entered = deferred(),
     release = deferred();
@@ -285,4 +288,72 @@ test("owners of a stopped instance cannot keep its replacement alive or evict it
     await first.release();
     await second.release();
   }
+});
+
+test("cancelled source fixing observes final child writes before releasing dependency domains", async () => {
+  const f = await fixture();
+  const coordinator = await f.start();
+  await coordinator.reconcile();
+  await writeFile(join(f.root, "a/module.py"), "before\n");
+  const selected = await target(f.root),
+    controller = new AbortController();
+  const entered = deferred();
+  const marker = join(f.root, "fix-started");
+  f.adapter.fix = async (context) => {
+    const child = runProcess(
+      process.execPath,
+      [
+        "-e",
+        `const fs = require('fs'); process.on('SIGTERM', () => setTimeout(() => { fs.writeFileSync(process.env.SOURCE, 'after termination\\n'); process.exit(0); }, 60)); fs.writeFileSync(process.env.SOURCE, 'during fix\\n'); fs.writeFileSync(process.env.STARTED, 'ready'); setInterval(() => {}, 1000);`,
+      ],
+      {
+        cwd: context.target.scope.cwd,
+        env: {
+          ...process.env,
+          SOURCE: join(f.root, "a/module.py"),
+          STARTED: marker,
+        },
+        signal: context.signal,
+      },
+    );
+    for (let attempt = 0; attempt < 100; attempt++) {
+      try {
+        await access(marker);
+        entered.resolve();
+        break;
+      } catch {
+        await Bun.sleep(5);
+      }
+    }
+    return child;
+  };
+  const fix = pendingLintFix("python");
+  const running = withReadyLintTarget(
+    f.root,
+    selected.project.project_id,
+    { python: f.adapter },
+    (context) => applyLintFix(context, f.adapter, fix),
+    controller.signal,
+  );
+  const outcome = running.then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await entered.promise;
+  let writerStarted = false;
+  const waiting = withDomains(selected.scope.domains, undefined, async () => {
+    writerStarted = true;
+    expect(await readFile(join(f.root, "a/module.py"), "utf8")).toBe(
+      "after termination\n",
+    );
+    expect(fix.changed_files).toEqual(["a/module.py"]);
+  });
+  expect(writerStarted).toBe(false);
+  controller.abort();
+  expect(await outcome).toBeInstanceOf(Error);
+  await waiting;
+  expect(fix).toMatchObject({
+    status: "cancelled",
+    observation_complete: true,
+  });
 });

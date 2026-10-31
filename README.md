@@ -13,7 +13,7 @@ Start a new OMP session in the project you want to inspect. Local installation l
 
 Start with `list_projects({})` to get project IDs, then `dependency_list({project_id})` to inspect declarations and supported groups. Use `dependency_add`, `dependency_remove`, `dependency_update` and `dependency_sync` for native changes. Each operation selects its manager from project metadata; the agent supplies no executable, command or working directory. See [dependency tools and tested capabilities](docs/dependencies.md) for request examples, approval behavior and native limits.
 
-Use `project_lint({project_id})` for a selected project’s lint and format checks. It can prepare native dev tools and shared configuration before checking. Python uses Ruff, JS/TS uses ESLint + Prettier, and Go uses golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
+Use `project_lint({project_id})` for a selected project’s lint and format checks. Pass `fix: true` to apply Ruff safe fixes or standard ESLint autofix before checking; Go reports that autofix is unsupported and still checks. Formatting remains a separate `project_format` call. It can prepare native dev tools and shared configuration before checking. Python uses Ruff, JS/TS uses ESLint + Prettier, and Go uses golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
 
 Use `project_format({project_id})` to format and save a selected project’s files, or pass `files: ["src/main.py", "pyproject.toml"]` for exact project-relative selection. Python uses Ruff, Go uses gofumpt/goimports, and bundled Prettier handles JS/TS, TOML and common document/config formats. See [format selection, shared settings and partial results](docs/format.md).
 

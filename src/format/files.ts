@@ -1,40 +1,26 @@
-import { lstat } from "node:fs/promises";
-import { relative, resolve, sep } from "node:path";
-import { within } from "../dependencies/paths";
 import {
+  assertSourcePath,
   type FileSnapshot,
   publishProjectionFile,
-  readProjectionFile,
+  readSourceFile,
 } from "../lint/files";
+import { LintError } from "../lint/model";
 import { FormatError } from "./model";
 
-/** Reject every symlink component, including aliases that resolve inside the project. */
-async function assertPath(root: string, path: string): Promise<void> {
-  if (!within(root, path))
-    throw new FormatError("unsafe-path", "Format path is outside the project");
-  let current = root;
-  for (const part of ["", ...relative(root, path).split(sep)]) {
-    current = resolve(current, part);
-    const stat = await lstat(current);
-    if (
-      stat.isSymbolicLink() ||
-      (current === path ? !stat.isFile() : !stat.isDirectory())
-    )
-      throw new FormatError(
-        "unsafe-path",
-        `Refusing unsafe format path: ${path}`,
-      );
+async function formatFileOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof LintError)
+      throw new FormatError(error.code, error.message);
+    throw error;
   }
 }
 export async function readFormatFile(
   root: string,
   path: string,
 ): Promise<FileSnapshot & { text: string }> {
-  await assertPath(root, path);
-  const before = await readProjectionFile(root, path);
-  if (before.text === null)
-    throw new FormatError("file-missing", `Format file disappeared: ${path}`);
-  return { ...before, text: before.text };
+  return formatFileOperation(() => readSourceFile(root, path));
 }
 export async function publishFormatFile(
   root: string,
@@ -44,7 +30,7 @@ export async function publishFormatFile(
   signal?: AbortSignal,
 ): Promise<void> {
   await publishProjectionFile(root, path, before, content, async () => {
-    await assertPath(root, path);
+    await formatFileOperation(() => assertSourcePath(root, path));
     signal?.throwIfAborted();
   });
 }

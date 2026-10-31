@@ -292,6 +292,25 @@ export const javascriptAdapter: LintAdapter = {
       return false;
     }
   },
+  async fix(context, files) {
+    const native = await lintManagerContext(context.target, context.signal);
+    return localTool(
+      context.target,
+      native,
+      { package: "eslint", binary: "eslint" },
+      [
+        "--no-config-lookup",
+        "--fix",
+        "--config",
+        context.projection.configs.lint,
+        "--format",
+        join(import.meta.dir, "../javascript/formatter.cjs"),
+        "--",
+        ...files.map((file) => `./${file}`),
+      ],
+      context.signal,
+    );
+  },
   async check(context) {
     const scope = await collectLintScope(context.target);
     const checks: LintCheck[] = [];

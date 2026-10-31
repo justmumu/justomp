@@ -80,6 +80,10 @@ function fixture(language: "python" | "javascript") {
     formatted,
     results,
     check: () => adapter.check(context),
+    fix: () => {
+      if (!adapter.fix) throw new Error("Missing fixture fixer");
+      return adapter.fix(context, ["module.py", "index.ts"]);
+    },
   };
 }
 for (const language of ["python", "javascript"] as const) {
@@ -236,3 +240,24 @@ test("bundled Prettier parse errors leave format incomplete and report its runti
     diagnostics: [],
   });
 });
+
+for (const language of ["python", "javascript"] as const) {
+  test(`${language} native fixer uses prepared executable, exact files and explicit fix policy`, async () => {
+    const f = fixture(language);
+    f.results(output({ exit_code: 1 }));
+    expect((await f.fix()).exit_code).toBe(1);
+    const argv = JSON.stringify(f.invoke.mock.calls);
+    expect(argv).toContain("--fix");
+    expect(argv).not.toContain('"--no-fix"');
+    expect(argv).toContain(f.context.projection.configs.lint);
+    expect(argv).toContain("./module.py");
+    expect(argv).toContain("./index.ts");
+    if (language === "python") {
+      expect(argv).toContain("--no-unsafe-fixes");
+      expect(argv).toContain("--no-fix-only");
+      expect(argv).toContain("--force-exclude");
+    } else expect(argv).not.toContain("--fix-type");
+    expect(f.formatted).not.toHaveBeenCalled();
+    expect(f.invoke).toHaveBeenCalledTimes(1);
+  });
+}

@@ -84,7 +84,7 @@ Lint preparation also uses these native managers under the same queue lease, ins
 | Bun | 1.4.2 | >=1.4.0, <1.5.0 | runtime, dev, optional, peer |
 | Go | 1.25.6 | >=1.25.0, <1.26.0 | runtime |
 
-The exact binaries above have native fixture evidence on macOS; accepted families are compatibility bounds, not a claim that every patch release was tested. Linux process-runner cancellation/output tests have also passed in a container. Linux manager matrices and Windows runner/manager behavior remain unverified. Modern Yarn starts at 4.12 because that release works with the tested Git 2.52 behavior. Machine-readable versions are recorded in `tests/fixtures/dependencies/manager-versions.json`.
+The exact binaries above have native fixture evidence on macOS arm64 and Linux arm64; accepted families are compatibility bounds, not a claim that every patch release was tested. The Linux full gate included all supported manager fixtures and process-runner cancellation/output tests in a container with ext4 fixtures and an init process. Linux x64 and Windows runner/manager behavior remain unverified. Modern Yarn starts at 4.12 because that release works with the tested Git 2.52 behavior. Machine-readable versions are recorded in `tests/fixtures/dependencies/manager-versions.json`.
 
 Project-required manager versions are checked separately. uv numeric PEP 440 clauses and equality wildcards are supported; unknown forms return `unsupported-manager-requirement`. Missing binaries, mismatched requirements, unknown managers and conflicting selection evidence fail explicitly. Auto-download and auto-pin launcher behavior is disabled per call.
 
