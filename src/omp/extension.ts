@@ -15,6 +15,7 @@ import { retainTypecheckCoordinator } from "../typecheck/coordinator";
 import { typecheckAdapters } from "../typecheck/service";
 import { registerDependencyTools } from "./dependency-tools";
 import { registerLintTools } from "./lint-tools";
+import { registerProtection } from "./protection";
 import { registerTestTools } from "./test-tools";
 import { registerTypecheckTools } from "./typecheck-tools";
 
@@ -46,6 +47,7 @@ function describeError(error: unknown) {
   };
 }
 export default function registerInspection(pi: ExtensionAPI): void {
+  registerProtection(pi);
   let scope: Scope | undefined;
   let closed = false;
   let transition: Promise<void> = Promise.resolve();

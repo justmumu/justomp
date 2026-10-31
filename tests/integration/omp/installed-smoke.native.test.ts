@@ -68,6 +68,8 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
     expect(await realpath(entry)).toStartWith(await realpath(installation));
     for (const path of [
       "docs/dependencies.md",
+      "docs/protection.md",
+      "src/protection/sandbox.ts",
       "docs/lint.md",
       "docs/lint-defaults.json",
       "docs/typecheck.md",

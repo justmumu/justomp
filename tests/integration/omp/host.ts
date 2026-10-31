@@ -19,6 +19,7 @@ export async function createHost(
   entry = new URL("../../../src/index.ts", import.meta.url).pathname,
   deny: boolean | string[] = false,
   factory?: ExtensionFactory,
+  approvals: Record<string, "allow" | "deny"> = {},
 ) {
   const loaded = factory
     ? await bindPreparedExtensions(
@@ -35,6 +36,7 @@ export async function createHost(
   const settings = Settings.isolated({
     "tools.approvalMode": "write",
     "tools.approval": {
+      ...approvals,
       ...Object.fromEntries(
         [
           "project_lint",
