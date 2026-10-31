@@ -13,6 +13,7 @@
     "docs/inspection.md",
     "docs/protection.md",
     "docs/dependencies.md",
+    "docs/format.md",
     "docs/lint.md",
     "docs/lint-defaults.json",
     "docs/typecheck.md",
@@ -26,6 +27,7 @@
     "./packaging": "./src/packaging/get-structure.ts",
     "./dependencies": "./src/dependencies/index.ts",
     "./lint": "./src/lint/index.ts",
+    "./format": "./src/format/index.ts",
     "./typecheck": "./src/typecheck/index.ts",
     "./testing": "./src/testing/index.ts"
   },
@@ -46,9 +48,11 @@
   },
   "dependencies": {
     "chokidar": "6.0.0",
+    "picomatch": "4.0.7",
+    "prettier": "3.9.10",
+    "prettier-plugin-toml": "2.0.6",
     "smol-toml": "1.9.1",
-    "yaml": "2.9.1",
-    "picomatch": "4.0.7"
+    "yaml": "2.9.1"
   },
   "peerDependencies": {
     "@oh-my-pi/pi-coding-agent": "18.13.3"

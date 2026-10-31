@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveFormatConfig } from "../../src/config/format/resolve";
 import { INSPECTION_DEFAULTS } from "../../src/config/inspection/defaults";
 import { resolveIntegrationTestConfig } from "../../src/config/integration-test/resolve";
 import { resolveLintConfig } from "../../src/config/lint/resolve";
@@ -51,6 +52,7 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8")),
   ).toEqual({
     extra: 4,
+    format: resolveFormatConfig().policy,
     lint: resolveLintConfig().policy,
     typecheck: resolveTypecheckConfig().policy,
     test: resolveTestConfig().policy,
@@ -245,4 +247,20 @@ test("integration policy flush preserves explicit leaves and has independent key
   expect(after.testingKey).not.toBe(before.testingKey);
   for (const key of ["key", "testKey", "lintKey", "typecheckKey"] as const)
     expect(after[key]).toBe(before[key]);
+});
+
+test("format flush preserves legacy preferences while lint consumes the new shared settings", async () => {
+  const root = await fixture({
+    lint: { javascript: { prettier: { singleQuote: true, printWidth: 88 } } },
+    format: { prettier: { printWidth: 100 } },
+  });
+  const first = await loadConfig(root, { flush: true });
+  expect(first.format.prettier.singleQuote).toBe(true);
+  expect(first.lint.javascript.prettier.printWidth).toBe(100);
+  const saved = JSON.parse(
+    await readFile(join(root, ".justomp/config.json"), "utf8"),
+  );
+  expect(saved.lint.javascript.prettier.printWidth).toBe(88);
+  expect(saved.format.prettier.printWidth).toBe(100);
+  expect((await loadConfig(root, { flush: true })).wrote).toBe(false);
 });

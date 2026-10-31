@@ -4,6 +4,29 @@ import type { PythonPolicy } from "../model";
 export const PYTHON_DEFAULTS: PythonPolicy = {
   ruff: {
     "line-length": 120,
+    // Explicit shared policy keeps selection independent of retained Ruff versions.
+    exclude: [
+      ".bzr",
+      ".direnv",
+      ".eggs",
+      ".git",
+      ".git-rewrite",
+      ".hg",
+      ".mypy_cache",
+      ".nox",
+      ".pants.d",
+      ".pytype",
+      ".ruff_cache",
+      ".svn",
+      ".tox",
+      ".venv",
+      "__pypackages__",
+      "_build",
+      "buck-out",
+      "dist",
+      "node_modules",
+      "venv",
+    ],
     "extend-exclude": [".private"],
     lint: {
       select: [

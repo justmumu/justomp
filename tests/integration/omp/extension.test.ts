@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
 import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTestConfig } from "../../../src/config/test/resolve";
@@ -51,6 +52,7 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
     inspection_rules: { exclude: [], include: ["**/*"] },
     custom: 7,
     lint: resolveLintConfig().policy,
+    format: FORMAT_DEFAULTS,
     typecheck: resolveTypecheckConfig().policy,
     test: resolveTestConfig().policy,
     integration_test: resolveIntegrationTestConfig().policy,

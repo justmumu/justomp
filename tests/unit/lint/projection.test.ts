@@ -30,7 +30,7 @@ test("Python narrow editing rejects ambiguous inline containers without mutation
 });
 
 for (const [key, value] of [
-  ["exclude", '["*"]'],
+  ["respect-gitignore", "false"],
   ["include", '["only.py"]'],
   ["extend", '"../other/ruff.toml"'],
   ["preview", "true"],

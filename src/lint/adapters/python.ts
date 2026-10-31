@@ -23,7 +23,7 @@ import type {
   LintOperationContext,
 } from "./types";
 
-function binary(target: LintTarget, name = "ruff"): string {
+export function pythonBinary(target: LintTarget, name = "ruff"): string {
   return join(
     resolve(
       target.scope.owner,
@@ -157,7 +157,7 @@ export const pythonAdapter: LintAdapter = {
       try {
         await lstat(environment);
         environmentExists = true;
-        existing = await realpath(binary(target, "python"));
+        existing = await realpath(pythonBinary(target, "python"));
       } catch (error) {
         if (
           (error as NodeJS.ErrnoException).code !== "ENOENT" ||
@@ -269,7 +269,7 @@ export const pythonAdapter: LintAdapter = {
         return false;
       const executable = await safePath(
         context.target.root,
-        binary(context.target),
+        pythonBinary(context.target),
       );
       const result = await runProcess(executable, ["--version"], {
         cwd: context.target.scope.cwd,
@@ -306,7 +306,7 @@ export const pythonAdapter: LintAdapter = {
       try {
         const executable = await safePath(
           context.target.root,
-          binary(context.target),
+          pythonBinary(context.target),
         );
         const result = await runProcess(
           executable,

@@ -14,6 +14,7 @@ import { testAdapters } from "../testing/service";
 import { retainTypecheckCoordinator } from "../typecheck/coordinator";
 import { typecheckAdapters } from "../typecheck/service";
 import { registerDependencyTools } from "./dependency-tools";
+import { registerFormatTools } from "./format-tools";
 import { registerLintTools } from "./lint-tools";
 import { registerProtection } from "./protection";
 import { registerTestTools } from "./test-tools";
@@ -279,6 +280,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
     }
   }
   registerDependencyTools(pi, (root, signal, work) =>
+    track(withRoot(root, signal, work)),
+  );
+  registerFormatTools(pi, (root, signal, work) =>
     track(withRoot(root, signal, work)),
   );
   registerLintTools(

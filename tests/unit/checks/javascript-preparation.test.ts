@@ -136,7 +136,9 @@ for (const feature of ["lint", "typecheck"] as const)
       test(`${feature} ${manager} ${installed ? "updates" : "adds"} exact dev tools through its dependency adapter`, async () => {
         const f = fixture(manager, feature, installed);
         await f.run();
-        const tools = Object.entries(f.tools);
+        const tools = Object.entries(f.tools).filter(
+          ([name]) => name !== "prettier",
+        );
         expect(f.requests).toHaveLength(1);
         expect(f.requests[0]).toEqual(
           installed
@@ -202,3 +204,20 @@ for (const feature of ["lint", "typecheck"] as const)
     );
     expect(f.f.files.get(`${f.f.root}/lock`)).toBe("native lock output");
   });
+
+test("a legacy Prettier pin leaves the user's existing dependency untouched", async () => {
+  const f = fixture("npm", "lint", true);
+  const manifest = JSON.stringify({
+    name: "app",
+    dependencies: { prettier: "^3.5.0" },
+  });
+  f.f.write("package.json", manifest);
+  f.context.versions = {
+    [f.context.targets[0]?.project.project_id ?? ""]: { prettier: "3.6.2" },
+  };
+  await f.run();
+  expect(f.requests).toEqual([]);
+  expect(f.steps).toEqual([]);
+  expect(f.context.changes).toEqual([]);
+  expect(f.f.files.get(`${f.f.root}/package.json`)).toBe(manifest);
+});

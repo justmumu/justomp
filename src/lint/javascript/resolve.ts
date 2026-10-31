@@ -14,7 +14,7 @@ import {
   toolMetadata,
   validateCompatibility,
 } from "./compatibility";
-import { requiredJavascriptTools } from "./tools";
+import { nativeJavascriptTools, requiredJavascriptTools } from "./tools";
 
 export async function resolveJavascript(
   targets: LintTarget[],
@@ -22,6 +22,12 @@ export async function resolveJavascript(
   signal: AbortSignal,
   existing: Record<string, ToolVersions> = {},
 ): Promise<Record<string, ToolVersions>> {
+  existing = Object.fromEntries(
+    Object.entries(existing).map(([id, tools]) => [
+      id,
+      nativeJavascriptTools(tools),
+    ]),
+  );
   const required = await Promise.all(
     targets.map((target) => requiredJavascriptTools(target, policy.javascript)),
   );

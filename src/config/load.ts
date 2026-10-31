@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import type { FormatPolicy } from "./format/model";
+import { formatPolicyKey, resolveFormatConfig } from "./format/resolve";
 import { INSPECTION_DEFAULTS } from "./inspection/defaults";
 import type { InspectionRules } from "./inspection/model";
 import { validateRules } from "./inspection/validate";
@@ -16,6 +18,8 @@ import {
   typecheckPolicyKey,
 } from "./typecheck/resolve";
 export interface LoadedConfig {
+  format: FormatPolicy;
+  formatKey: string;
   rules: InspectionRules;
   key: string;
   lint: LintPolicy;
@@ -62,6 +66,8 @@ async function read(root: string): Promise<{
   typecheck: TypecheckPolicy;
   test: TestPolicy;
   integrationTest: TestPolicy;
+  format: FormatPolicy;
+  storedLint: LintPolicy;
   missing: boolean;
   identity: string | null;
 }> {
@@ -107,6 +113,7 @@ async function read(root: string): Promise<{
     : INSPECTION_DEFAULTS.exclude;
   const rules = { include, exclude };
   validateRules(rules);
+  let format: ReturnType<typeof resolveFormatConfig>;
   let lint: ReturnType<typeof resolveLintConfig>;
   let typecheck: ReturnType<typeof resolveTypecheckConfig>;
   let test: ReturnType<typeof resolveTestConfig>;
@@ -123,6 +130,10 @@ async function read(root: string): Promise<{
     lint = resolveLintConfig(
       Object.hasOwn(object, "lint") ? object.lint : undefined,
     );
+    format = resolveFormatConfig(
+      object.format,
+      lint.policy.javascript.prettier,
+    );
     typecheck = resolveTypecheckConfig(
       Object.hasOwn(object, "typecheck") ? object.typecheck : undefined,
     );
@@ -135,11 +146,20 @@ async function read(root: string): Promise<{
     text,
     object,
     rules,
-    lint: lint.policy,
+    storedLint: lint.policy,
+    format: format.policy,
+    lint: {
+      ...lint.policy,
+      javascript: {
+        ...lint.policy.javascript,
+        prettier: format.policy.prettier,
+      },
+    },
     typecheck: typecheck.policy,
     test: test.policy,
     integrationTest: integrationTest.policy,
     missing:
+      format.missing ||
       integrationTest.missing ||
       test.missing ||
       lint.missing ||
@@ -158,6 +178,8 @@ async function execute(
   const initial = await read(root);
   signal?.throwIfAborted();
   const result = {
+    format: initial.format,
+    formatKey: formatPolicyKey(initial.format),
     rules: initial.rules,
     key: JSON.stringify(initial.rules),
     lint: initial.lint,
@@ -182,7 +204,8 @@ async function execute(
   const raw = initial.object.inspection_rules ?? {};
   const object = {
     ...initial.object,
-    lint: initial.lint,
+    lint: initial.storedLint,
+    format: initial.format,
     typecheck: initial.typecheck,
     test: initial.test,
     integration_test: initial.integrationTest,

@@ -11,7 +11,7 @@ import type {
   LintOperationContext,
   ToolVersions,
 } from "./adapters/types";
-import { LintError, type LintPreparation } from "./model";
+import { type LintEcosystem, LintError, type LintPreparation } from "./model";
 import { applyProjection, planProjection } from "./projection";
 import { LintStateStore } from "./state";
 import { type LintTarget, resolveLintTarget } from "./targets";
@@ -51,9 +51,11 @@ export function preparationFailure(error: unknown, project_id?: string) {
 async function targets(
   structure: PackagingStructure,
   errors: LintPreparation["errors"],
+  ecosystems: readonly LintEcosystem[],
 ): Promise<LintTarget[]> {
   const result: LintTarget[] = [];
   for (const project of structure.projects) {
+    if (!ecosystems.includes(project.ecosystem)) continue;
     try {
       result.push(await resolveLintTarget(structure, project.project_id));
     } catch (error) {
@@ -299,13 +301,14 @@ export async function prepareLint(
   adapters: LintAdapterRegistry,
   signal: AbortSignal,
   onProgress?: (progress: PreparationProgress) => void,
+  ecosystems: readonly LintEcosystem[] = ["python", "javascript", "go"],
 ): Promise<PreparationReport> {
   for (;;) {
     signal.throwIfAborted();
     const before = await getPackagingStructure(root, { signal });
     const domains = lintDomains(
       before.structure.root,
-      await targets(before.structure, []),
+      await targets(before.structure, [], ecosystems),
     );
     const result = await withDomains(domains, signal, async () => {
       const report: PreparationReport = { ...initial(), projects: {} };
@@ -313,7 +316,7 @@ export async function prepareLint(
         refresh: true,
         signal,
       });
-      const selected = await targets(structure, report.errors);
+      const selected = await targets(structure, report.errors, ecosystems);
       if (
         JSON.stringify(lintDomains(structure.root, selected)) !==
         JSON.stringify(domains)

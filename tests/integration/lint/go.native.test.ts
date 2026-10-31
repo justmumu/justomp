@@ -1,12 +1,22 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { access, mkdir, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { runProcess } from "../../../src/dependencies/runner";
+import { formatGo } from "../../../src/format/engines/go";
+import { assertFormatProcess } from "../../../src/format/engines/process";
 import { goLintAdapter } from "../../../src/lint/adapters/go";
 import { withGoEnvironment } from "../../../src/lint/go/environment";
 import { golangciPath } from "../../../src/lint/go/install";
 import { lintManagerContext } from "../../../src/lint/runtime";
+import { measureFixture } from "../../fixtures/cost-timing";
 import {
   artifactTransport,
   GO_LINT_VERSION,
@@ -22,7 +32,7 @@ afterEach(async () => {
 test("native Go setup is isolated and clean/format-only checks preserve project bytes", async () => {
   const f = await goFixture();
   cleanups.push(f.dispose);
-  await f.prepare();
+  await measureFixture("format.go.prepare", () => f.prepare());
   expect(await goLintAdapter.verify(await f.checkContext())).toBe(true);
   const before = await f.bytes();
   expect(
@@ -42,6 +52,16 @@ test("native Go setup is isolated and clean/format-only checks preserve project 
     ),
   ).toBe(true);
   expect(await f.bytes()).toEqual(unformatted);
+  const context = await f.checkContext();
+  const untouched = "package main\nfunc untouched(){}\n";
+  await writeFile(join(f.root, "other.go"), untouched);
+  assertFormatProcess(await formatGo(context, ["main.go"]), "golangci-lint");
+  expect(await readFile(join(f.root, "other.go"), "utf8")).toBe(untouched);
+  await unlink(join(f.root, "other.go"));
+  expect((await goLintAdapter.check(context))[1]?.status).toBe("passed");
+  const formatted = await f.bytes();
+  assertFormatProcess(await formatGo(context, ["main.go"]), "golangci-lint");
+  expect(await f.bytes()).toEqual(formatted);
 }, 90000);
 
 test("go.work resolves imported members while selected package scope excludes nested modules", async () => {

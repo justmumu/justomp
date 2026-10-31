@@ -1,6 +1,6 @@
 # justomp
 
-An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint, format and type policy, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
+An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint and type policy, formatting files, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
 
@@ -14,6 +14,8 @@ Start a new OMP session in the project you want to inspect. Local installation l
 Start with `list_projects({})` to get project IDs, then `dependency_list({project_id})` to inspect declarations and supported groups. Use `dependency_add`, `dependency_remove`, `dependency_update` and `dependency_sync` for native changes. Each operation selects its manager from project metadata; the agent supplies no executable, command or working directory. See [dependency tools and tested capabilities](docs/dependencies.md) for request examples, approval behavior and native limits.
 
 Use `project_lint({project_id})` for a selected project’s lint and format checks. It can prepare native dev tools and shared configuration before checking. Python uses Ruff, JS/TS uses ESLint + Prettier, and Go uses golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
+
+Use `project_format({project_id})` to format and save a selected project’s files, or pass `files: ["src/main.py", "pyproject.toml"]` for exact project-relative selection. Python uses Ruff, Go uses gofumpt/goimports, and bundled Prettier handles JS/TS, TOML and common document/config formats. See [format selection, shared settings and partial results](docs/format.md).
 
 Use `project_typecheck({project_id})` to prepare and check a selected project with native Pyright, TypeScript or Go. Full preparation includes required Next types and local declarations; Go compiles tests without running them. See [typecheck setup, API/CLI and verified limits](docs/typecheck.md).
 
@@ -43,7 +45,7 @@ Do not create a config file just to enable the extension. At session startup, th
 }
 ```
 
-The same file also contains `lint`, `typecheck` and `test` policies for Python, JavaScript and Go. See the [inspection and lint defaults](docs/lint-defaults.json) and [typecheck defaults](docs/typecheck-defaults.json) and [test defaults](docs/test-defaults.json), which together describe the root config.
+The same file also contains `format`, `lint`, `typecheck`, `test` and `integration_test` policies for Python, JavaScript and Go. See the [inspection and lint defaults](docs/lint-defaults.json) and [typecheck defaults](docs/typecheck-defaults.json) and [test defaults](docs/test-defaults.json), alongside [format settings](docs/format.md#shared-configuration).
 
 Every field is optional. Startup fills only absent fields. Existing arrays replace defaults, including empty arrays, and unknown fields are preserved. For example, an existing `exclude: []` remains empty; startup adds missing fields without changing that array. Lint rule maps and Pyright diagnostic maps also replace their defaults, including `{}`. Explicit `false` values remain unchanged. Invalid config is reported without rewriting it.
 
@@ -55,7 +57,7 @@ Each tool/getter call rereads the small config file. Rule changes replace the wa
 
 A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next getter refreshes it. Active lint, typecheck and test lifecycles refresh discovery and prepare newly discovered projects in the background. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
 
-`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_typecheck`, `project_test` and `project_integration_test` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
+`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_format`, `project_typecheck`, `project_test` and `project_integration_test` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
 
 Watcher failure or an unverified filesystem disables cache reuse and uses full inspection per call. There is no polling fallback or debounce-driven scan. Shutdown releases subscriptions; sessions using the same root share the watcher until the last session releases it. Set `refresh: true` for an explicit full inspection.
 
@@ -84,7 +86,7 @@ A session can retain its root once and release it at shutdown. Failed or incompl
 
 ## Development
 
-Configuration definitions live under `src/config/`: `inspection/` owns discovery defaults, types and validation; `lint/` and `typecheck/` own their shared policy types and resolution, with `python/`, `javascript/` and `go/` holding each ecosystem's defaults. `load.ts` reads and completes the single config file. Runtime inspection, lint and typecheck execution stay in `src/inspect/`, `src/lint/` and `src/typecheck/`; lint/typecheck projections live below their respective runtime directories.
+Configuration definitions live under `src/config/`: `inspection/` owns discovery defaults, types and validation; `lint/` and `typecheck/` own their shared policy types and resolution, with `python/`, `javascript/` and `go/` holding each ecosystem's defaults. `format/` owns file selection defaults and shared Prettier options. `load.ts` reads and completes the single config file. Runtime inspection, lint and typecheck execution stay in `src/inspect/`, `src/lint/` and `src/typecheck/`; lint/typecheck projections live below their respective runtime directories.
 
 ```sh
 bun run check

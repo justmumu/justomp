@@ -1,0 +1,27 @@
+export const DEPENDENCY_DIRECTORIES = [
+  "node_modules",
+  "bower_components",
+  "vendor",
+  ".venv",
+  "venv",
+  "__pypackages__",
+  ".yarn",
+  ".pnpm-store",
+] as const;
+export const EXCLUDED_DIRECTORIES = [
+  ...DEPENDENCY_DIRECTORIES,
+  ".git",
+  ".justomp",
+  "__pycache__",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".turbo",
+  ".cache",
+  ".ruff_cache",
+  ".mypy_cache",
+  ".pytest_cache",
+] as const;

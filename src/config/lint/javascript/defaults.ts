@@ -1,3 +1,4 @@
+import { PRETTIER_DEFAULTS } from "../../format/defaults";
 import type { JavascriptPolicy } from "../model";
 
 /** Shared, explicit browser/Node runtime globals; no per-project environment inference. */
@@ -345,13 +346,5 @@ export const JAVASCRIPT_DEFAULTS: JavascriptPolicy = {
       "@next/next/no-script-component-in-head": "error",
     },
   },
-  prettier: {
-    printWidth: 120,
-    tabWidth: 2,
-    useTabs: false,
-    semi: true,
-    singleQuote: false,
-    trailingComma: "all",
-    endOfLine: "lf",
-  },
+  prettier: PRETTIER_DEFAULTS,
 };

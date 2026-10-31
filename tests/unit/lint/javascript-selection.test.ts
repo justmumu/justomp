@@ -2,11 +2,13 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import type { AdapterContext } from "../../../src/dependencies/model";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
+import * as files from "../../../src/lint/files";
 import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
 import { requiredJavascriptTools } from "../../../src/lint/javascript/tools";
 import * as runtime from "../../../src/lint/runtime";
 import * as scopes from "../../../src/lint/scope";
+import { LintStateStore } from "../../../src/lint/state";
 import * as versions from "../../../src/lint/versions";
 import { TOOLS } from "../../fixtures/lint/javascript/versions";
 import { scope, target } from "../checks/fixture";
@@ -74,12 +76,7 @@ test("framework scope selects only needed plugins and retained disabled pins nev
   if (!target) throw new Error("missing target");
   expect(
     await requiredJavascriptTools(target, f.context.policy.javascript),
-  ).toEqual([
-    "eslint",
-    "@eslint/js",
-    "prettier",
-    "eslint-plugin-simple-import-sort",
-  ]);
+  ).toEqual(["eslint", "@eslint/js", "eslint-plugin-simple-import-sort"]);
   const retained = { [target.project.project_id]: { ...TOOLS } };
   const fetcher = spyOn(versions, "fetchVersionJSON").mockRejectedValue(
     new Error("Unexpected registry access"),
@@ -92,7 +89,11 @@ test("framework scope selects only needed plugins and retained disabled pins nev
         f.context.signal,
         retained,
       ),
-    ).toEqual(retained);
+    ).toEqual({
+      [target.project.project_id]: Object.fromEntries(
+        Object.entries(TOOLS).filter(([name]) => name !== "prettier"),
+      ),
+    });
   } finally {
     fetcher.mockRestore();
   }
@@ -198,4 +199,31 @@ test("heterogeneous workspace cohorts preserve per-project Next versions and ret
   } finally {
     registry.fetcher.mockRestore();
   }
+});
+
+test("old JavaScript receipts drop only the managed Prettier pin", async () => {
+  const receipt = {
+    ecosystem: "javascript",
+    tools: { ...TOOLS },
+    ready: true,
+    policy_hash: "previous",
+  };
+  keep(
+    spyOn(files, "readProjectionFile").mockResolvedValue({
+      text: JSON.stringify({
+        schema: 1,
+        projects: { "javascript:.": receipt },
+      }),
+      identity: "inode",
+      mode: 0o644,
+    }),
+  );
+  const store = await LintStateStore.load("/repo");
+  expect(store.recovery).toBeUndefined();
+  expect(store.state.projects["javascript:."]?.tools).toEqual(
+    Object.fromEntries(
+      Object.entries(TOOLS).filter(([name]) => name !== "prettier"),
+    ),
+  );
+  expect(receipt.tools.prettier).toBe("3.6.2");
 });

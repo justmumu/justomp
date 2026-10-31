@@ -6,6 +6,7 @@ import type {
 } from "../../../src/dependencies/model";
 import * as paths from "../../../src/dependencies/paths";
 import * as runner from "../../../src/dependencies/runner";
+import * as prettier from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
 import type { LintCheckContext } from "../../../src/lint/adapters/types";
@@ -57,6 +58,9 @@ function fixture(language: "python" | "javascript") {
       {} as AdapterContext,
     ),
   );
+  const formatted = keep(
+    spyOn(prettier, "checkPrettierFile").mockResolvedValue(true),
+  );
   const adapter = language === "python" ? pythonAdapter : javascriptAdapter;
   function results(
     lint: ProcessResult,
@@ -73,6 +77,7 @@ function fixture(language: "python" | "javascript") {
     controller,
     files,
     invoke,
+    formatted,
     results,
     check: () => adapter.check(context),
   };
@@ -94,14 +99,19 @@ for (const language of ["python", "javascript"] as const) {
       "passed",
       "passed",
     ]);
-    expect(f.invoke).toHaveBeenCalledTimes(2);
+    expect(f.invoke).toHaveBeenCalledTimes(language === "python" ? 2 : 1);
     const argumentsText = JSON.stringify(f.invoke.mock.calls);
     expect(argumentsText).toContain(f.context.projection.configs.lint);
-    expect(argumentsText).toContain(f.context.projection.configs.format);
+    if (language === "python")
+      expect(argumentsText).toContain(f.context.projection.configs.format);
+    else
+      expect(f.formatted).toHaveBeenCalledWith(
+        "/repo/apps/app/index.ts",
+        "typescript",
+        f.context.policy.javascript.prettier,
+      );
     expect(argumentsText).toContain("--no-fix");
-    expect(argumentsText).toContain(
-      language === "python" ? "--check" : "--list-different",
-    );
+    if (language === "python") expect(argumentsText).toContain("--check");
   });
   for (const [name, result] of [
     ["truncated", output({ exit_code: 1, stdout: "[", truncated: true })],
@@ -122,7 +132,7 @@ for (const language of ["python", "javascript"] as const) {
       });
       expect(checks[0]?.reason).toBeTruthy();
       expect(checks[1]?.status).toBe("passed");
-      expect(f.invoke).toHaveBeenCalledTimes(2);
+      expect(f.invoke).toHaveBeenCalledTimes(language === "python" ? 2 : 1);
     });
   test(`${language} pre-aborted invocation marks both stages cancelled`, async () => {
     const f = fixture(language);
@@ -142,7 +152,9 @@ for (const language of ["python", "javascript"] as const) {
       (await f.check()).map((c) => ({ status: c.status, reason: c.reason })),
     ).toEqual([
       { status: "not-run", reason: "executable missing" },
-      { status: "not-run", reason: "executable missing" },
+      language === "python"
+        ? { status: "not-run", reason: "executable missing" }
+        : { status: "passed", reason: undefined },
     ]);
   });
 }
@@ -194,8 +206,8 @@ test("ESLint warnings and Prettier source differences map to independent failed 
         },
       ]),
     }),
-    output({ exit_code: 1, stdout: "unrelated.log\n./index.ts\n" }),
   );
+  f.formatted.mockResolvedValue(false);
   const checks = await f.check();
   expect(checks[0]).toMatchObject({
     status: "failed",
@@ -213,19 +225,14 @@ test("ESLint warnings and Prettier source differences map to independent failed 
   });
   expect(checks[1]?.diagnostics).toHaveLength(1);
 });
-test("Prettier exit one without a source difference is incomplete, not a formatting failure", async () => {
+test("bundled Prettier parse errors leave format incomplete and report its runtime version", async () => {
   const f = fixture("javascript");
-  f.results(
-    output({ stdout: "[]" }),
-    output({
-      exit_code: 1,
-      stdout: "unrelated.log",
-      stderr: "formatter crashed",
-    }),
-  );
+  f.results(output({ stdout: "[]" }));
+  f.formatted.mockRejectedValue(new Error("formatter parse failed"));
   expect((await f.check())[1]).toMatchObject({
     status: "not-run",
-    reason: "formatter crashed",
+    version: prettier.prettierVersion,
+    reason: "formatter parse failed",
     diagnostics: [],
   });
 });

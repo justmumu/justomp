@@ -101,7 +101,11 @@ test("managed contexts retain native aliases through extends and add excluded te
         !Object.hasOwn(object(config(file.content).compilerOptions), "paths"),
     ),
   ).toBe(true);
-  for (const file of plan.files) f.documents.set(file.path, file.content);
+  for (const file of plan.files)
+    f.documents.set(
+      file.path,
+      file.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"),
+    );
   expect((await f.plan()).current).toBe(true);
   f.supplied.scope.files.push("tests/new.ts");
   expect((await f.plan()).current).toBe(false);

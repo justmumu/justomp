@@ -1,7 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
+import { assertFormatProcess } from "../../../src/format/engines/process";
+import { formatPython } from "../../../src/format/engines/python";
+import { collectFormatScope } from "../../../src/format/scope";
+import { selectFormatFiles } from "../../../src/format/selection";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
+import { measureFixture } from "../../fixtures/cost-timing";
 import { VERSION } from "../../fixtures/lint/python/fixture";
 import { cleanups, fixture } from "./python-fixture";
 
@@ -10,7 +16,8 @@ afterEach(async () => {
 });
 test("native Python pins dev Ruff, verifies environment, and checks both stages without writes", async () => {
   const f = await fixture();
-  await f.prepare();
+  f.context.policy.python.ruff.format.exclude = ["format-only.py"];
+  await measureFixture("format.python.prepare", () => f.prepare());
   const context = await f.checkContext();
   expect(await pythonAdapter.verify(context)).toBe(true);
   expect(await readFile(join(f.root, "pyproject.toml"), "utf8")).toContain(
@@ -30,7 +37,46 @@ test("native Python pins dev Ruff, verifies environment, and checks both stages 
       expect(checks[1]?.diagnostics[0]?.project_path).toBe("module.py");
     if (lint === "failed")
       expect(checks[0]?.diagnostics.some((d) => d.rule === "F401")).toBe(true);
+    if (format === "failed") {
+      const manifest = await readFile(join(f.root, "pyproject.toml"), "utf8");
+      const untouched = "OTHER = 'unchanged'\n";
+      await writeFile(join(f.root, "other.py"), untouched);
+      assertFormatProcess(await formatPython(context, ["module.py"]), "ruff");
+      expect(await readFile(join(f.root, "other.py"), "utf8")).toBe(untouched);
+      await unlink(join(f.root, "other.py"));
+      expect((await pythonAdapter.check(context))[1]?.status).toBe("passed");
+      const formatted = await f.bytes();
+      assertFormatProcess(await formatPython(context, ["module.py"]), "ruff");
+      expect(await f.bytes()).toEqual(formatted);
+      expect(await readFile(join(f.root, "pyproject.toml"), "utf8")).toBe(
+        manifest,
+      );
+    }
   }
+  // Reuse the prepared native fixture to prove shared selection matches actual Ruff skips.
+  await mkdir(join(f.root, ".private"));
+  const excluded = "VALUE=  'leave unchanged'\n";
+  await writeFile(join(f.root, ".private/draft.py"), excluded);
+  await writeFile(join(f.root, "format-only.py"), excluded);
+  const scope = await collectFormatScope(
+    context.target,
+    FORMAT_DEFAULTS,
+    context.policy,
+  );
+  expect(scope.files).toContain("module.py");
+  expect(scope.files).not.toContain(".private/draft.py");
+  expect(scope.files).not.toContain("format-only.py");
+  expect(() =>
+    selectFormatFiles(scope, ["module.py", ".private/draft.py"]),
+  ).toThrow("not an owned supported file");
+  assertFormatProcess(
+    await formatPython(context, [".private/draft.py", "format-only.py"]),
+    "ruff",
+  );
+  expect(await readFile(join(f.root, ".private/draft.py"), "utf8")).toBe(
+    excluded,
+  );
+  expect(await readFile(join(f.root, "format-only.py"), "utf8")).toBe(excluded);
 }, 60000);
 test("workspace native frozen declarations migrate all old pins before solving the shared lock", async () => {
   const f = await fixture(true, '[dependency-groups]\ndev=["ruff==0.17.2"]');
@@ -187,11 +233,6 @@ test("native Ruff exclusions must come from the shared policy, never leftover pr
   const excluded = await pythonAdapter.check(context);
   expect(excluded.map((check) => check.status)).toEqual(["passed", "passed"]);
   expect(excluded.flatMap((check) => check.diagnostics)).toEqual([]);
-
-  delete f.context.policy.python.ruff.exclude;
-  const before = await f.bytes();
-  await expect(f.checkContext()).rejects.toThrow("lint.python.ruff");
-  expect(await f.bytes()).toEqual(before);
 
   f.context.policy.python.ruff.exclude = [];
   await f.prepare();
