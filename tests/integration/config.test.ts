@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INSPECTION_DEFAULTS } from "../../src/config/inspection/defaults";
+import { resolveIntegrationTestConfig } from "../../src/config/integration-test/resolve";
 import { resolveLintConfig } from "../../src/config/lint/resolve";
 import { loadConfig } from "../../src/config/load";
 import { resolveTestConfig } from "../../src/config/test/resolve";
@@ -53,6 +54,7 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     lint: resolveLintConfig().policy,
     typecheck: resolveTypecheckConfig().policy,
     test: resolveTestConfig().policy,
+    integration_test: resolveIntegrationTestConfig().policy,
     inspection_rules: { exclude: [], custom: true, include: ["**/*"] },
   });
   const stamp = (await stat(join(root, ".justomp/config.json"))).mtimeMs;
@@ -220,4 +222,27 @@ test("test policy flush preserves false and zero without changing other policy h
   expect(after.key).toBe(before.key);
   expect(after.lintKey).toBe(before.lintKey);
   expect(after.typecheckKey).toBe(before.typecheckKey);
+});
+
+test("integration policy flush preserves explicit leaves and has independent keys", async () => {
+  const root = await fixture({
+    integration_test: {
+      python: { include: [], coverage: { enabled: false, minimum: 0 } },
+    },
+  });
+  const before = await loadConfig(root, { flush: true });
+  expect(before.integrationTest.python.include).toEqual([]);
+  const path = join(root, ".justomp/config.json");
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  expect(saved.integration_test.python.coverage).toEqual({
+    enabled: false,
+    minimum: 0,
+  });
+  saved.integration_test.go.coverage.minimum = 20;
+  await writeFile(path, JSON.stringify(saved));
+  const after = await loadConfig(root);
+  expect(after.integrationTestKey).not.toBe(before.integrationTestKey);
+  expect(after.testingKey).not.toBe(before.testingKey);
+  for (const key of ["key", "testKey", "lintKey", "typecheckKey"] as const)
+    expect(after[key]).toBe(before[key]);
 });

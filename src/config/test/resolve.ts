@@ -14,7 +14,11 @@ const defaults: TestPolicy = {
 function invalid(path: string): never {
   throw new TestError("invalid-config", `Invalid test policy at ${path}`);
 }
-export function resolveTestConfig(value?: unknown): {
+export function resolveTestPolicy(
+  value: unknown,
+  defaults: TestPolicy,
+  label: string,
+): {
   policy: TestPolicy;
   missing: boolean;
 } {
@@ -70,7 +74,7 @@ export function resolveTestConfig(value?: unknown): {
       invalid(path);
     return input;
   }
-  return { policy: merge(value, defaults, "test") as TestPolicy, missing };
+  return { policy: merge(value, defaults, label) as TestPolicy, missing };
 }
 export function testPolicyKey(policy: unknown): string {
   function canonical(value: unknown): unknown {
@@ -86,4 +90,8 @@ export function testPolicyKey(policy: unknown): string {
   return createHash("sha256")
     .update(JSON.stringify(canonical(policy)))
     .digest("hex");
+}
+
+export function resolveTestConfig(value?: unknown) {
+  return resolveTestPolicy(value, defaults, "test");
 }

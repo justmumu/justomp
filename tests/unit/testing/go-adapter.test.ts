@@ -70,12 +70,13 @@ for (const mode of ["targeted", "continue", "cancel"] as const)
           }
           if (args[0] === "run")
             return result(
-              JSON.stringify(
-                ["one", "two", "three"].map((name) => ({
+              JSON.stringify({
+                constraints: [],
+                runnables: ["one", "two", "three"].map((name) => ({
                   file: `/project/${name}/a_test.go`,
                   name: "TestValue",
                 })),
-              ),
+              }),
             );
           const name = args.at(-1)?.replace("./", "");
           const send = (event: object) =>

@@ -24,6 +24,19 @@ test("pytest exact file handoff retains fixtures/pythonpath, failure counts and 
     ]);
     expect(full.tests).toMatchObject({ total: 2, passed: 1, failed: 1 });
     expect(full.coverage).toEqual({ total: 2, covered: 0 });
+    await f.put(
+      "tests/integration/test_flow.py",
+      "def test_flow(answer):\n    assert answer == 42\n",
+    );
+    const integration = await f.run(
+      ["tests/integration/test_flow.py"],
+      ["src/ns/unused.py"],
+      "full",
+      { suite: "integration" },
+    );
+    expect(integration.errors).toEqual([]);
+    expect(integration.tests).toMatchObject({ total: 1, passed: 1 });
+    expect(integration.coverage).toBeUndefined();
   } finally {
     await f.dispose();
   }

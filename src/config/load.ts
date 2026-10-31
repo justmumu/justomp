@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { INSPECTION_DEFAULTS } from "./inspection/defaults";
 import type { InspectionRules } from "./inspection/model";
 import { validateRules } from "./inspection/validate";
+import { resolveIntegrationTestConfig } from "./integration-test/resolve";
 import type { LintPolicy } from "./lint/model";
 import { lintPolicyKey, resolveLintConfig } from "./lint/resolve";
 import type { TestPolicy } from "./test/model";
@@ -23,6 +24,9 @@ export interface LoadedConfig {
   typecheckKey: string;
   test: TestPolicy;
   testKey: string;
+  integrationTest: TestPolicy;
+  integrationTestKey: string;
+  testingKey: string;
   wrote: boolean;
 }
 export class ConfigError extends Error {
@@ -57,6 +61,7 @@ async function read(root: string): Promise<{
   lint: LintPolicy;
   typecheck: TypecheckPolicy;
   test: TestPolicy;
+  integrationTest: TestPolicy;
   missing: boolean;
   identity: string | null;
 }> {
@@ -105,7 +110,13 @@ async function read(root: string): Promise<{
   let lint: ReturnType<typeof resolveLintConfig>;
   let typecheck: ReturnType<typeof resolveTypecheckConfig>;
   let test: ReturnType<typeof resolveTestConfig>;
+  let integrationTest: ReturnType<typeof resolveIntegrationTestConfig>;
   try {
+    integrationTest = resolveIntegrationTestConfig(
+      Object.hasOwn(object, "integration_test")
+        ? object.integration_test
+        : undefined,
+    );
     test = resolveTestConfig(
       Object.hasOwn(object, "test") ? object.test : undefined,
     );
@@ -127,7 +138,9 @@ async function read(root: string): Promise<{
     lint: lint.policy,
     typecheck: typecheck.policy,
     test: test.policy,
+    integrationTest: integrationTest.policy,
     missing:
+      integrationTest.missing ||
       test.missing ||
       lint.missing ||
       typecheck.missing ||
@@ -153,6 +166,12 @@ async function execute(
     typecheckKey: typecheckPolicyKey(initial.typecheck),
     test: initial.test,
     testKey: testPolicyKey(initial.test),
+    integrationTest: initial.integrationTest,
+    integrationTestKey: testPolicyKey(initial.integrationTest),
+    testingKey: testPolicyKey({
+      unit: initial.test,
+      integration: initial.integrationTest,
+    }),
     wrote: false,
   };
   if (!flush || !initial.missing) return result;
@@ -166,6 +185,7 @@ async function execute(
     lint: initial.lint,
     typecheck: initial.typecheck,
     test: initial.test,
+    integration_test: initial.integrationTest,
     inspection_rules: { ...(raw as Record<string, unknown>), ...initial.rules },
   };
   const temporary = join(directory, `.config-${randomUUID()}.tmp`);

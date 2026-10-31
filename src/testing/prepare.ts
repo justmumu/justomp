@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { loadConfig } from "../config/load";
-import { testPolicyKey } from "../config/test/resolve";
 import { redact } from "../dependencies/model";
 import { withDomains } from "../dependencies/queue";
 import { getPackagingStructure } from "../packaging/get-structure";
@@ -11,6 +10,7 @@ import {
   type TestPreparation,
   type TestRunner,
 } from "./model";
+import { testingPolicyKey } from "./policy";
 import { nextWave, TestStateStore } from "./state";
 import { resolveTestTarget, type TestTarget } from "./targets";
 export function testIssue(error: unknown, project_id?: string): TestIssue {
@@ -123,9 +123,7 @@ export async function prepareTests(
               store.state.projects[target.project.project_id] = {
                 runner,
                 tools,
-                policy_hash: testPolicyKey(
-                  config.test[target.project.ecosystem],
-                ),
+                policy_hash: testingPolicyKey(config, target.project.ecosystem),
                 ready: true,
               };
               report.tools[target.project.project_id] = tools;
@@ -174,9 +172,7 @@ export async function prepareTests(
               store.state.projects[id] = {
                 runner,
                 tools,
-                policy_hash: testPolicyKey(
-                  config.test[target.project.ecosystem],
-                ),
+                policy_hash: testingPolicyKey(config, target.project.ecosystem),
                 ready: false,
               };
               await store.save();

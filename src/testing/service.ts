@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { loadConfig } from "../config/load";
-import { testPolicyKey } from "../config/test/resolve";
 import { safePath } from "../dependencies/paths";
 import { withDomains } from "../dependencies/queue";
 import { getPackagingStructure } from "../packaging/get-structure";
@@ -14,12 +13,15 @@ import { goTestAdapter } from "./go/adapter";
 import { bunTestAdapter } from "./javascript/bun";
 import { vitestTestAdapter } from "./javascript/vitest";
 import {
+  type ProjectIntegrationTestResult,
   TestError,
   type TestOutcome,
   type TestPreparation,
   type TestRequest,
+  type TestSuite,
   unknownTests,
 } from "./model";
+import { suitePolicies, testingPolicyKey } from "./policy";
 import { testDomains, testIssue } from "./prepare";
 import { pythonTestAdapter } from "./python/adapter";
 import { parseTestRequest } from "./request";
@@ -37,6 +39,7 @@ async function refreshTestTarget(
   root: string,
   projectId: string,
   signal?: AbortSignal,
+  suite: TestSuite = "unit",
 ) {
   return resolveTestTarget(
     (
@@ -47,18 +50,25 @@ async function refreshTestTarget(
       })
     ).structure,
     projectId,
+    suite,
   );
 }
 export async function inspectTestProject(
   root: string,
   request: TestRequest,
   signal?: AbortSignal,
+  suite: TestSuite = "unit",
 ) {
-  const target = await refreshTestTarget(root, request.project_id, signal);
+  const target = await refreshTestTarget(
+    root,
+    request.project_id,
+    signal,
+    suite,
+  );
   const config = await loadConfig(target.root, { signal });
   await collectTestScope(
     target,
-    config.test[target.project.ecosystem],
+    suitePolicies(config, target.project.ecosystem, suite),
     request.test_files,
   );
   return target;
@@ -108,6 +118,11 @@ async function metadata(target: TestTarget) {
         hash.update(JSON.stringify([path, null]));
       }
     }
+  if (target.configFile) {
+    const bytes = await readFile(target.configFile);
+    hash.update(JSON.stringify([target.configFile, bytes.length]));
+    hash.update(bytes);
+  }
   return hash.digest("hex");
 }
 /** Execution holds the same native mutation domains as dependency/lint/typecheck setup. */
@@ -117,13 +132,15 @@ export async function runTestTarget(
   signal: AbortSignal,
   preparation: TestPreparation,
   adapters: TestAdapters = testAdapters,
+  suite: TestSuite = "unit",
 ) {
   const mode = request.test_files ? "targeted" : "full";
   const config = await loadConfig(initial.root, {
     signal: signal.aborted ? undefined : signal,
   });
-  const policy = config.test[initial.project.ecosystem];
+  const policy = suitePolicies(config, initial.project.ecosystem, suite)[suite];
   const outcome: TestOutcome = {
+    suite,
     project_id: request.project_id,
     relative_path: initial.project.path,
     runner: initial.runner,
@@ -151,6 +168,7 @@ export async function runTestTarget(
           initial.root,
           request.project_id,
           signal,
+          suite,
         );
         if (
           target.runner !== initial.runner ||
@@ -159,10 +177,12 @@ export async function runTestTarget(
         )
           throw new TestError(
             "scope-changed",
-            "Project ownership or runner changed while waiting; call project_test again",
+            "Project ownership or runner changed while waiting; call the test tool again",
           );
         const current = await loadConfig(target.root, { signal }),
-          policy = current.test[target.project.ecosystem];
+          policy = suitePolicies(current, target.project.ecosystem, suite)[
+            suite
+          ];
         const state = (await TestStateStore.load(target.root)).state,
           receipt = state.projects[request.project_id],
           adapter = adapters[target.runner];
@@ -170,7 +190,8 @@ export async function runTestTarget(
           !adapter ||
           !receipt?.ready ||
           receipt.runner !== target.runner ||
-          receipt.policy_hash !== testPolicyKey(policy)
+          receipt.policy_hash !==
+            testingPolicyKey(current, target.project.ecosystem)
         )
           throw new TestError(
             "not-ready",
@@ -202,13 +223,16 @@ export async function runTestTarget(
         try {
           const scope = await collectTestScope(
               target,
-              policy,
+              suitePolicies(current, target.project.ecosystem, suite),
               request.test_files,
             ),
             before = await metadata(target);
           deadline.signal.throwIfAborted();
           artifacts = await testArtifacts(target.root);
-          if (!scope.selected.length)
+          if (
+            !scope.selected.length &&
+            !(target.runner === "go" && scope.integration?.length)
+          )
             outcome.tests = {
               total: 0,
               passed: 0,
@@ -219,6 +243,7 @@ export async function runTestTarget(
           else {
             const native = await adapter.run({
               target,
+              suite,
               tools: receipt.tools,
               signal: deadline.signal,
               policy,
@@ -241,6 +266,7 @@ export async function runTestTarget(
             target.root,
             request.project_id,
             deadline.signal,
+            suite,
           );
           const latest = await loadConfig(target.root, {
             signal: deadline.signal,
@@ -248,19 +274,19 @@ export async function runTestTarget(
           if (
             after.runner !== target.runner ||
             before !== (await metadata(after)) ||
-            current.testKey !== latest.testKey ||
+            current.testingKey !== latest.testingKey ||
             scope.fingerprint !==
               (
                 await collectTestScope(
                   after,
-                  latest.test[after.project.ecosystem],
+                  suitePolicies(latest, after.project.ecosystem, suite),
                   request.test_files,
                 )
               ).fingerprint
           )
             throw new TestError(
               "sources-changed",
-              "Project sources, ownership or test configuration changed during this run; run project_test again",
+              "Project sources, ownership or test configuration changed during this run; run the test tool again",
             );
           deadline.signal.throwIfAborted();
         } catch (error) {
@@ -300,14 +326,15 @@ export async function runTestTarget(
   return testResult(outcome);
 }
 /** Full API: validate identity/selection before any setup, retain shared preparation, then execute. */
-export async function testProject(
+async function executeProjectTests(
   root: string,
   input: unknown,
   signal = new AbortController().signal,
   adapters: TestAdapters = testAdapters,
+  suite: TestSuite = "unit",
 ) {
   const request = parseTestRequest(input),
-    target = await inspectTestProject(root, request, signal),
+    target = await inspectTestProject(root, request, signal, suite),
     owned = await retainTestCoordinator(target.root, adapters);
   try {
     return await runTestTarget(
@@ -316,13 +343,42 @@ export async function testProject(
       signal,
       await waitForTestPreparation(owned.coordinator, signal),
       adapters,
+      suite,
     );
   } finally {
     await owned.release();
   }
 }
-export function testFailure(error: unknown, signal?: AbortSignal) {
+export async function testProject(
+  root: string,
+  input: unknown,
+  signal = new AbortController().signal,
+  adapters: TestAdapters = testAdapters,
+) {
+  return executeProjectTests(root, input, signal, adapters, "unit");
+}
+export async function integrationTestProject(
+  root: string,
+  input: unknown,
+  signal = new AbortController().signal,
+  adapters: TestAdapters = testAdapters,
+): Promise<ProjectIntegrationTestResult> {
+  const result = await executeProjectTests(
+    root,
+    input,
+    signal,
+    adapters,
+    "integration",
+  );
+  return { ...result, suite: "integration" };
+}
+export function testFailure(
+  error: unknown,
+  signal?: AbortSignal,
+  suite: TestSuite = "unit",
+) {
   return {
+    suite,
     success: false,
     complete: false,
     cancelled: signal?.aborted ?? false,

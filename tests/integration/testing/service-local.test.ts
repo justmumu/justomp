@@ -14,15 +14,22 @@ import {
   getPackagingStructure,
 } from "../../../src/packaging/get-structure";
 import type { TestAdapter } from "../../../src/testing/adapters";
-import { testProject } from "../../../src/testing/service";
+import {
+  integrationTestProject,
+  testProject,
+} from "../../../src/testing/service";
 
 test("service validates before setup, owns fresh artifacts, and rejects changed sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "justomp-test-service-"));
+  let resolutions = 0;
   let preparations = 0,
     mutate = false;
   const artifacts: string[] = [];
   const adapter: TestAdapter = {
-    resolve: async () => ({ vitest: "1.0.0" }),
+    resolve: async () => {
+      resolutions++;
+      return { vitest: "1.0.0" };
+    },
     preflight: async () => {},
     verify: async () => true,
     prepare: async () => {
@@ -48,6 +55,8 @@ test("service validates before setup, owns fresh artifacts, and rejects changed 
   try {
     await mkdir(join(root, "tests/unit"), { recursive: true });
     await mkdir(join(root, "src"));
+    await mkdir(join(root, "tests/integration"));
+    await writeFile(join(root, "tests/integration/api.test.ts"), "// fixture");
     await writeFile(
       join(root, "package.json"),
       JSON.stringify({ name: "fixture", packageManager: "npm@10.9.0" }),
@@ -86,7 +95,20 @@ test("service validates before setup, owns fresh artifacts, and rejects changed 
     );
     expect(targeted.success).toBe(true);
     expect(targeted.coverage.status).toBe("not-enforced-targeted");
-    expect(new Set(artifacts).size).toBe(2);
+    const integration = await integrationTestProject(
+      root,
+      { project_id: id },
+      undefined,
+      { vitest: adapter },
+    );
+    expect(integration).toMatchObject({
+      suite: "integration",
+      success: true,
+      coverage: { status: "disabled" },
+      executed_files: ["tests/integration/api.test.ts"],
+    });
+    expect(resolutions).toBe(1);
+    expect(new Set(artifacts).size).toBe(3);
     expect(await readdir(join(root, ".justomp/test_runs"))).toEqual([]);
     mutate = true;
     const stale = await testProject(root, { project_id: id }, undefined, {

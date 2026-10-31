@@ -24,6 +24,10 @@ test("Go selects files in a normal package and reports tests-less owned source c
       "external_test.go",
       'package app_test\nimport "testing"\nfunc TestOther(t *testing.T) {}\n',
     );
+    await f.put(
+      "flow_integration_test.go",
+      '//go:build integration\n\npackage app\nimport ("os";"testing")\nfunc init(){os.WriteFile("integration-init", []byte("yes"),0600)}\nfunc TestIntegration(t *testing.T){if value()!=1 {t.Fatal("wrong")}}\n',
+    );
     const full = await f.run(
       ["a_test.go", "b_test.go", "external_test.go"],
       ["value.go", "unused/value.go"],
@@ -43,6 +47,21 @@ test("Go selects files in a normal package and reports tests-less owned source c
       "external_test.go",
     ]);
     expect(full.coverage).toEqual({ covered: 1, total: 2 });
+    expect(await Bun.file(join(f.root, "integration-init")).exists()).toBe(
+      false,
+    );
+    const integration = await f.run(
+      ["flow_integration_test.go"],
+      ["value.go"],
+      "full",
+      { suite: "integration", integration: ["flow_integration_test.go"] },
+    );
+    expect(integration.errors, JSON.stringify(integration)).toEqual([]);
+    expect(integration.tests).toMatchObject({ total: 1, passed: 1 });
+    expect(integration.executed_files).toEqual(["flow_integration_test.go"]);
+    expect(await readFile(join(f.root, "integration-init"), "utf8")).toBe(
+      "yes",
+    );
     const selected = await f.run(
       ["a_test.go"],
       ["value.go", "unused/value.go"],

@@ -51,7 +51,7 @@ test("Go environment preserves native build tags and replaces only owned executi
   const { testGoFlags } = await import("../../../src/testing/go/environment");
   expect(
     testGoFlags("-tags=custom -race -count=4 -failfast -run=Old -vet=off"),
-  ).toBe("-tags=custom -race -mod=readonly");
+  ).toBe("-race -tags=custom -mod=readonly");
   expect(testGoFlags("'-gcflags=all=-N -l'")).toBe(
     "'-gcflags=all=-N -l' -mod=readonly",
   );

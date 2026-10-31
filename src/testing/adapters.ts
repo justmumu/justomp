@@ -4,6 +4,7 @@ import type {
   TestIssue,
   TestMode,
   TestPreparation,
+  TestSuite,
   TestSummary,
 } from "./model";
 import type { TestScope } from "./scope";
@@ -15,6 +16,7 @@ export interface TestToolContext {
   signal: AbortSignal;
 }
 export interface TestRunContext extends TestToolContext {
+  suite?: TestSuite;
   policy: EcosystemTestPolicy;
   scope: TestScope;
   mode: TestMode;

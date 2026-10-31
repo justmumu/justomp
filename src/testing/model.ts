@@ -8,6 +8,7 @@ export class TestError extends Error {
   }
 }
 export type TestRunner = "pytest" | "vitest" | "bun" | "go";
+export type TestSuite = "unit" | "integration";
 export type TestMode = "full" | "targeted";
 export interface TestRequest {
   project_id: string;
@@ -69,6 +70,7 @@ export interface TestPreparation {
   errors: TestIssue[];
 }
 export interface TestOutcome {
+  suite?: TestSuite;
   project_id: string;
   relative_path: string;
   runner: TestRunner | null;
@@ -88,6 +90,9 @@ export interface TestOutcome {
 export interface ProjectTestResult extends TestOutcome {
   complete: boolean;
   success: boolean;
+}
+export interface ProjectIntegrationTestResult extends ProjectTestResult {
+  suite: "integration";
 }
 export function unknownTests(): TestSummary {
   return { total: null, passed: null, failed: null, skipped: null, cases: [] };

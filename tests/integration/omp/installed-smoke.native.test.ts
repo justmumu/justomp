@@ -111,6 +111,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         "project_lint",
         "project_typecheck",
         "project_test",
+        "project_integration_test",
         "list_projects",
         "dependency_list",
         "dependency_add",

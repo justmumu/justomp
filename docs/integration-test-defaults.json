@@ -1,0 +1,79 @@
+{
+  "integration_test": {
+    "python": {
+      "include": [
+        "tests/integration/**/test_*.py"
+      ],
+      "exclude": [
+        "tests/unit/**"
+      ],
+      "source": {
+        "include": [
+          "**/*.py"
+        ],
+        "exclude": [
+          "tests/**",
+          "**/conftest.py",
+          "**/fixtures/**",
+          "**/generated/**",
+          "**/*_generated.py"
+        ]
+      },
+      "coverage": {
+        "enabled": false,
+        "minimum": 0
+      }
+    },
+    "javascript": {
+      "include": [
+        "tests/integration/**/*.test.{js,jsx,ts,tsx}"
+      ],
+      "exclude": [
+        "tests/unit/**"
+      ],
+      "source": {
+        "include": [
+          "**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts}"
+        ],
+        "exclude": [
+          "tests/**",
+          "**/*.{test,spec}.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+          "**/*.d.{ts,mts,cts}",
+          "**/fixtures/**",
+          "**/generated/**",
+          "**/*.generated.*",
+          "**/*.config.{js,jsx,ts,tsx,mjs,cjs,mts,cts}",
+          "dist/**",
+          "build/**",
+          "coverage/**"
+        ]
+      },
+      "coverage": {
+        "enabled": false,
+        "minimum": 0
+      }
+    },
+    "go": {
+      "include": [
+        "**/*_integration_test.go"
+      ],
+      "exclude": [],
+      "source": {
+        "include": [
+          "**/*.go"
+        ],
+        "exclude": [
+          "**/*_test.go",
+          "**/testdata/**",
+          "**/generated/**",
+          "**/*.generated.go",
+          "**/*.pb.go"
+        ]
+      },
+      "coverage": {
+        "enabled": false,
+        "minimum": 0
+      }
+    }
+  }
+}

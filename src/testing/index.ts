@@ -1,2 +1,8 @@
-export type { ProjectTestResult, TestPreparation, TestRequest } from "./model";
-export { testProject } from "./service";
+export type {
+  ProjectIntegrationTestResult,
+  ProjectTestResult,
+  TestPreparation,
+  TestRequest,
+  TestSuite,
+} from "./model";
+export { integrationTestProject, testProject } from "./service";

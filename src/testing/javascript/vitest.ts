@@ -25,8 +25,9 @@ export const vitestTestAdapter: TestAdapter = {
   prepare: prepareJavascript,
   verify: verifyJavascript,
   async run(context) {
-    let userConfig: string | undefined;
+    let userConfig = context.target.configFile;
     for (const base of ["vitest", "vite"]) {
+      if (userConfig) break;
       for (const extension of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
         const path = join(
           context.target.scope.cwd,
