@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { lintAdapters } from "../../../src/lint/service";
 import {
   cleanups,
   fixture,
@@ -14,7 +15,7 @@ import { assertLocalPreparation, createLocalHost } from "./local-checkers";
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-test("OMP lint has strict ID-only exec schema; denial and unknown IDs cannot prepare", async () => {
+test("OMP lint has strict ID/fix exec schema; denial and unknown IDs cannot prepare", async () => {
   const { f, h } = await fixture();
   const registered = h.runner.getRegisteredTool("project_lint");
   if (!registered) throw new Error("Missing project_lint registration");
@@ -29,6 +30,17 @@ test("OMP lint has strict ID-only exec schema; denial and unknown IDs cannot pre
       manager: "uv",
     }).success,
   ).toBe(false);
+  const schema = registered.definition.parameters as {
+    safeParse(value: unknown): { success: boolean };
+  };
+  for (const fix of [true, false])
+    expect(
+      schema.safeParse({ project_id: "python:pyproject.toml", fix }).success,
+    ).toBe(true);
+  for (const fix of ["true", null, 1])
+    expect(
+      schema.safeParse({ project_id: "python:pyproject.toml", fix }).success,
+    ).toBe(false);
   const network = spyOn(globalThis, "fetch").mockRejectedValue(
     new Error("Must not prepare"),
   );
@@ -49,7 +61,7 @@ test("OMP lint has strict ID-only exec schema; denial and unknown IDs cannot pre
   await expect(
     denied.h
       .getTool("project_lint")
-      .execute("deny", { project_id: "python:pyproject.toml" }),
+      .execute("deny", { project_id: "python:pyproject.toml", fix: true }),
   ).rejects.toThrow();
   expect(
     await Bun.file(join(denied.f.root, ".justomp/config.json")).exists(),
@@ -71,7 +83,7 @@ test("releasing one session cancels its preparation waiter but preserves another
       .getTool("project_lint")
       .execute(
         "wait",
-        { project_id: "python:pyproject.toml" },
+        { project_id: "python:pyproject.toml", fix: true },
         undefined,
         () => {
           waitingStarted = true;
@@ -89,6 +101,11 @@ test("releasing one session cancels its preparation waiter but preserves another
     ]);
     const cancelled = json(await waiting);
     expect(cancelled.cancelled, JSON.stringify(cancelled)).toBe(true);
+    expect(cancelled.fix).toMatchObject({
+      requested: true,
+      status: "cancelled",
+      changed_files: [],
+    });
     expect(network.calls()).toBe(1);
     network.release();
     const result = json(
@@ -214,5 +231,67 @@ test("startup returns before adapter setup, reports progress, and discovers new 
     await h.close();
     network.fetcher.mockRestore();
     log.mockRestore();
+  }
+}, 30000);
+
+test("OMP fix forwards explicit intent and shutdown awaits source effect accounting", async () => {
+  const { f, h } = await fixture([], true);
+  const network = registry();
+  let enter = () => {},
+    release = () => {};
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const writer = spyOn(lintAdapters.python, "fix").mockImplementation(
+    async (context) => {
+      await writeFile(
+        join(f.root, "module.py"),
+        '"""Changed by fixture fixer."""\n',
+      );
+      enter();
+      await gate;
+      return {
+        exit_code: null,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        truncated: false,
+        cancelled: context.signal.aborted,
+      };
+    },
+  );
+  try {
+    const running = h
+      .getTool("project_lint")
+      .execute("fix", { project_id: "python:pyproject.toml", fix: true });
+    await entered;
+    let closed = false;
+    const closing = h.runner.emit({ type: "session_shutdown" }).then(() => {
+      closed = true;
+    });
+    await Bun.sleep(20);
+    expect(closed).toBe(false);
+    release();
+    const response = await running;
+    await closing;
+    expect(json(response)).toEqual(response.details);
+    expect(response.isError).toBe(true);
+    expect(response.details).toMatchObject({
+      cancelled: true,
+      complete: false,
+      partial_change: true,
+      fix: {
+        status: "cancelled",
+        changed_files: ["module.py"],
+        observation_complete: true,
+      },
+    });
+  } finally {
+    release();
+    writer.mockRestore();
+    network.mockRestore();
   }
 }, 30000);

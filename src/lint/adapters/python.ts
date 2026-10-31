@@ -285,6 +285,29 @@ export const pythonAdapter: LintAdapter = {
       return false;
     }
   },
+  async fix(context, files) {
+    return runProcess(
+      await safePath(context.target.root, pythonBinary(context.target)),
+      [
+        "check",
+        "--fix",
+        "--no-fix-only",
+        "--no-unsafe-fixes",
+        "--config",
+        context.projection.configs.lint,
+        "--force-exclude",
+        "--output-format",
+        "json",
+        "--",
+        ...files.map((file) => `./${file}`),
+      ],
+      {
+        cwd: context.target.scope.cwd,
+        env: { ...context.target.scope.env, RUFF_OUTPUT_FILE: undefined },
+        signal: context.signal,
+      },
+    );
+  },
   async check(context) {
     const scope = await collectLintScope(context.target);
     const checks: LintCheck[] = [];

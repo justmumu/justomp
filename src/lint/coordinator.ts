@@ -346,7 +346,8 @@ export class LintSession {
     this.current = undefined;
   }
 }
-/** Check-only entry: no installs, policy flush or snapshot writes, and no preparation under a lease. */
+/** Ready execution lease: validates tooling without installs, policy flush or snapshot writes.
+ * The operation owns check-only or explicit source-fix behavior; never prepare under this lease. */
 export async function withReadyLintTarget<T>(
   root: string,
   projectId: string,

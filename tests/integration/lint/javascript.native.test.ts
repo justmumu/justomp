@@ -6,6 +6,7 @@ import {
   prettierVersion,
 } from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
+import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import { cleanups, fixture } from "./javascript-fixture";
 
 afterEach(async () => {
@@ -44,6 +45,25 @@ for (const manager of ["npm", "yarn-modern"] as const)
       "passed",
       "passed",
     ]);
+    if (manager === "npm") {
+      const source = "export let value = 1;\n";
+      await writeFile(join(f.root, "index.ts"), source);
+      const fix = pendingLintFix("javascript");
+      const metadata = await readFile(join(f.root, "package.json"), "utf8");
+      await applyLintFix(ctx, javascriptAdapter, fix);
+      expect(fix).toMatchObject({
+        status: "completed",
+        changed_files: ["index.ts"],
+        observation_complete: true,
+      });
+      expect(await readFile(join(f.root, "index.ts"), "utf8")).not.toBe(source);
+      expect(
+        (await javascriptAdapter.check(ctx)).map((check) => check.status),
+      ).toEqual(["passed", "passed"]);
+      expect(await readFile(join(f.root, "package.json"), "utf8")).toBe(
+        metadata,
+      );
+    }
     await writeFile(join(f.root, "index.ts"), "Promise.resolve(1)\n");
     await writeFile(
       join(f.root, "component.tsx"),

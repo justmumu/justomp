@@ -1,6 +1,6 @@
-# Project lint and format checks
+# Project lint, fixes and format checks
 
-`project_lint` checks one inspected project with the repository's shared policy. Python uses Ruff; JavaScript/TypeScript uses ESLint and Prettier; Go uses golangci-lint with gofumpt and goimports. Both lint and format checks must pass. The tool does not fix source files.
+`project_lint` checks one inspected project with the repository's shared policy. Python uses Ruff; JavaScript/TypeScript uses ESLint and Prettier; Go uses golangci-lint with gofumpt and goimports. Both lint and format checks must pass. Source fixing is opt-in through `fix: true`; omitted or false keeps the check-only behavior.
 
 ## Selecting a project
 
@@ -12,9 +12,30 @@ Call `list_projects({})`, then pass one returned ID:
 {"project_id":"go:services/api/go.mod"}
 ```
 
-These are three separate `project_lint` calls. The tool requires only `project_id`; it rejects ecosystem, manager, command, working-directory and rule inputs. Moving a manifest changes its ID. An unknown ID is rejected before that call starts native preparation.
+These are three separate `project_lint` calls. The tool requires `project_id` and accepts optional boolean `fix` (default false); it rejects ecosystem, manager, command, working-directory, files and rule inputs. Moving a manifest changes its ID. An unknown ID is rejected before that call starts native preparation.
 
 OMP registers the tool at the `exec` approval tier. Its JSON result appears in model-readable `content` and in `details`. Denying the tool prevents its body from running. It does not prevent the separately enabled session-start lifecycle from preparing tools.
+
+## Applying lint fixes
+
+```json
+{"project_id":"python:pyproject.toml","fix":true}
+{"project_id":"javascript:apps/web/package.json","fix":true}
+```
+
+These are separate calls. Each waits for normal preparation, fixes only the selected project's current lint scope, then runs the ordinary lint and format checks under the same project lease. It uses already prepared native tools; requesting fixes does not itself upgrade their versions. Startup preparation never fixes source files.
+
+- Python runs Ruff with `--fix --no-fix-only --no-unsafe-fixes`. The root policy's fixable/unfixable restrictions and safety demotions still apply. A nonempty or malformed `extend-safe-fixes` list, including its legacy top-level spelling, produces `unsupported-safe-fix-config` before source writes. Explicit `extend` inheritance also prevents fixing because inherited safety promotions have not been verified. Check-only remains available and the policy is not rewritten.
+- JS/TS runs standard ESLint `--fix`. Justomp does not apply per-message suggestions or maintain a separate rule allowlist. Plugin authors' autofixes are not an absolute guarantee of preserved runtime behavior.
+- Go returns `fix.status: "unsupported"` and runs normal checks. Unsupported autofix alone does not fail otherwise passing checks. Use `project_format` for Go formatting and imports.
+
+Lint fixing does not run a formatter in write mode. A fix can therefore change source while the subsequent format check still fails; use `project_format` separately. Native lint autofixes may themselves adjust style or imports according to enabled lint rules.
+
+Only a fix request adds `fix` to the result. It contains `requested`, `supported`, `status`, sorted repository-relative `changed_files`, `observation_complete` and `errors`, with native execution details when a process ran. Status is `completed`, `unsupported`, `not-run`, `failed` or `cancelled`. A resolved empty source scope uses `not-run` with reason `no-sources` and retains the ordinary non-passing no-sources result. Before a target is resolved, `supported` is null.
+
+Completed fixes do not imply a clean project: final `checks` and `diagnostics` describe the post-fix state and decide success. Native exits 0 and 1 both permit rechecking; operational failures, cancellation, truncated output or incomplete file observation stop further checks. The tool waits for process cleanup and observes source differences before releasing the lease. Completed edits are retained on failure; there is no rollback.
+
+If a source disappears or cannot be safely read afterward, `observation_complete` is false and errors identify the affected path. Known changed paths remain visible. A false `partial_change` with incomplete observation does not prove nothing changed. The lease coordinates Justomp calls, not external editors; reported changes are observed differences rather than exclusive attribution to the fixer.
 
 ## Preparation and lifecycle
 
@@ -100,7 +121,7 @@ Statuses are `passed`, `failed`, `not-run` and `no-sources`. An empty source sco
 
 Preparation can affect more projects than the selected check. Its report includes affected IDs, actual changed metadata paths, errors and per-project receipts. Use per-project receipts for versions when projects have different tool sets. There is no rollback of completed native changes.
 
-An unrelated ecosystem's setup error does not prevent a ready selected project from passing. In that case the result can have `success: true` while `preparation.complete` is false; the preparation errors and effects remain visible. `partial_change` means incomplete preparation left reported changes. The all-Python wave rule still blocks Python success until every required Python project is verified.
+An unrelated ecosystem's setup error does not prevent a ready selected project from passing. In that case the result can have `success: true` while `preparation.complete` is false; the preparation errors and effects remain visible. `partial_change` means incomplete preparation left reported changes, or an incomplete fix/check call left observed source changes. Remaining lint violations from completed checks do not alone make changes partial. The all-Python wave rule still blocks Python success until every required Python project is verified.
 
 ## API, CLI and CI
 
@@ -128,7 +149,7 @@ It writes one JSON result to stdout. Exit codes are `0` for both checks passing,
 
 Local `.justomp` files are not automatically supplied to another checkout or CI machine. The extension does not edit `.gitignore`. Decide how the shared policy and retained exact targets reach CI, then explicitly prepare and verify the environment before using check-only. A fresh preparation without retained targets can resolve versions and change manifests/locks; CI that forbids those changes must provision retained targets and reject unexpected metadata changes. Native readiness is verified even when state is supplied.
 
-No Git hook or CI workflow is installed by this feature. Use [`project_typecheck`](typecheck.md) for native project typechecking. Use [project_test and project_integration_test](testing.md) for test execution. Staged-content checking, automatic format hooks, lint-fix tools and a user-facing bulk lint-tool upgrade command remain separate work. Explicit writing is available through [project_format](format.md).
+No Git hook or CI workflow is installed by this feature. Use [`project_typecheck`](typecheck.md) for native project typechecking. Use [project_test and project_integration_test](testing.md) for test execution. Staged-content checking, automatic format hooks and a user-facing bulk lint-tool upgrade command remain separate work. Fixing is currently exposed through the OMP tool; the public check API and CLI remain read-only. Explicit writing is available through [project_format](format.md).
 
 ## Native verification and reproduction
 
@@ -142,7 +163,7 @@ The fixed native test matrix uses these tool sets:
 | JS managers/runtime | npm 11.12.1; pnpm 10.20.0; Yarn Classic 1.22.22; Yarn PnP 4.12.0; Bun 1.4.2; Node 26.0.0 |
 | Go | Go 1.25.6; golangci-lint 2.15.0 |
 
-Native verification was performed on macOS arm64. The Go installer accepts darwin/linux on x64/arm64; that is not a Linux native-matrix claim. Windows Go installation is explicitly unsupported. Other Windows runner/manager combinations remain unverified. Accepted manager families and provisioning are listed in [dependency test setup](dependencies.md#reproducing-native-tests).
+Native verification was performed on macOS arm64 and Linux arm64. The Linux full gate ran in a Debian 13 container with ext4 fixtures and an init process. Nested Bubblewrap execution required Docker’s `--security-opt systempaths=unconfined`; no privileged mode or application sandbox changes were used. The Go installer accepts darwin/linux on x64/arm64; x64 remains unverified. Windows Go installation is explicitly unsupported. Other Windows runner/manager combinations remain unverified. Accepted manager families and provisioning are listed in [dependency test setup](dependencies.md#reproducing-native-tests).
 
 ```sh
 bun run check

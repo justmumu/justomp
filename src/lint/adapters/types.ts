@@ -1,4 +1,5 @@
 import type { LintPolicy } from "../../config/lint/model";
+import type { ProcessResult } from "../../dependencies/model";
 import type { LintCheck, LintEcosystem, PreparationChange } from "../model";
 import type { ProjectionPlan } from "../projection";
 import type { LintTarget } from "../targets";
@@ -36,6 +37,11 @@ export interface LintAdapter {
   /** Verify actual declarations, lock and executable; receipts are only hints. */
   verify(context: LintCheckContext): Promise<boolean>;
   check(context: LintCheckContext): Promise<LintCheck[]>;
+  /** Native source mutation, called only with explicit owned files under the ready lease. */
+  fix?(
+    context: LintCheckContext,
+    files: readonly string[],
+  ): Promise<ProcessResult>;
 }
 export type LintAdapterRegistry = Readonly<
   Partial<Record<LintEcosystem, LintAdapter>>

@@ -5,9 +5,11 @@ import { goLintAdapter } from "./adapters/go";
 import { javascriptAdapter } from "./adapters/javascript";
 import { pythonAdapter } from "./adapters/python";
 import { withReadyLintTarget } from "./coordinator";
+import { applyLintFix, pendingLintFix } from "./fix";
 import {
   type LintCheck,
   LintError,
+  type LintFix,
   type LintPreparation,
   type LintResult,
 } from "./model";
@@ -55,10 +57,11 @@ export function lintFailure(error: unknown, signal?: AbortSignal) {
   };
 }
 /** Internal host entry retains selected identity/effects even if its wait was cancelled. */
-export async function checkLintTarget(
+async function runLintTarget(
   target: LintTarget,
   signal: AbortSignal,
   report?: PreparationReport,
+  fix?: LintFix,
 ): Promise<LintResult> {
   const id = target.project.project_id;
   let preparation: LintPreparation = report
@@ -78,9 +81,15 @@ export async function checkLintTarget(
   let checks: LintCheck[] = [],
     policyHash = "",
     failure: string | undefined;
+  let readyEntered = false;
   let selectedReady = report?.projects[id]?.complete ?? !report;
   try {
     signal.throwIfAborted();
+    if (fix && report && !report.projects[id]?.complete)
+      throw new LintError(
+        "preparation-incomplete",
+        "Selected project's preparation did not complete",
+      );
     const policy = await loadConfig(target.root, { signal, flush: false });
     policyHash = lintPolicyKey(policy.lint[target.project.ecosystem]);
     if (!report) {
@@ -106,6 +115,13 @@ export async function checkLintTarget(
             complete: true,
           };
         selectedReady = true;
+        readyEntered = true;
+        if (fix)
+          await applyLintFix(
+            context,
+            lintAdapters[context.target.project.ecosystem],
+            fix,
+          );
         checks = await lintAdapters[target.project.ecosystem].check(context);
       },
       signal,
@@ -119,9 +135,15 @@ export async function checkLintTarget(
     }
   } catch (error) {
     const issue = preparationFailure(error, id);
-    preparation.errors.push(issue);
+    if (fix && readyEntered)
+      fix.errors.push({ code: issue.code, message: issue.message });
+    else preparation.errors.push(issue);
+    if (fix && signal.aborted && fix.status !== "completed") {
+      fix.status = "cancelled";
+      fix.cancelled = true;
+    }
     failure = issue.message;
-    if (!checks.length) {
+    if (!checks.length && (!fix || !readyEntered)) {
       selectedReady = false;
       if (!report)
         preparation = {
@@ -160,8 +182,30 @@ export async function checkLintTarget(
       policyHash,
       selectedReady,
       ...(failure ? { failure } : {}),
+      ...(fix ? { fix } : {}),
     },
     signal.aborted,
+  );
+}
+/** Host check path: preparation effects are retained, sources are never fixed. */
+export async function checkLintTarget(
+  target: LintTarget,
+  signal: AbortSignal,
+  report?: PreparationReport,
+): Promise<LintResult> {
+  return runLintTarget(target, signal, report);
+}
+/** Internal mutating entry; preparation stays outside the fix/check lease. */
+export async function fixLintTarget(
+  target: LintTarget,
+  signal: AbortSignal,
+  report?: PreparationReport,
+): Promise<LintResult> {
+  return runLintTarget(
+    target,
+    signal,
+    report,
+    pendingLintFix(target.project.ecosystem),
   );
 }
 /** Read-only check: no installation, defaults flush, state save or snapshot publication. */

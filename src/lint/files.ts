@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { safePath } from "../dependencies/paths";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { safePath, within } from "../dependencies/paths";
 import { LintError } from "./model";
 
 export interface FileSnapshot {
@@ -105,4 +105,36 @@ export async function publishProjectionFile(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     });
   }
+}
+
+/** Reject symlinks in every path component before native source writes. */
+export async function assertSourcePath(
+  root: string,
+  path: string,
+): Promise<void> {
+  if (!within(root, path))
+    throw new LintError("unsafe-path", "Source path is outside the project");
+  let current = root;
+  for (const part of ["", ...relative(root, path).split(sep)]) {
+    current = resolve(current, part);
+    const stat = await lstat(current);
+    if (
+      stat.isSymbolicLink() ||
+      (current === path ? !stat.isFile() : !stat.isDirectory())
+    )
+      throw new LintError(
+        "unsafe-path",
+        `Refusing unsafe source path: ${path}`,
+      );
+  }
+}
+export async function readSourceFile(
+  root: string,
+  path: string,
+): Promise<FileSnapshot & { text: string }> {
+  await assertSourcePath(root, path);
+  const snapshot = await readProjectionFile(root, path);
+  if (snapshot.text === null)
+    throw new LintError("file-missing", `Source file disappeared: ${path}`);
+  return { ...snapshot, text: snapshot.text };
 }
