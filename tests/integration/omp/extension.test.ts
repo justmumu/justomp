@@ -9,12 +9,14 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { COMMIT_DEFAULTS } from "../../../src/config/commit/defaults";
 import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
 import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTestConfig } from "../../../src/config/test/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { getPackagingStatus } from "../../../src/packaging/get-structure";
+import { gitText } from "../../../src/precommit/git";
 import { createHost } from "./host";
 
 const roots: string[] = [];
@@ -56,6 +58,7 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
     typecheck: resolveTypecheckConfig().policy,
     test: resolveTestConfig().policy,
     integration_test: resolveIntegrationTestConfig().policy,
+    commit: COMMIT_DEFAULTS,
   });
   const snapshot = JSON.parse(
     await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"),
@@ -71,6 +74,28 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
       .map((block) => (block.type === "text" ? block.text : ""))
       .join("\n"),
   ).toContain('"name":"hello"');
+});
+test("nested sessions install one repository hook without changing tool cwd", async () => {
+  const root = await realpath(
+    await mkdtemp(join(tmpdir(), "justomp-hook-host-")),
+  );
+  roots.push(root);
+  await gitText(root, ["init", "-q"]);
+  const nested = join(root, "nested");
+  await mkdir(nested);
+  const h = await host(nested);
+  expect(h.runner.getRegisteredTool("repo_commit")?.definition.approval).toBe(
+    "exec",
+  );
+  await h.runner.emit({ type: "session_start" });
+  const hook = await readFile(join(root, ".git/hooks/pre-commit"), "utf8");
+  await h.runner.emit({ type: "session_start" });
+  expect(await readFile(join(root, ".git/hooks/pre-commit"), "utf8")).toBe(
+    hook,
+  );
+  expect((await h.tool.execute("scope", {})).details.structure.root).toBe(
+    nested,
+  );
 });
 test("host denial prevents the custom tool from writing anything", async () => {
   const root = await fixture();

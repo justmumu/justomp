@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import type { CommitPolicy } from "./commit/model";
+import { resolveCommitConfig } from "./commit/resolve";
 import type { FormatPolicy } from "./format/model";
 import { formatPolicyKey, resolveFormatConfig } from "./format/resolve";
 import { INSPECTION_DEFAULTS } from "./inspection/defaults";
@@ -18,6 +20,7 @@ import {
   typecheckPolicyKey,
 } from "./typecheck/resolve";
 export interface LoadedConfig {
+  commit: CommitPolicy;
   format: FormatPolicy;
   formatKey: string;
   rules: InspectionRules;
@@ -68,6 +71,7 @@ async function read(root: string): Promise<{
   integrationTest: TestPolicy;
   format: FormatPolicy;
   storedLint: LintPolicy;
+  commit: CommitPolicy;
   missing: boolean;
   identity: string | null;
 }> {
@@ -114,11 +118,13 @@ async function read(root: string): Promise<{
   const rules = { include, exclude };
   validateRules(rules);
   let format: ReturnType<typeof resolveFormatConfig>;
+  let commit: ReturnType<typeof resolveCommitConfig>;
   let lint: ReturnType<typeof resolveLintConfig>;
   let typecheck: ReturnType<typeof resolveTypecheckConfig>;
   let test: ReturnType<typeof resolveTestConfig>;
   let integrationTest: ReturnType<typeof resolveIntegrationTestConfig>;
   try {
+    commit = resolveCommitConfig(object.commit);
     integrationTest = resolveIntegrationTestConfig(
       Object.hasOwn(object, "integration_test")
         ? object.integration_test
@@ -147,6 +153,7 @@ async function read(root: string): Promise<{
     object,
     rules,
     storedLint: lint.policy,
+    commit: commit.policy,
     format: format.policy,
     lint: {
       ...lint.policy,
@@ -159,6 +166,7 @@ async function read(root: string): Promise<{
     test: test.policy,
     integrationTest: integrationTest.policy,
     missing:
+      commit.missing ||
       format.missing ||
       integrationTest.missing ||
       test.missing ||
@@ -178,6 +186,7 @@ async function execute(
   const initial = await read(root);
   signal?.throwIfAborted();
   const result = {
+    commit: initial.commit,
     format: initial.format,
     formatKey: formatPolicyKey(initial.format),
     rules: initial.rules,
@@ -204,6 +213,7 @@ async function execute(
   const raw = initial.object.inspection_rules ?? {};
   const object = {
     ...initial.object,
+    commit: initial.commit,
     lint: initial.storedLint,
     format: initial.format,
     typecheck: initial.typecheck,

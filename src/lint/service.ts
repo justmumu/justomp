@@ -219,3 +219,33 @@ export async function checkProjectLint(
     signal,
   );
 }
+
+/** Repository gate fixes first, formats next, then performs the final checks. */
+export async function fixProjectLintOnly(
+  root: string,
+  projectId: string,
+  signal: AbortSignal,
+): Promise<LintFix> {
+  const target = await inspectLintProject(root, projectId, signal);
+  const fix = pendingLintFix(target.project.ecosystem);
+  try {
+    await withReadyLintTarget(
+      root,
+      projectId,
+      lintAdapters,
+      async (context) => {
+        await applyLintFix(
+          context,
+          lintAdapters[context.target.project.ecosystem],
+          fix,
+        );
+      },
+      signal,
+    );
+  } catch (error) {
+    const issue = preparationFailure(error, projectId);
+    fix.errors.push({ code: issue.code, message: issue.message });
+    fix.status = signal.aborted ? "cancelled" : "failed";
+  }
+  return fix;
+}

@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { COMMIT_DEFAULTS } from "../../src/config/commit/defaults";
 import { resolveFormatConfig } from "../../src/config/format/resolve";
 import { INSPECTION_DEFAULTS } from "../../src/config/inspection/defaults";
 import { resolveIntegrationTestConfig } from "../../src/config/integration-test/resolve";
@@ -57,6 +58,7 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     typecheck: resolveTypecheckConfig().policy,
     test: resolveTestConfig().policy,
     integration_test: resolveIntegrationTestConfig().policy,
+    commit: COMMIT_DEFAULTS,
     inspection_rules: { exclude: [], custom: true, include: ["**/*"] },
   });
   const stamp = (await stat(join(root, ".justomp/config.json"))).mtimeMs;

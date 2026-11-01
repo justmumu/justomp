@@ -4,6 +4,12 @@ Justomp denies general file-tool writes to discovered project metadata. Trusted 
 `project_format` can also format supported protected files. The protection installs automatically with the extension; no new config
 fields, capability tokens or allow lists are needed.
 
+Use `repo_commit({message})` for commits from OMP. It validates the message and
+runs Git through a trusted custom tool so the pre-commit hook can format managed
+files. A `git commit` launched by protected `bash` inherits that sandbox,
+including its restrictions on hook subprocesses. Terminal and IDE commits use
+the same installed hook. See [pre-commit behavior](precommit.md).
+
 ## Covered tools and targets
 
 Native `write`, `edit` and `apply_patch` targets are checked before delegation.

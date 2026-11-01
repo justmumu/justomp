@@ -4,6 +4,7 @@ import type { InspectionRules } from "../config/inspection/model";
 import { loadConfig } from "../config/load";
 import type { PackagingStructure } from "../inspect/model";
 import { inspectProject } from "../inspect/scan";
+import { packagingInvocation } from "./invocation";
 import { publishSnapshot } from "./snapshot";
 import { StructureWatcher, type WatchStatus } from "./watcher";
 export class StructureError extends Error {
@@ -287,6 +288,36 @@ export async function getPackagingStructure(
   try {
     signal.throwIfAborted();
     const canonical = await realpath(root);
+    const invocation = packagingInvocation.getStore();
+    if (invocation?.root === canonical) {
+      const config = await loadConfig(canonical, { signal });
+      const structure = await inspectProject({
+        root: canonical,
+        rules: config.rules,
+        signal,
+        excludedRoots: invocation.excluded,
+      });
+      if (!structure.complete)
+        throw new StructureError(
+          "incomplete",
+          "Repository inspection incomplete",
+          structure,
+        );
+      return {
+        structure,
+        cacheHit: false,
+        refreshed: true,
+        waitMs: performance.now() - started,
+        publishMs: 0,
+        watcher: {
+          ready: false,
+          healthy: false,
+          revision: 0,
+          reason: "repository-invocation",
+          watchedPaths: [],
+        },
+      };
+    }
     aliases.set(resolve(root), canonical);
     const config = await loadConfig(canonical, { signal });
     signal.throwIfAborted();
