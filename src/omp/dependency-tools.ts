@@ -43,7 +43,7 @@ const descriptions: Record<Operation, string> = {
     "Remove named packages from an explicit group using the installed native manager. First use list_projects and dependency_list. Other groups are preserved or an unsupported capability is reported. May run lifecycle scripts and change shared lock/environment metadata.",
   update:
     "Update a nonempty explicit package list from dependency_list for a project_id from list_projects. Default within_constraints preserves current constraints; latest may rewrite target constraints. Exact version allows downgrade; explicit mode cannot coexist with any version. Optional group disambiguates declarations. Shared-lock resolutions may affect sibling projects.",
-  sync: "Synchronize the selected project's native dependency environment without intentional upgrades. First use list_projects and dependency_list. Requires a compatible lock where the manager uses a lock; Go sums are integrity metadata. Preserves native default group selection. May execute lifecycle scripts.",
+  sync: "Synchronize the selected project's native dependency environment without intentional upgrades. First use list_projects and dependency_list. Optional check:true validates consistency without repairing or relocking; pnpm/Yarn may install and run lifecycle scripts, uv/npm/Bun use native check/dry-run, and Go uses tidy -diff. Requires an existing lock where applicable; Go sums are integrity metadata. Only outcome:success passes; changed dependency inputs or failed observation fail check. Preserves native default group selection.",
 };
 export function registerDependencyTools(
   pi: ExtensionAPI,

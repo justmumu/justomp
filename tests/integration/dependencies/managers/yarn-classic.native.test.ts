@@ -38,7 +38,7 @@ test("Yarn Classic native registry lifecycle respects constraints and exact down
     });
     expect(await f.installed("u6-dep")).toBe("1.0.0");
     expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
-    await f.operate(adapter, { operation: "sync" });
+    await f.operate(adapter, { operation: "sync", check: true });
     await f.operate(adapter, {
       operation: "remove",
       group: { kind: "runtime" },

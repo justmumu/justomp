@@ -85,7 +85,7 @@ test("modern Yarn node_modules linker shares the same native graph contract as P
   }
 }, 60000);
 
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { executeDependency } from "../../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../../src/packaging/get-structure";
 
@@ -155,6 +155,20 @@ test("service reports Yarn shared-lock resolution changes in both members", asyn
     ).toBe(beforeB);
     expect(await f.installed("u6-dep", "packages/a")).toBe("1.1.0");
     expect(await f.installed("u6-dep", "packages/b")).toBe("1.1.0");
+    await rm(join(f.root, ".pnp.cjs"));
+    const check = await executeDependency(
+      f.root,
+      "sync",
+      {
+        project_id: "javascript:packages/a/package.json",
+        check: true,
+      },
+      { "yarn-modern": adapter },
+    );
+    expect(check.outcome, JSON.stringify(check)).toBe("success");
+    expect(
+      "metadata_changes" in check && check.metadata_changes,
+    ).toContainEqual({ path: ".pnp.cjs", change: "created" });
   } finally {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;

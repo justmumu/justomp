@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
@@ -48,6 +48,11 @@ test("uv native targeted updates retain bounds, latest expands, exact downgrades
     });
     expect(inventory.dependencies[0]?.declared_specifier).toBe("==1.0");
     expect(inventory.dependencies[0]?.resolutions?.[0]?.version).toBe("1.0.0");
+    await rm(join(fixture.root, ".venv"), { recursive: true, force: true });
+    await fixture.execute({ operation: "sync", project_id: id, check: true });
+    expect(
+      await Bun.file(join(fixture.root, ".venv/pyvenv.cfg")).exists(),
+    ).toBe(false);
     await fixture.execute({ operation: "sync", project_id: id });
     expect(
       (
@@ -64,6 +69,9 @@ test("uv native targeted updates retain bounds, latest expands, exact downgrades
       join(fixture.root, "pyproject.toml"),
       (await fixture.manifest()).replace("==1.0", "==1.5.0"),
     );
+    await expect(
+      fixture.execute({ operation: "sync", project_id: id, check: true }),
+    ).rejects.toThrow();
     await expect(
       fixture.execute({ operation: "sync", project_id: id }),
     ).rejects.toThrow();

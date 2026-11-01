@@ -65,7 +65,15 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
           (d) => d.name === "fixture-child" && !d.direct,
         ),
       ).toBe(true);
-      await f.operate(adapter, { operation: "sync" });
+      await f.operate(adapter, { operation: "sync", check: true });
+      if (manager === "npm") {
+        expect(
+          await Bun.file(
+            join(f.project, "node_modules/fixture-dep/package.json"),
+          ).exists(),
+        ).toBe(false);
+        await f.operate(adapter, { operation: "sync" });
+      }
       expect(
         JSON.parse(
           await readFile(
@@ -149,6 +157,9 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         JSON.stringify(manifest),
       );
       f.publish();
+      await expect(
+        f.operate(adapter, { operation: "sync", check: true }),
+      ).rejects.toThrow();
       await expect(f.operate(adapter, { operation: "sync" })).rejects.toThrow();
       expect((await f.manifest()).dependencies["fixture-dep"]).toBe("2.0.0");
     } finally {

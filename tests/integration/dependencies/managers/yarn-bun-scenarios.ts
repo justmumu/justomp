@@ -250,6 +250,10 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
       const manifest = await f.manifest();
       manifest.dependencies["u6-other"] = "1.0.0";
       await writeFile(join(f.root, "package.json"), JSON.stringify(manifest));
+      if (variant === "bun")
+        await expect(
+          f.operate(adapter, { operation: "sync", check: true }),
+        ).rejects.toThrow();
       await expect(f.operate(adapter, { operation: "sync" })).rejects.toThrow();
       expect(await readFile(lock, "utf8")).toBe(before);
     } finally {

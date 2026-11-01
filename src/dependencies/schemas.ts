@@ -112,7 +112,7 @@ export const schemas = {
         v.packages.every((p) => p.version === undefined),
       "Explicit mode and version cannot coexist",
     ),
-  sync: z.object(target).strict(),
+  sync: z.object({ ...target, check: z.boolean().optional() }).strict(),
 };
 export type Group = z.infer<typeof groupSchema>;
 export type Source = z.infer<typeof source>;
