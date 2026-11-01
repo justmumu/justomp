@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { basename } from "node:path";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { changes, fingerprint, resolutionEvidence } from "./changes";
 import {
@@ -303,13 +304,27 @@ export async function executeDependency(
         }
         let metadata_changes: ReturnType<typeof changes> = [];
         const diagnostics: { code: string; message: string }[] = [];
+        const checking = request.operation === "sync" && request.check;
         try {
           metadata_changes = changes(before, await fingerprint(root, metadata));
+          if (checking) {
+            // PnP loaders are install outputs, not dependency input metadata.
+            const inputs = metadata_changes.filter(
+              ({ path }) =>
+                ![".pnp.cjs", ".pnp.loader.mjs"].includes(basename(path)),
+            );
+            if (inputs.length)
+              error ??= new DependencyError(
+                "check-input-changed",
+                `Check changed dependency input metadata: ${inputs.map(({ path }) => path).join(", ")}`,
+              );
+          }
         } catch (e) {
           diagnostics.push({
             ...failure(e),
             code: "change-observation-failed",
           });
+          if (checking) error ??= e;
         }
         if (error)
           diagnostics.push(
@@ -332,6 +347,15 @@ export async function executeDependency(
           context,
           plan.affectedProjects,
         );
+        // Inventory/evidence readers can return incomplete data on cancellation.
+        // Check intent still requires a non-success result after the last await.
+        if (checking && signal?.aborted && !error) {
+          error = new DependencyError(
+            "cancelled",
+            "Dependency operation was cancelled",
+          );
+          diagnostics.push(failure(error));
+        }
         const affected_projects = current.structure.projects
           .filter((p) => plan.affectedProjects.includes(p.project_id))
           .flatMap((p) => {

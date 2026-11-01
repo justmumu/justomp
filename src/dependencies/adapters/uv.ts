@@ -166,8 +166,12 @@ export const uvAdapter: Adapter = {
       plan.steps.push(
         step(
           context,
-          [...syncArgs(context), "--locked"],
-          "Sync locked Python environment",
+          request.check
+            ? ["lock", "--check"]
+            : [...syncArgs(context), "--locked"],
+          request.check
+            ? "Check Python lock consistency"
+            : "Sync locked Python environment",
         ),
       );
       return plan;

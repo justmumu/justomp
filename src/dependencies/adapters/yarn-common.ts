@@ -119,6 +119,7 @@ async function sourceSpecifier(
 async function frozen(
   context: AdapterContext,
   variant: Variant,
+  check = false,
 ): Promise<NativeStep[]> {
   const lock = await lockPath(context, variant);
   if (!lock)
@@ -185,6 +186,7 @@ async function frozen(
         "install",
         variant === "modern" ? "--immutable" : "--frozen-lockfile",
         ...(variant === "classic" ? ["--non-interactive"] : []),
+        ...(variant === "bun" && check ? ["--dry-run"] : []),
       ],
       "Synchronize from existing lockfile",
       context.owner,
@@ -205,7 +207,7 @@ export async function plan(
       ? ["--ignore-workspace-root-check"]
       : [];
   if (request.operation === "sync")
-    steps.push(...(await frozen(context, variant)));
+    steps.push(...(await frozen(context, variant, request.check)));
   else if (request.operation === "add") {
     const flags = groupFlags(request.group);
     if (

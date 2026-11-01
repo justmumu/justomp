@@ -2,6 +2,21 @@ import { expect, test } from "bun:test";
 import { parseRequest } from "../../../src/dependencies/schemas";
 
 const id = "javascript:apps/web/package.json";
+test("sync accepts only a boolean check option and preserves its omission", () => {
+  expect(parseRequest("sync", { project_id: id })).toEqual({
+    operation: "sync",
+    project_id: id,
+  });
+  for (const check of [false, true])
+    expect(parseRequest("sync", { project_id: id, check })).toEqual({
+      operation: "sync",
+      project_id: id,
+      check,
+    });
+  for (const check of [null, "true", 1])
+    expect(() => parseRequest("sync", { project_id: id, check })).toThrow();
+  expect(() => parseRequest("list", { project_id: id, check: true })).toThrow();
+});
 test("group and explicit package selection are mandatory", () => {
   for (const operation of ["add", "remove"] as const)
     expect(() =>

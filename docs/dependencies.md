@@ -58,7 +58,27 @@ Groups are `runtime`, `dev`, `optional`, `peer`, `named` and `extra`. `named` an
 
 The default is `within_constraints`: the chosen resolution must satisfy the starting constraints, though a manager may rewrite its native lower-bound spelling. `latest` may rewrite the selected declaration's constraint. An exact `version` can downgrade and cannot be combined with any explicit `mode` in the same request. Without `mode`, a mixed request applies exact versions where supplied and within-constraints elsewhere. Optional per-package `group` disambiguates repeated declarations; unresolved duplicate markers or sources are rejected. Git/local sources are not converted into registry releases.
 
-`dependency_sync` takes only `project_id`. It materializes the native environment using the manager's default group selection without an intentional upgrade. Managers with real locks require an existing compatible lock. Sync does not install every optional group together.
+`dependency_sync` takes `project_id` and optional boolean `check`. Omitted or `false`, it materializes the native environment using the manager's default group selection without an intentional upgrade. Managers with real locks require an existing compatible lock. Sync does not install every optional group together.
+
+```json
+{"project_id":"python:apps/api/pyproject.toml","check":true}
+```
+
+`check:true` validates dependency consistency with the installed manager. It does not repair a stale lock, relock or upgrade after a failure. Installation is allowed where the native validation requires it:
+
+| Manager | Check command | Effects |
+| --- | --- | --- |
+| uv | `uv lock --check` | Validates the owner lock from the selected project; does not sync its environment. |
+| npm | `npm ci --dry-run --ignore-scripts --no-audit --no-fund` | Validates the owner lock without installation or lifecycle scripts. |
+| pnpm | `pnpm install --frozen-lockfile` | May install using the selected project's native scope. |
+| Yarn Classic | `yarn install --frozen-lockfile --non-interactive` | Retains the existing declaration preflight; may install at the owner. |
+| Modern Yarn | `yarn install --immutable` | May install and regenerate PnP loaders at the owner; cache writes are allowed. |
+| Bun | `bun install --frozen-lockfile --dry-run` | Requires an existing text or binary lock; does not install. |
+| Go | `go mod tidy -diff` | Checks the selected module's tidy state without a preceding download that could repair sums. May fetch modules/cache data; never applies the diff. |
+
+pnpm and Yarn retain native lifecycle-script behavior. Check is an `exec` operation, not a promise of a read-only filesystem or offline execution. Only `outcome: "success"` passes. Native failure/cancellation, changed dependency input metadata, or failed metadata observation cannot pass. Generated `.pnp.cjs` and `.pnp.loader.mjs` changes are reported as permitted install outputs. Failed commands and changed metadata remain visible; Justomp neither rolls them back nor retries with a repair command. Go sums are integrity metadata rather than a lock, and may legitimately be absent. These semantics are shared by the API and OMP tool; this feature does not install Git hooks.
+
+Checks inspect current working-tree files, not Git's staged index. A future pre-commit hook must decide how to handle staged versus unstaged changes and accept only a successful result.
 
 ## Results and lifecycle
 

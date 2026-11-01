@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { goAdapter } from "../../../../src/dependencies/adapters/go";
+import { runProcess } from "../../../../src/dependencies/runner";
 import { executeDependency } from "../../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../../src/packaging/get-structure";
 import { createGoProxy } from "./go-proxy";
@@ -97,6 +98,33 @@ test("Go native local add, list, sync and remove preserve module semantics", asy
       )
     ).outcome,
   ).toBe("success");
+  // The add/download fixture is intentionally not tidy. Prepare a known tidy
+  // baseline explicitly; the production check must never perform this repair.
+  const tidy = await runProcess("go", ["mod", "tidy"], {
+    cwd: root,
+    env: { ...process.env, GOWORK: "off" },
+  });
+  expect(tidy.exit_code, tidy.stderr).toBe(0);
+  const check = await executeDependency(
+    root,
+    "sync",
+    { project_id: "go:go.mod", check: true },
+    registry,
+  );
+  expect(check.outcome, JSON.stringify(check)).toBe("success");
+  const beforeCheck = await readFile(join(root, "go.mod"), "utf8");
+  await writeFile(join(root, "main.go"), "package app\n");
+  const stale = await executeDependency(
+    root,
+    "sync",
+    { project_id: "go:go.mod", check: true },
+    registry,
+  );
+  expect(stale.outcome, JSON.stringify(stale)).toBe("failed");
+  expect(await readFile(join(root, "go.mod"), "utf8")).toBe(beforeCheck);
+  expect("native_steps" in stale && stale.native_steps?.[0]?.stdout).toContain(
+    "diff",
+  );
   expect(
     (
       await executeDependency(

@@ -69,6 +69,14 @@ test("host denial prevents dependency exec and schema failures are model-visible
   expect(result.isError).toBe(true);
   expect(json(result).outcome).toBe("rejected");
   expect(json(result).diagnostics.length).toBeGreaterThan(0);
+  const invalidCheck = await h
+    .getTool("dependency_sync")
+    .execute("invalid-check", {
+      project_id: "javascript:package.json",
+      check: "true",
+    });
+  expect(invalidCheck.isError).toBe(true);
+  expect(json(invalidCheck).outcome).toBe("rejected");
   const unknown = await h
     .getTool("list_projects")
     .execute("unknown-field", { path: root });
@@ -136,12 +144,24 @@ test("OMP content distinguishes native partial changes and structure refresh fai
     }),
   );
   const h = await host(root);
-  const result = await h
-    .getTool("dependency_sync")
-    .execute("partial", { project_id: "javascript:package.json" });
+  const checked = await h.getTool("dependency_sync").execute("check", {
+    project_id: "javascript:package.json",
+    check: true,
+  });
+  expect(checked.isError).not.toBe(true);
+  expect(json(checked).outcome).toBe("success");
+  expect(json(checked).requested.check).toBe(true);
+  expect(
+    JSON.parse(await readFile(join(root, "package.json"), "utf8")).name,
+  ).toBe("partial");
+  const result = await h.getTool("dependency_sync").execute("partial", {
+    project_id: "javascript:package.json",
+    check: false,
+  });
   expect(result.isError).toBe(true);
   const payload = json(result);
   expect(payload.outcome).toBe("partial_change");
+  expect(payload.requested.check).toBe(false);
   expect(payload.structure_refresh_error).toBeDefined();
   expect(payload.metadata_changes.length).toBeGreaterThan(0);
   expect(payload.native_steps[0].exit_code).not.toBe(0);

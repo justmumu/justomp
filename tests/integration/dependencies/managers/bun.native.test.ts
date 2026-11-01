@@ -38,6 +38,11 @@ test("Bun native registry lifecycle respects constraints and exact downgrades", 
     });
     expect(await f.installed("u6-dep")).toBe("1.0.0");
     expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
+    await rm(join(f.root, "node_modules"), { recursive: true, force: true });
+    await f.operate(adapter, { operation: "sync", check: true });
+    expect(
+      await Bun.file(join(f.root, "node_modules/u6-dep/package.json")).exists(),
+    ).toBe(false);
     await f.operate(adapter, { operation: "sync" });
     await f.operate(adapter, {
       operation: "remove",
@@ -54,7 +59,7 @@ import { nativeScenarios } from "./yarn-bun-scenarios";
 
 nativeScenarios("bun", adapter);
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 test("Bun binary lock graph and frozen sync retain native binary metadata", async () => {
@@ -79,6 +84,9 @@ test("Bun binary lock graph and frozen sync retain native binary metadata", asyn
         ?.version,
     ).toBe("1.0.0");
     expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);
+    await f.operate(adapter, { operation: "sync", check: true });
+    expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);
+    expect(await Bun.file(join(f.root, "bun.lock")).exists()).toBe(false);
     await f.operate(adapter, { operation: "sync" });
     expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);
   } finally {

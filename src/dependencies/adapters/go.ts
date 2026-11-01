@@ -158,8 +158,10 @@ export const goAdapter: Adapter = {
     }
     if (request.operation === "sync")
       steps.push({
-        label: "materialize selected Go modules",
-        args: ["mod", "download"],
+        label: request.check
+          ? "check selected Go module metadata"
+          : "materialize selected Go modules",
+        args: request.check ? ["mod", "tidy", "-diff"] : ["mod", "download"],
       });
     else if (request.operation === "remove") {
       for (const pkg of request.packages) {

@@ -151,8 +151,12 @@ export const npmAdapter: Adapter = {
           "npm sync requires an existing lock",
         );
       steps.push({
-        label: "Install locked npm environment",
-        args: ["ci"],
+        label: request.check
+          ? "Check npm lock consistency"
+          : "Install locked npm environment",
+        args: request.check
+          ? ["ci", "--dry-run", "--ignore-scripts", "--no-audit", "--no-fund"]
+          : ["ci"],
         cwd: ctx.owner,
       });
     } else if (request.operation === "remove") {
