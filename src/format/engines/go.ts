@@ -10,9 +10,22 @@ import { FormatError } from "../model";
 import { isNativeGoPath } from "../selection";
 
 /** Requires a prepared target and held mutation lease. The shared config owns formatter selection. */
-export async function formatGo(
+export function formatGo(
   context: LintCheckContext,
   files: readonly string[],
+): Promise<ProcessResult> {
+  return runGoFormat(context, files, false);
+}
+export function checkGoFormat(
+  context: LintCheckContext,
+  files: readonly string[],
+): Promise<ProcessResult> {
+  return runGoFormat(context, files, true);
+}
+async function runGoFormat(
+  context: LintCheckContext,
+  files: readonly string[],
+  check: boolean,
 ): Promise<ProcessResult> {
   context.signal.throwIfAborted();
   if (files.length === 0 || files.some((path) => !isNativeGoPath(path)))
@@ -31,6 +44,7 @@ export async function formatGo(
       binary,
       [
         "fmt",
+        ...(check ? ["--diff"] : []),
         "--config",
         context.projection.configs.format,
         "--",

@@ -99,3 +99,7 @@ placeholder ownership. The OMP test covers native delegation, mixed-patch
 rejection and the trusted-custom-tool distinction. These tests join the existing
 `bun run check` and `bun run test:integration` gates; upstream language/tool rule
 matrices are not duplicated.
+
+## Pre-push
+
+The [repository pre-push hook](prepush.md) checks the current working tree without lint fixes, formatting or staging. It runs lock consistency, format checks, lint, typecheck and unit tests with coverage for all discovered projects. Git and its hook retain the sandbox of their caller; no trusted push tool is added.
