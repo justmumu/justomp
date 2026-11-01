@@ -3,8 +3,9 @@ import { typecheckPolicyKey } from "../config/typecheck/resolve";
 import { DependencyError, redact } from "../dependencies/model";
 import { withDomains } from "../dependencies/queue";
 import type { PackagingStructure } from "../inspect/model";
-import { LintStateStore } from "../lint/state";
+import { type LintState, LintStateStore } from "../lint/state";
 import { getPackagingStructure } from "../packaging/get-structure";
+import { toolMembership } from "../packaging/tool-membership";
 import type {
   ToolVersions,
   TypecheckAdapter,
@@ -92,6 +93,16 @@ function batches(selected: TypecheckTarget[]): TypecheckTarget[][] {
   }
   return [...groups.values()];
 }
+function releaseLintCompiler(state: LintState, id: string): void {
+  const receipt = state.projects[id];
+  if (receipt) delete receipt.tools.typescript;
+  const wave = state.waves.javascript;
+  if (wave) {
+    wave.complete = false;
+    const tools = wave.versions[id];
+    if (tools) delete tools.typescript;
+  }
+}
 async function prepareCohort(
   selected: TypecheckTarget[],
   versions: Record<string, ToolVersions>,
@@ -166,11 +177,17 @@ async function prepareCohort(
           for (const target of batch) {
             const receipt = lint.state.projects[target.project.project_id];
             const desired = versions[target.project.project_id]?.typescript;
+            const retained =
+              lint.state.waves.javascript?.versions[target.project.project_id]
+                ?.typescript;
             if (
-              receipt?.tools.typescript &&
-              receipt.tools.typescript !== desired
+              (receipt?.tools.typescript &&
+                receipt.tools.typescript !== desired) ||
+              (retained && retained !== desired)
             ) {
-              receipt.ready = false;
+              if (receipt) receipt.ready = false;
+              if (lint.state.waves.javascript)
+                lint.state.waves.javascript.complete = false;
               if (
                 await adapter.verifyTools({
                   target,
@@ -178,8 +195,9 @@ async function prepareCohort(
                   policy: policy.typecheck,
                   signal,
                 })
-              )
-                delete receipt.tools.typescript;
+              ) {
+                releaseLintCompiler(lint.state, target.project.project_id);
+              }
             }
           }
           await lint.save();
@@ -220,8 +238,6 @@ async function prepareCohort(
         // new exact native version verifies, lint must no longer own its older pin.
         if (lint && nativeStale)
           for (const target of batch) {
-            const receipt = lint.state.projects[target.project.project_id];
-            if (!receipt) continue;
             try {
               if (
                 await adapter.verifyTools({
@@ -230,8 +246,9 @@ async function prepareCohort(
                   policy: policy.typecheck,
                   signal,
                 })
-              )
-                delete receipt.tools.typescript;
+              ) {
+                releaseLintCompiler(lint.state, target.project.project_id);
+              }
             } catch {
               /* The failed native preparation is reported below. */
             }
@@ -317,80 +334,67 @@ async function prepareEcosystem(
     );
     return;
   }
-  const liveIdSet = new Set(ids);
-  for (;;) {
-    let wave = store.state.waves[ecosystem];
-    if (wave) {
-      wave.projects = wave.projects.filter((id) => liveIdSet.has(id));
-      wave.pending = wave.pending.filter((id) => liveIdSet.has(id));
-      const members = new Set(wave.projects);
-      const discovered = ids.filter((id) => !members.has(id));
-      wave.pending = [...new Set([...wave.pending, ...discovered])].sort();
-      await store.save();
-    }
-    if (!wave || (wave.complete && wave.pending.length)) {
-      const resolved = await adapter.resolve(
-        selected,
-        policy.typecheck,
-        signal,
-      );
-      const common = validateToolVersions(
-        resolved[selected[0]?.project.project_id ?? ""],
-      );
-      const tool = ecosystem === "python" ? "pyright" : "typescript";
-      if (!common[tool])
-        throw new TypecheckError("invalid-version", `Missing ${tool} target`);
-      for (const target of selected)
-        if (
-          !sameVersions(
-            validateToolVersions(resolved[target.project.project_id]),
-            common,
-          )
+  let wave = store.state.waves[ecosystem];
+  const decision = toolMembership(wave, ids);
+  if (decision.resolve) {
+    const resolved = await adapter.resolve(selected, policy.typecheck, signal);
+    const common = validateToolVersions(
+      resolved[selected[0]?.project.project_id ?? ""],
+    );
+    const tool = ecosystem === "python" ? "pyright" : "typescript";
+    if (!common[tool])
+      throw new TypecheckError("invalid-version", `Missing ${tool} target`);
+    for (const target of selected)
+      if (
+        !sameVersions(
+          validateToolVersions(resolved[target.project.project_id]),
+          common,
         )
-          throw new TypecheckError(
-            "version-mismatch",
-            `${ecosystem} discovery must resolve one shared exact toolset`,
-          );
-      wave = { projects: ids, tools: common, complete: false, pending: [] };
-      store.state.waves[ecosystem] = wave;
-      await store.save();
-    }
-    const members = new Set(wave.projects);
-    const cohort = selected.filter((t) => members.has(t.project.project_id));
-    const versions = Object.fromEntries(
-      cohort.map((t) => [t.project.project_id, wave.tools]),
-    );
-    wave.complete = false;
+      )
+        throw new TypecheckError(
+          "version-mismatch",
+          `${ecosystem} discovery must resolve one shared exact toolset`,
+        );
+    wave = { projects: ids, tools: common, complete: false, pending: [] };
+    store.state.waves[ecosystem] = wave;
     await store.save();
-    const complete = await prepareCohort(
-      cohort,
-      versions,
-      adapter,
-      store,
-      policy,
-      report,
-      signal,
-    );
-    wave.complete = complete && !unresolved && !signal.aborted;
-    await store.save();
-    if (wave.complete && wave.pending.length) continue;
-    if (!wave.complete || wave.pending.length)
-      for (const id of ids) {
-        const result = report.projects[id] ?? {
-          ...initial(),
-          affected_projects: [id],
-        };
-        result.complete = false;
-        result.status = "failed";
-        result.errors.push({
-          code: `incomplete-${ecosystem}-wave`,
-          message: `${ecosystem} version alignment wave is incomplete`,
-          project_id: id,
-        });
-        report.projects[id] = result;
-      }
-    return;
   }
+  if (!wave)
+    throw new TypecheckError("state-invalid", "Version wave is missing");
+  wave.projects = decision.projects;
+  wave.pending = [];
+  const versions = Object.fromEntries(
+    selected.map((t) => [t.project.project_id, wave.tools]),
+  );
+  wave.complete = false;
+  await store.save();
+  const complete = await prepareCohort(
+    selected,
+    versions,
+    adapter,
+    store,
+    policy,
+    report,
+    signal,
+  );
+  wave.complete = complete && !unresolved && !signal.aborted;
+  await store.save();
+  if (!wave.complete)
+    for (const id of ids) {
+      const result = report.projects[id] ?? {
+        ...initial(),
+        affected_projects: [id],
+      };
+      result.complete = false;
+      result.status = "failed";
+      result.errors.push({
+        code: `incomplete-${ecosystem}-wave`,
+        message: `${ecosystem} version alignment wave is incomplete`,
+        project_id: id,
+      });
+      report.projects[id] = result;
+    }
+  return;
 }
 /** Owns the union lease once; native adapters must not call public dependency tools. */
 export async function prepareTypecheck(

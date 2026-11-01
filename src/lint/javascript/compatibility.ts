@@ -161,7 +161,7 @@ export function validateCompatibility(
   application: ToolVersions,
   node: string,
 ): void {
-  const selected = { ...tools, ...application };
+  const selected = { ...application, ...tools };
   for (const [name, data] of Object.entries(metadata)) {
     if (!compatible(data, selected, node))
       throw new LintError(
@@ -182,7 +182,7 @@ export function validateCompatibility(
   if (tools.eslint?.split(".")[0] !== tools["@eslint/js"]?.split(".")[0])
     throw new LintError(
       "incompatible-toolchain",
-      "ESLint and @eslint/js must use the same major family",
+      `ESLint ${tools.eslint} and @eslint/js ${tools["@eslint/js"]} must use the same major family`,
     );
   if (
     tools["@next/eslint-plugin-next"] &&
@@ -191,6 +191,6 @@ export function validateCompatibility(
   )
     throw new LintError(
       "incompatible-toolchain",
-      "Next lint plugin must match the application's actual Next major",
+      `Next lint plugin ${tools["@next/eslint-plugin-next"]} must match the application's actual Next major (${application.next ?? "missing"})`,
     );
 }

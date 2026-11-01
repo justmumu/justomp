@@ -5,7 +5,7 @@ import { withReadyTypecheckTarget } from "../../../src/typecheck/coordinator";
 import { prepareTypecheck } from "../../../src/typecheck/prepare";
 import { fixture } from "./fixture";
 
-test("failed exact wave survives restart, queues new discovery, and drains once", async () => {
+test("new discovery supersedes a failed wave and unchanged retries retain its exact target", async () => {
   const f = await fixture();
   const run = () =>
     prepareTypecheck(
@@ -21,12 +21,12 @@ test("failed exact wave survives restart, queues new discovery, and drains once"
   await f.add("c");
   f.latest("3.0.0");
   expect((await run()).complete).toBe(false);
-  expect(f.counts().resolves).toBe(2);
+  expect(f.counts().resolves).toBe(3);
   const state = JSON.parse(
     await readFile(join(f.root, ".justomp/typecheck_state.json"), "utf8"),
   );
-  expect(state.waves.python.pending).toEqual(["python:c/pyproject.toml"]);
-  expect(state.waves.python.tools).toEqual({ pyright: "2.0.0" });
+  expect(state.waves.python.pending).toEqual([]);
+  expect(state.waves.python.tools).toEqual({ pyright: "3.0.0" });
   await expect(
     withReadyTypecheckTarget(
       f.root,
@@ -35,7 +35,7 @@ test("failed exact wave survives restart, queues new discovery, and drains once"
       async () => true,
     ),
   ).rejects.toThrow("wave");
-  f.fail("c");
+  f.fail("b");
   expect((await run()).complete).toBe(false);
   expect(f.counts().resolves).toBe(3);
   await expect(
@@ -119,6 +119,11 @@ test("JavaScript shares exact TypeScript across failure/restart and relinquishes
   expect(invalidated.ready).toBe(false);
   expect(invalidated.tools).toEqual({ eslint: "9.0.0" });
   expect(invalidated.policy_hash).toBe("old-lint-policy");
+  const lintState = JSON.parse(await readFile(lintPath, "utf8"));
+  expect(lintState.waves.javascript.complete).toBe(false);
+  expect(
+    lintState.waves.javascript.versions["javascript:a/package.json"],
+  ).toEqual({ eslint: "9.0.0" });
   await expect(
     withReadyTypecheckTarget(
       f.root,
@@ -135,15 +140,22 @@ test("JavaScript shares exact TypeScript across failure/restart and relinquishes
     expect(
       JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8")),
     ).toEqual({ typescript: "2.0.0" });
-  // Already installed external changes must also retire a stale lint pin.
-  lint.projects["javascript:a/package.json"].tools.typescript = "0.9.0";
-  await writeFile(lintPath, JSON.stringify(lint));
+  // Already verified compiler ownership must also retire a map-only stale pin.
+  lintState.projects["javascript:a/package.json"].ready = true;
+  lintState.waves.javascript.versions["javascript:a/package.json"].typescript =
+    "0.9.0";
+  await writeFile(lintPath, JSON.stringify(lintState));
   expect((await run()).complete).toBe(true);
   const current = JSON.parse(await readFile(lintPath, "utf8")).projects[
     "javascript:a/package.json"
   ];
   expect(current.ready).toBe(false);
   expect(current.tools.typescript).toBeUndefined();
+  expect(
+    JSON.parse(await readFile(lintPath, "utf8")).waves.javascript.versions[
+      "javascript:a/package.json"
+    ].typescript,
+  ).toBeUndefined();
 });
 
 test("native workspace batch sees ready members alongside a newly discovered member", async () => {

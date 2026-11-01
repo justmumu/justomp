@@ -9,7 +9,10 @@ import type {
 } from "../../../src/dependencies/model";
 import { javascriptAdapter as lint } from "../../../src/lint/adapters/javascript";
 import type { LintOperationContext } from "../../../src/lint/adapters/types";
+import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
+import * as lintTools from "../../../src/lint/javascript/tools";
+import { LintError } from "../../../src/lint/model";
 import * as runtime from "../../../src/lint/runtime";
 import { javascriptAdapter as typecheck } from "../../../src/typecheck/adapters/javascript";
 import { memoryContext } from "../dependencies/memory";
@@ -220,4 +223,24 @@ test("a legacy Prettier pin leaves the user's existing dependency untouched", as
   expect(f.steps).toEqual([]);
   expect(f.context.changes).toEqual([]);
   expect(f.f.files.get(`${f.f.root}/package.json`)).toBe(manifest);
+});
+
+test("lint preflight identifies the incompatible application project before any native mutation", async () => {
+  const f = fixture("npm", "lint");
+  keep(
+    spyOn(lintTools, "requiredJavascriptTools").mockResolvedValue(["eslint"]),
+  );
+  keep(
+    spyOn(compatibility, "applicationVersions").mockRejectedValue(
+      new LintError(
+        "incompatible-toolchain",
+        "TypeScript 5.0.0 does not satisfy declared ^7.0.0",
+      ),
+    ),
+  );
+  const id = f.context.targets[0]?.project.project_id;
+  await expect(lint.preflight(f.context)).rejects.toThrow(
+    `${id}: TypeScript 5.0.0`,
+  );
+  expect(f.steps).toEqual([]);
 });

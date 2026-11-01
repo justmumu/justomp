@@ -149,7 +149,7 @@ test("ambiguous Python manager cannot complete a partial Python wave", async () 
   expect(result.complete).toBe(false);
   expect(
     JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"))
-      .python.complete,
+      .waves.python.complete,
   ).toBe(false);
   await expect(
     withReadyLintTarget(

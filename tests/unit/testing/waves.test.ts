@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { nextWave } from "../../../src/testing/state";
 
-test("new cohorts refresh once while partial waves keep exact targets and pending discoveries", () => {
+test("new members supersede partial waves while unchanged cohorts retain exact targets", () => {
   expect(nextWave(undefined, ["a"])).toEqual({
     resolve: true,
     projects: ["a"],
@@ -14,9 +14,14 @@ test("new cohorts refresh once while partial waves keep exact targets and pendin
     pending: [],
   };
   expect(nextWave(partial, ["a", "b"])).toEqual({
+    resolve: true,
+    projects: ["a", "b"],
+    pending: [],
+  });
+  expect(nextWave(partial, ["a"])).toEqual({
     resolve: false,
     projects: ["a"],
-    pending: ["b"],
+    pending: [],
   });
   expect(nextWave({ ...partial, complete: true }, ["a"])).toEqual({
     resolve: false,
@@ -24,6 +29,16 @@ test("new cohorts refresh once while partial waves keep exact targets and pendin
     pending: [],
   });
   expect(nextWave({ ...partial, complete: true }, ["a", "b"])).toEqual({
+    resolve: true,
+    projects: ["a", "b"],
+    pending: [],
+  });
+  expect(nextWave(partial, [])).toEqual({
+    resolve: false,
+    projects: [],
+    pending: [],
+  });
+  expect(nextWave({ ...partial, pending: ["b"] }, ["a", "b"])).toEqual({
     resolve: true,
     projects: ["a", "b"],
     pending: [],

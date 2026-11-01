@@ -4,6 +4,7 @@ import { DependencyError, redact } from "../dependencies/model";
 import { withDomains } from "../dependencies/queue";
 import type { PackagingStructure } from "../inspect/model";
 import { getPackagingStructure } from "../packaging/get-structure";
+import { toolMembership } from "../packaging/tool-membership";
 import type {
   LintAdapter,
   LintAdapterRegistry,
@@ -112,52 +113,34 @@ async function prepareEcosystem(
   const errorStart = report.errors.length;
   const ids = selected.map((t) => t.project.project_id).sort();
   const state = store.state;
-  const python = ecosystem === "python";
-  let versions: Record<string, ToolVersions> = {};
-  if (python) {
-    const wave = state.python;
-    const discovered = !wave || ids.some((id) => !wave.projects.includes(id));
-    if (discovered) {
-      versions = await adapter.resolve(selected, policy.lint, signal);
-      const common = validateToolVersions(versions[ids[0] ?? ""]);
-      for (const id of ids)
-        if (!sameVersions(validateToolVersions(versions[id]), common))
-          throw new LintError(
-            "version-mismatch",
-            "Python discovery must resolve one shared exact toolset",
-          );
-      state.python = { projects: ids, tools: common, complete: false };
-    } else {
-      if (!wave) throw new LintError("state-invalid", "Python wave is missing");
-      wave.projects = ids;
-      versions = Object.fromEntries(ids.map((id) => [id, wave.tools]));
-    }
+  const previousWave = state.waves[ecosystem];
+  const decision = toolMembership(previousWave, ids);
+  let versions: Record<string, ToolVersions>;
+  if (decision.resolve) {
+    versions = await adapter.resolve(selected, policy.lint, signal);
   } else {
-    const existing = Object.fromEntries(
-      ids
-        .filter((id) => state.projects[id])
-        .map((id) => [id, state.projects[id]?.tools ?? {}]),
-    );
-    const needsResolution =
+    const retained = previousWave?.versions ?? {};
+    versions =
       ecosystem === "javascript"
-        ? selected
-        : selected.filter((t) => !state.projects[t.project.project_id]);
-    const resolved = needsResolution.length
-      ? await adapter.resolve(needsResolution, policy.lint, signal, existing)
-      : {};
-    versions = Object.fromEntries(
-      ids.map((id) => [id, validateToolVersions(resolved[id] ?? existing[id])]),
-    );
-    for (const [id, tools] of Object.entries(existing))
+        ? await adapter.resolve(selected, policy.lint, signal, retained)
+        : Object.fromEntries(ids.map((id) => [id, retained[id] ?? {}]));
+  }
+  for (const id of ids) validateToolVersions(versions[id]);
+  if (decision.resolve) {
+    const common: ToolVersions = {};
+    for (const tools of Object.values(versions))
       for (const [name, version] of Object.entries(tools)) {
-        if (versions[id]?.[name] !== version)
+        if (common[name] && common[name] !== version)
           throw new LintError(
             "version-mismatch",
-            "Policy or environment repair must preserve resolved tool versions",
+            `${ecosystem} discovery must resolve one shared exact version of ${name}`,
           );
+        common[name] = version;
       }
   }
   signal.throwIfAborted();
+  const wave = { projects: ids, versions, complete: false };
+  state.waves[ecosystem] = wave;
   for (const target of selected) {
     const id = target.project.project_id;
     const tools = validateToolVersions(versions[id]);
@@ -215,7 +198,7 @@ async function prepareEcosystem(
           const result = report.projects[target.project.project_id];
           if (result) result.action = "prepared";
         }
-        if (python && state.python) state.python.complete = false;
+        wave.complete = false;
         await store.save();
         if (nativeStale)
           await adapter.prepareBatch({ ...context, targets: batch });
@@ -272,27 +255,27 @@ async function prepareEcosystem(
       result.status = "failed";
     }
   }
-  if (python && state.python) {
-    // A previous partial wave is complete only after all current members verify.
-    state.python.complete =
-      verified &&
-      !signal.aborted &&
-      report.errors.length === errorStart &&
-      !report.errors.some((error) => error.project_id?.startsWith("python:"));
-    if (!state.python.complete)
-      for (const id of ids) {
-        const result = report.projects[id];
-        if (result) {
-          result.complete = false;
-          result.status = "failed";
-          result.errors.push({
-            code: "incomplete-python-wave",
-            message: "Python version alignment wave is incomplete",
-            project_id: id,
-          });
-        }
+  // A previous partial wave is complete only after all current members verify.
+  wave.complete =
+    verified &&
+    !signal.aborted &&
+    report.errors.length === errorStart &&
+    !report.errors.some((error) =>
+      error.project_id?.startsWith(`${ecosystem}:`),
+    );
+  if (!wave.complete)
+    for (const id of ids) {
+      const result = report.projects[id];
+      if (result) {
+        result.complete = false;
+        result.status = "failed";
+        result.errors.push({
+          code: `incomplete-${ecosystem}-wave`,
+          message: `${ecosystem} version alignment wave is incomplete`,
+          project_id: id,
+        });
       }
-  }
+    }
   await store.save();
 }
 /** Owns the union lease once; native adapters must not call executeDependency. */
@@ -328,14 +311,24 @@ export async function prepareLint(
       const live = new Set(structure.projects.map((p) => p.project_id));
       for (const id of Object.keys(store.state.projects))
         if (!live.has(id)) delete store.state.projects[id];
-      if (store.state.python) {
-        store.state.python.projects = store.state.python.projects.filter((id) =>
-          live.has(id),
-        );
-        if (!store.state.python.projects.length) delete store.state.python;
+      for (const [ecosystem, wave] of Object.entries(store.state.waves)) {
+        wave.projects = wave.projects.filter((id) => live.has(id));
+        for (const id of Object.keys(wave.versions))
+          if (!live.has(id)) delete wave.versions[id];
+        if (!wave.projects.length)
+          delete store.state.waves[ecosystem as LintEcosystem];
       }
       for (const ecosystem of ["python", "javascript", "go"] as const) {
+        if (!ecosystems.includes(ecosystem)) continue;
         const group = selected.filter((t) => t.project.ecosystem === ecosystem);
+        const liveIds = structure.projects
+          .filter((p) => p.ecosystem === ecosystem)
+          .map((p) => p.project_id);
+        if (group.length !== liveIds.length) {
+          const wave = store.state.waves[ecosystem];
+          if (wave) wave.complete = false;
+          continue;
+        }
         if (!group.length) continue;
         try {
           signal.throwIfAborted();
@@ -349,10 +342,7 @@ export async function prepareLint(
             onProgress?.({
               ecosystem,
               affected_projects: group.map((t) => t.project.project_id),
-              message:
-                ecosystem === "python"
-                  ? "Checking Python lint preparation. New Python projects align Ruff across every Python project before checks."
-                  : `Checking ${ecosystem} lint preparation; required tools and shared configuration may be installed or repaired.`,
+              message: `Checking ${ecosystem} lint preparation. New projects align latest tools across their consumers before checks.`,
             });
           } catch {
             /* Reporting cannot cancel preparation. */
@@ -370,8 +360,8 @@ export async function prepareLint(
               errors: [preparationFailure(error, id)],
             };
           }
-          if (ecosystem === "python" && store.state.python)
-            store.state.python.complete = false;
+          const wave = store.state.waves[ecosystem];
+          if (wave) wave.complete = false;
           report.errors.push(preparationFailure(error));
         }
       }

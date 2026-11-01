@@ -97,8 +97,51 @@ export async function prepareTests(
           "Project ownership changed while preparation waited; reconcile again",
         );
       const store = await TestStateStore.load(structure.root);
+      const live = new Set(
+        structure.projects.map((project) => project.project_id),
+      );
+      for (const [id, receipt] of Object.entries(store.state.projects)) {
+        const target = targets.find(
+          (candidate) => candidate.project.project_id === id,
+        );
+        if (!live.has(id) || (target && target.runner !== receipt.runner))
+          delete store.state.projects[id];
+      }
+      for (const [runner, wave] of Object.entries(store.state.waves)) {
+        wave.projects = wave.projects.filter(
+          (id) =>
+            live.has(id) &&
+            !targets.some(
+              (target) =>
+                target.project.project_id === id && target.runner !== runner,
+            ),
+        );
+        wave.pending = [];
+        if (!wave.projects.length)
+          delete store.state.waves[runner as TestRunner];
+      }
+      await store.save();
       for (const runner of ["pytest", "vitest", "bun", "go"] as TestRunner[]) {
         const members = targets.filter((t) => t.runner === runner);
+        const ecosystem =
+          runner === "pytest"
+            ? "python"
+            : runner === "go"
+              ? "go"
+              : "javascript";
+        const unresolved = structure.projects.some(
+          (project) =>
+            project.ecosystem === ecosystem &&
+            !targets.some(
+              (target) => target.project.project_id === project.project_id,
+            ),
+        );
+        if (unresolved) {
+          const wave = store.state.waves[runner];
+          if (wave) wave.complete = false;
+          await store.save();
+          continue;
+        }
         if (!members.length) continue;
         const adapter = adapters[runner];
         if (!adapter) {
@@ -131,78 +174,72 @@ export async function prepareTests(
             await store.save();
             continue;
           }
-          for (;;) {
-            signal.throwIfAborted();
-            const previous = store.state.waves[runner];
-            const decision = nextWave(
-              previous,
-              members.map((t) => t.project.project_id),
+          signal.throwIfAborted();
+          const previous = store.state.waves[runner];
+          const decision = nextWave(
+            previous,
+            members.map((t) => t.project.project_id),
+          );
+          const tools = decision.resolve
+            ? await adapter.resolve(members, signal)
+            : previous?.tools;
+          if (!tools)
+            throw new TestError("invalid-version", "Missing wave target");
+          const wave = {
+            projects: decision.projects,
+            pending: decision.pending,
+            tools,
+            complete: false,
+          };
+          store.state.waves[runner] = wave;
+          await store.save(); // exact target survives preflight/install failure
+          const ready = new Map<string, boolean>();
+          for (const target of members)
+            ready.set(
+              target.project.project_id,
+              await adapter.verify({ target, tools, signal }),
             );
-            const tools = decision.resolve
-              ? await adapter.resolve(members, signal)
-              : previous?.tools;
-            if (!tools)
-              throw new TestError("invalid-version", "Missing wave target");
-            const wave = {
-              projects: decision.projects,
-              pending: decision.pending,
+          // Only installation needs registry preflight; verified restarts stay local.
+          // Every needed preflight still completes before the first mutation.
+          for (const target of members)
+            if (!ready.get(target.project.project_id))
+              await adapter.preflight({ target, tools, signal });
+          for (const target of members) {
+            const id = target.project.project_id,
+              ctx = { target, tools, signal };
+            report.tools[id] = tools;
+            store.state.projects[id] = {
+              runner,
               tools,
-              complete: false,
+              policy_hash: testingPolicyKey(config, target.project.ecosystem),
+              ready: false,
             };
-            store.state.waves[runner] = wave;
-            await store.save(); // exact target survives preflight/install failure
-            const active = members.filter((t) =>
-              wave.projects.includes(t.project.project_id),
-            );
-            const ready = new Map<string, boolean>();
-            for (const target of active)
-              ready.set(
-                target.project.project_id,
-                await adapter.verify({ target, tools, signal }),
-              );
-            // Only installation needs registry preflight; verified restarts stay local.
-            // Every needed preflight still completes before the first mutation.
-            for (const target of active)
-              if (!ready.get(target.project.project_id))
-                await adapter.preflight({ target, tools, signal });
-            for (const target of active) {
-              const id = target.project.project_id,
-                ctx = { target, tools, signal };
-              report.tools[id] = tools;
-              store.state.projects[id] = {
-                runner,
-                tools,
-                policy_hash: testingPolicyKey(config, target.project.ecosystem),
-                ready: false,
-              };
-              await store.save();
-              if (!ready.get(id)) {
-                report.status = "preparing";
-                report.action = "prepared";
-                report.affected_projects.push(
-                  ...structure.projects
-                    .filter(
-                      (project) =>
-                        project.managerRoot === target.project.managerRoot &&
-                        project.manager === target.project.manager,
-                    )
-                    .map((project) => project.project_id),
-                );
-                onProgress?.(structuredClone(report));
-                await adapter.prepare(ctx, report.changes);
-                if (!(await adapter.verify(ctx)))
-                  throw new TestError(
-                    "not-ready",
-                    `Prepared ${id} does not match the selected runner tools`,
-                  );
-              }
-              store.state.projects[id].ready = true;
-              await store.save();
-            }
-            wave.complete = true;
             await store.save();
-            if (!wave.pending.length) break;
+            if (!ready.get(id)) {
+              report.status = "preparing";
+              report.action = "prepared";
+              report.affected_projects.push(
+                ...structure.projects
+                  .filter(
+                    (project) =>
+                      project.managerRoot === target.project.managerRoot &&
+                      project.manager === target.project.manager,
+                  )
+                  .map((project) => project.project_id),
+              );
+              onProgress?.(structuredClone(report));
+              await adapter.prepare(ctx, report.changes);
+              if (!(await adapter.verify(ctx)))
+                throw new TestError(
+                  "not-ready",
+                  `Prepared ${id} does not match the selected runner tools`,
+                );
+            }
+            store.state.projects[id].ready = true;
+            await store.save();
           }
+          wave.complete = true;
+          await store.save();
         } catch (error) {
           report.errors.push(testIssue(error));
         }

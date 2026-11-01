@@ -35,7 +35,7 @@ test("scoped native preparation includes all Python projects but preserves other
   const tools = { ruff: "0.17.3" };
   const store = {
     state: {
-      schema: 1,
+      schema: 2,
       projects: Object.fromEntries(
         selected.map((current) => [
           current.project.project_id,
@@ -47,13 +47,21 @@ test("scoped native preparation includes all Python projects but preserves other
           },
         ]),
       ),
-      python: {
-        projects: selected
-          .slice(0, 2)
-          .map((current) => current.project.project_id),
-        tools,
-        complete: true,
-      },
+      waves: Object.fromEntries(
+        ["python", "go"].map((ecosystem) => {
+          const projects = selected
+            .filter((target) => target.project.ecosystem === ecosystem)
+            .map((target) => target.project.project_id);
+          return [
+            ecosystem,
+            {
+              projects,
+              versions: Object.fromEntries(projects.map((id) => [id, tools])),
+              complete: true,
+            },
+          ];
+        }),
+      ),
     },
     async save() {},
   } as unknown as LintStateStore;

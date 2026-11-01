@@ -40,6 +40,12 @@ export function registryFixture() {
     "5.9.3": { name: "typescript", version: "5.9.3" },
   };
 
+  const latest: Record<string, string | undefined> = {
+    ...TOOLS,
+    eslint: "10.0.0",
+    "@eslint/js": "10.0.0",
+    typescript: "7.0.2",
+  };
   let calls = 0;
   const fetcher = spyOn(versions, "fetchVersionJSON").mockImplementation(
     async (url: string) => {
@@ -48,10 +54,12 @@ export function registryFixture() {
         .slice(1)
         .split("/")
         .map(decodeURIComponent);
+      if (path[0] === "-" && path[1] === "package" && path[3] === "dist-tags")
+        return { latest: latest[path[2] ?? ""] };
       const data = records[path[0] ?? ""];
       if (!data) throw new Error(`Missing fixture metadata ${url}`);
       return path[1] ? data[path[1]] : { versions: data };
     },
   );
-  return { fetcher, records, calls: () => calls };
+  return { fetcher, records, latest, calls: () => calls };
 }

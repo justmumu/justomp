@@ -164,35 +164,44 @@ export const javascriptAdapter: LintAdapter = {
   async preflight(context) {
     const all = await operations(context);
     for (const { target, native } of all) {
-      const tools = nativeJavascriptTools(
-        context.versions[target.project.project_id] ?? {},
-      );
-      for (const name of await requiredJavascriptTools(
-        target,
-        context.policy.javascript,
-      ))
-        if (!tools[name])
+      try {
+        const tools = nativeJavascriptTools(
+          context.versions[target.project.project_id] ?? {},
+        );
+        for (const name of await requiredJavascriptTools(
+          target,
+          context.policy.javascript,
+        ))
+          if (!tools[name])
+            throw new LintError(
+              "missing-tool",
+              `No resolved version for ${name}`,
+            );
+        const application = await applicationVersions(
+          target,
+          native,
+          context.signal,
+        );
+        const metadata = await toolMetadata(
+          target,
+          native,
+          tools,
+          context.signal,
+        );
+        validateCompatibility(
+          metadata,
+          tools,
+          application,
+          await nodeVersion(target, native, context.signal),
+        );
+      } catch (error) {
+        if (error instanceof LintError)
           throw new LintError(
-            "missing-tool",
-            `No resolved version for ${name}`,
+            error.code,
+            `${target.project.project_id}: ${error.message}`,
           );
-      const application = await applicationVersions(
-        target,
-        native,
-        context.signal,
-      );
-      const metadata = await toolMetadata(
-        target,
-        native,
-        tools,
-        context.signal,
-      );
-      validateCompatibility(
-        metadata,
-        tools,
-        application,
-        await nodeVersion(target, native, context.signal),
-      );
+        throw error;
+      }
     }
   },
   async prepareBatch(context) {

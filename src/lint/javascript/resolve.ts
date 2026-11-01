@@ -1,206 +1,106 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { LintPolicy } from "../../config/lint/model";
+import { object } from "../../dependencies/inventory";
+import { TypecheckStateStore } from "../../typecheck/state";
 import type { ToolVersions } from "../adapters/types";
-import { LintError } from "../model";
-import { lintManagerContext } from "../runtime";
 import type { LintTarget } from "../targets";
-import { stableVersion } from "../versions";
-import {
-  applicationVersions,
-  compatible,
-  type Metadata,
-  nodeVersion,
-  registryPackage,
-  satisfies,
-  toolMetadata,
-  validateCompatibility,
-} from "./compatibility";
+import { fetchVersionJSON, stableVersion } from "../versions";
 import { nativeJavascriptTools, requiredJavascriptTools } from "./tools";
 
+/** Select exact targets before compatibility preflight; never backtrack to older releases. */
 export async function resolveJavascript(
   targets: LintTarget[],
   policy: LintPolicy,
   signal: AbortSignal,
   existing: Record<string, ToolVersions> = {},
 ): Promise<Record<string, ToolVersions>> {
-  existing = Object.fromEntries(
-    Object.entries(existing).map(([id, tools]) => [
-      id,
-      nativeJavascriptTools(tools),
+  const result = Object.fromEntries(
+    targets.map((target) => [
+      target.project.project_id,
+      Object.fromEntries(
+        Object.entries(
+          nativeJavascriptTools(existing[target.project.project_id] ?? {}),
+        ).map(([name, version]) => [name, stableVersion(version)]),
+      ),
     ]),
   );
   const required = await Promise.all(
     targets.map((target) => requiredJavascriptTools(target, policy.javascript)),
   );
   if (
-    targets.every((target, index) =>
-      required[index]?.every(
-        (name) => existing[target.project.project_id]?.[name],
-      ),
+    targets.every((target, i) =>
+      required[i]?.every((name) => result[target.project.project_id]?.[name]),
     )
-  ) {
-    return Object.fromEntries(
-      targets.map((target) => [
-        target.project.project_id,
-        Object.fromEntries(
-          Object.entries(existing[target.project.project_id] ?? {}).map(
-            ([name, version]) => [name, stableVersion(version)],
-          ),
-        ),
-      ]),
-    );
-  }
-  const registry = new Map<string, Metadata[]>();
-  const releases = async (name: string) => {
-    let values = registry.get(name);
-    if (!values) {
-      values = await registryPackage(name, signal);
-      registry.set(name, values);
+  )
+    return result;
+
+  const latest = new Map<string, Promise<string>>();
+  const resolveLatest = (name: string) => {
+    let value = latest.get(name);
+    if (!value) {
+      value = fetchVersionJSON(
+        `https://registry.npmjs.org/-/package/${encodeURIComponent(name)}/dist-tags`,
+        signal,
+      ).then((data) => stableVersion(object(data).latest));
+      latest.set(name, value);
     }
-    return values;
+    return value;
   };
-  const shared: ToolVersions = {};
-  for (const tools of Object.values(existing))
-    for (const [name, version] of Object.entries(tools))
-      if (name !== "@next/eslint-plugin-next" && name !== "typescript") {
-        if (shared[name] && shared[name] !== version)
-          throw new LintError(
-            "incompatible-toolchain",
-            `Retained core tool ${name} has inconsistent versions`,
-          );
-        shared[name] = stableVersion(version);
-      }
-  const facts = await Promise.all(
-    targets.map(async (target) => {
-      const native = await lintManagerContext(target, signal);
-      return {
-        target,
-        native,
-        node: await nodeVersion(target, native, signal),
-        app: await applicationVersions(target, native, signal),
-      };
-    }),
+  // A newly required tool aligns its existing consumers, without refreshing unrelated pins.
+  const missing = new Set(
+    targets.flatMap((target, i) =>
+      (required[i] ?? []).filter(
+        (name) => !result[target.project.project_id]?.[name],
+      ),
+    ),
   );
-  for (const [index, fact] of facts.entries()) {
-    if (
-      required[index]?.includes("typescript-eslint") &&
-      fact.app.typescript &&
-      !shared["typescript-eslint"]
-    ) {
+  for (const name of missing) {
+    const version = await resolveLatest(name);
+    for (const [i, target] of targets.entries()) {
+      const tools = result[target.project.project_id];
+      if (tools && (required[i]?.includes(name) || tools[name]))
+        tools[name] = version;
+    }
+  }
+
+  let compiler: Promise<string> | undefined;
+  const fallbackCompiler = (target: LintTarget) => {
+    compiler ??= (async () => {
+      const state = (await TypecheckStateStore.load(target.root)).state;
+      const wave = state.waves.javascript;
+      const live = target.structure.projects
+        .filter((project) => project.ecosystem === "javascript")
+        .map((project) => project.project_id);
+      // A prior-membership target must not pin a newly discovered project to an older compiler.
       if (
-        !(await releases("typescript-eslint")).some(
-          (data) =>
-            satisfies(
-              fact.app.typescript ?? "",
-              (data.peerDependencies as Record<string, unknown> | undefined)
-                ?.typescript,
-            ) && compatible(data, fact.app, fact.node),
-        )
+        wave &&
+        wave.pending.length === 0 &&
+        wave.projects.length === live.length &&
+        live.every((id) => wave.projects.includes(id)) &&
+        wave.tools.typescript
       )
-        throw new LintError(
-          "incompatible-toolchain",
-          `No stable typescript-eslint supports application TypeScript ${fact.app.typescript}; reconcile TypeScript explicitly`,
-        );
-    }
+        return stableVersion(wave.tools.typescript);
+      return resolveLatest("typescript");
+    })();
+    return compiler;
+  };
+  for (const [i, target] of targets.entries()) {
+    if (!required[i]?.includes("typescript-eslint")) continue;
+    const tools = result[target.project.project_id];
+    if (!tools || tools.typescript) continue;
+    const manifest = object(
+      JSON.parse(
+        await readFile(join(target.scope.cwd, "package.json"), "utf8"),
+      ),
+    );
+    const declarations = {
+      ...object(manifest.dependencies),
+      ...object(manifest.devDependencies),
+    };
+    // Installed-version compatibility belongs to preflight after target persistence.
+    if (typeof declarations.typescript !== "string")
+      tools.typescript = await fallbackCompiler(target);
   }
-  const eslintVersions = shared.eslint
-    ? [shared.eslint]
-    : (await releases("eslint"))
-        .filter((value) => Number(String(value.version).split(".")[0]) >= 9)
-        .map((value) => stableVersion(value.version));
-  for (const eslint of eslintVersions) {
-    const cohort: ToolVersions = { ...shared, eslint };
-    const result: Record<string, ToolVersions> = {};
-    let valid = true;
-    for (const [index, fact] of facts.entries()) {
-      const names = [
-        ...new Set([
-          ...(required[index] ?? []),
-          ...Object.keys(existing[fact.target.project.project_id] ?? {}),
-        ]),
-      ];
-      if (names.includes("typescript-eslint") && !fact.app.typescript)
-        names.push("typescript");
-      // Choose application TypeScript before testing parser peer compatibility.
-      names.sort((a, b) =>
-        a === "typescript" ? -1 : b === "typescript" ? 1 : 0,
-      );
-      const selected = {
-        ...cohort,
-        ...existing[fact.target.project.project_id],
-      };
-      const metadata: Record<string, Metadata> = {};
-      for (const name of names) {
-        let data: Metadata | undefined;
-        if (selected[name])
-          data = (
-            await toolMetadata(
-              fact.target,
-              fact.native,
-              { [name]: selected[name] },
-              signal,
-            )
-          )[name];
-        else if (name === "typescript") {
-          const parser = selected["typescript-eslint"]
-            ? (
-                await toolMetadata(
-                  fact.target,
-                  fact.native,
-                  { "typescript-eslint": selected["typescript-eslint"] },
-                  signal,
-                )
-              )["typescript-eslint"]
-            : (await releases("typescript-eslint")).find((value) =>
-                compatible(value, selected, fact.node),
-              );
-          const range = (
-            parser?.peerDependencies as Record<string, unknown> | undefined
-          )?.typescript;
-          data = (await releases(name)).find(
-            (value) =>
-              satisfies(stableVersion(value.version), range) &&
-              compatible(value, selected, fact.node),
-          );
-        } else
-          data = (await releases(name)).find((value) => {
-            const version = stableVersion(value.version);
-            if (
-              name === "@eslint/js" &&
-              version.split(".")[0] !== eslint.split(".")[0]
-            )
-              return false;
-            if (
-              name === "@next/eslint-plugin-next" &&
-              version.split(".")[0] !== fact.app.next?.split(".")[0]
-            )
-              return false;
-            return compatible(value, { ...selected, ...fact.app }, fact.node);
-          });
-        if (!data) {
-          valid = false;
-          break;
-        }
-        selected[name] = stableVersion(data.version);
-        metadata[name] = data;
-      }
-      if (!valid) break;
-      try {
-        validateCompatibility(metadata, selected, fact.app, fact.node);
-      } catch {
-        valid = false;
-        break;
-      }
-      for (const name of names)
-        if (name !== "@next/eslint-plugin-next" && name !== "typescript")
-          cohort[name] = selected[name] ?? "";
-      result[fact.target.project.project_id] = Object.fromEntries(
-        names.map((name) => [name, selected[name] ?? ""]),
-      );
-    }
-    if (valid) return result;
-  }
-  throw new LintError(
-    "incompatible-toolchain",
-    "No compatible stable JavaScript tool cohort for the installed Node, TypeScript, Next and retained tool versions; typed rules remain enabled",
-  );
+  return result;
 }

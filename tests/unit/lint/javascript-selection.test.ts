@@ -1,4 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs/promises";
+import { join } from "node:path";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import type { AdapterContext } from "../../../src/dependencies/model";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
@@ -27,6 +29,7 @@ function fixture(flavor: "js" | "ts" | "react" | "next", workspace = false) {
     (path) => {
       const selected = target("javascript");
       selected.project.project_id = `javascript:${path}`;
+      selected.scope.cwd = join("/repo", path);
       selected.project.frameworks =
         flavor === "next"
           ? ["next", "react"]
@@ -36,6 +39,15 @@ function fixture(flavor: "js" | "ts" | "react" | "next", workspace = false) {
       return selected;
     },
   );
+  for (const selected of targets)
+    selected.structure.projects = targets.map((t) => t.project);
+  const stateFile = keep(
+    spyOn(files, "readProjectionFile").mockResolvedValue({
+      text: null,
+      identity: null,
+      mode: 0o644,
+    }),
+  );
   const apps: Record<string, Record<string, string>> = Object.fromEntries<
     Record<string, string>
   >(
@@ -43,6 +55,22 @@ function fixture(flavor: "js" | "ts" | "react" | "next", workspace = false) {
       t.project.project_id,
       flavor === "next" ? { typescript: "5.9.3", next: "15.5.6" } : {},
     ]),
+  );
+  keep(
+    spyOn(fs, "readFile").mockImplementation((async (
+      path: unknown,
+      encoding?: unknown,
+    ) => {
+      const selected = targets.find(
+        (t) => join(t.scope.cwd, "package.json") === String(path),
+      );
+      if (!selected)
+        throw new Error(`Unexpected fixture read: ${String(path)}`);
+      const text = JSON.stringify({
+        devDependencies: apps[selected.project.project_id] ?? {},
+      });
+      return encoding === "utf8" ? text : Buffer.from(text);
+    }) as typeof fs.readFile),
   );
   keep(
     spyOn(scopes, "collectLintScope").mockResolvedValue(
@@ -64,6 +92,7 @@ function fixture(flavor: "js" | "ts" | "react" | "next", workspace = false) {
   return {
     targets,
     apps,
+    stateFile,
     context: {
       policy: resolveLintConfig().policy,
       signal: new AbortController().signal,
@@ -98,8 +127,8 @@ test("framework scope selects only needed plugins and retained disabled pins nev
     fetcher.mockRestore();
   }
 });
-test("registry selection backtracks incompatible ESLint peers and selects compatible fresh TypeScript", async () => {
-  const f = fixture("react");
+test("fresh selection uses publisher latest once per tool without compatible-version fallback", async () => {
+  const f = fixture("react", true);
   const registry = registryFixture();
   try {
     const selected = await javascriptAdapter.resolve(
@@ -107,11 +136,15 @@ test("registry selection backtracks incompatible ESLint peers and selects compat
       f.context.policy,
       f.context.signal,
     );
-    const tools = selected["javascript:."];
-    expect(tools?.eslint).toBe("9.39.5");
-    expect(tools?.typescript).toBe("5.9.3");
-    expect(tools?.["eslint-plugin-jsx-a11y"]).toBe("6.10.2");
-    expect(tools?.["@next/eslint-plugin-next"]).toBeUndefined();
+    for (const tools of Object.values(selected)) {
+      expect(tools.eslint).toBe("10.0.0");
+      expect(tools.typescript).toBe("7.0.2");
+      expect(tools["eslint-plugin-jsx-a11y"]).toBe("6.10.2");
+      expect(tools["@next/eslint-plugin-next"]).toBeUndefined();
+    }
+    expect(registry.calls()).toBe(
+      Object.keys(selected["javascript:."] ?? {}).length,
+    );
     const calls = registry.calls();
     expect(
       await javascriptAdapter.resolve(
@@ -122,80 +155,169 @@ test("registry selection backtracks incompatible ESLint peers and selects compat
       ),
     ).toEqual(selected);
     expect(registry.calls()).toBe(calls);
+    const tools = selected["javascript:."] ?? {};
+    const metadata = Object.fromEntries(
+      Object.entries(tools).map(([name, version]) => [
+        name,
+        registry.records[name]?.[version] as compatibility.Metadata,
+      ]),
+    );
+    expect(() =>
+      compatibility.validateCompatibility(metadata, tools, {}, "22.15.0"),
+    ).toThrow("incompatible");
   } finally {
     registry.fetcher.mockRestore();
   }
 });
-test("unsupported application TypeScript fails resolution without searching old ESLint families", async () => {
+test("application compiler does not constrain latest plugin selection or get replaced", async () => {
   const f = fixture("ts");
   f.apps["javascript:."] = { typescript: "7.0.2" };
   const registry = registryFixture();
   try {
-    await expect(
-      javascriptAdapter.resolve(f.targets, f.context.policy, f.context.signal),
-    ).rejects.toThrow("TypeScript 7.0.2");
-    expect(registry.calls()).toBe(1);
+    const selected = await javascriptAdapter.resolve(
+      f.targets,
+      f.context.policy,
+      f.context.signal,
+    );
+    expect(selected["javascript:."]?.["typescript-eslint"]).toBe("8.72.1");
+    expect(selected["javascript:."]?.typescript).toBeUndefined();
+    expect(f.apps["javascript:."]?.typescript).toBe("7.0.2");
   } finally {
     registry.fetcher.mockRestore();
   }
 });
-test("heterogeneous workspace cohorts preserve per-project Next versions and retained shared pins", async () => {
+test("fresh selection shares latest Next plugin even across incompatible application majors", async () => {
   const f = fixture("next", true);
-  const member = f.targets[1];
-  if (!member) throw new Error("missing workspace member");
-  f.apps[member.project.project_id] = { typescript: "5.8.3", next: "14.2.35" };
+  f.apps["javascript:packages/a"] = { typescript: "5.8.3", next: "14.2.35" };
   const registry = registryFixture();
-  registry.records["@next/eslint-plugin-next"] = {
-    ...registry.records["@next/eslint-plugin-next"],
-    "14.2.35": {
-      name: "@next/eslint-plugin-next",
-      version: "14.2.35",
-      peerDependencies: {},
-      engines: { node: ">=18" },
-    },
-  };
   try {
-    const retained = await javascriptAdapter.resolve(
-      f.targets.slice(0, 2),
+    const selected = await javascriptAdapter.resolve(
+      f.targets,
       f.context.policy,
       f.context.signal,
     );
-    expect(retained["javascript:."]?.["@next/eslint-plugin-next"]).toBe(
-      "15.5.6",
-    );
-    expect(
-      retained["javascript:packages/a"]?.["@next/eslint-plugin-next"],
-    ).toBe("14.2.35");
-    for (const tools of Object.values(retained)) {
-      expect(tools.eslint).toBe("9.39.5");
-      expect(tools["typescript-eslint"]).toBe("8.72.1");
+    for (const tools of Object.values(selected)) {
+      expect(tools["@next/eslint-plugin-next"]).toBe("15.5.6");
+      expect(tools.eslint).toBe("10.0.0");
       expect(tools.typescript).toBeUndefined();
     }
-    const expanded = await javascriptAdapter.resolve(
+    expect(() =>
+      compatibility.validateCompatibility(
+        {},
+        selected["javascript:packages/a"] ?? {},
+        f.apps["javascript:packages/a"] ?? {},
+        "22.15.0",
+      ),
+    ).toThrow("Next");
+  } finally {
+    registry.fetcher.mockRestore();
+  }
+});
+test("new optional plugin aligns only its consumers while unrelated retained pins stay exact", async () => {
+  const f = fixture("js", true);
+  const [first, second] = f.targets;
+  if (!first || !second) throw new Error("missing fixture targets");
+  first.project.frameworks = ["react"];
+  second.project.frameworks = ["react"];
+  const core = {
+    eslint: "9.39.5",
+    "@eslint/js": "9.39.5",
+    "eslint-plugin-simple-import-sort": "12.1.1",
+  };
+  const retained = Object.fromEntries(
+    f.targets.map((t) => [t.project.project_id, { ...core }]),
+  );
+  retained[first.project.project_id] = {
+    ...core,
+    "eslint-plugin-react-hooks": "6.0.0",
+    "eslint-plugin-jsx-a11y": "6.0.0",
+  } as typeof core;
+  const registry = registryFixture();
+  try {
+    const selected = await javascriptAdapter.resolve(
       f.targets,
       f.context.policy,
       f.context.signal,
       retained,
     );
-    for (const [id, tools] of Object.entries(retained))
-      expect(expanded[id]).toEqual(tools);
-    expect(expanded["javascript:packages/b"]).toEqual(retained["javascript:."]);
-
-    // A new member cannot silently reconcile previously retained conflicting pins.
-    const conflicting = structuredClone(retained);
-    const memberTools = conflicting["javascript:packages/a"];
-    if (!memberTools) throw new Error("missing retained member tools");
-    memberTools.eslint = "10.0.0";
-    const calls = registry.calls();
+    expect(registry.calls()).toBe(2);
+    for (const id of [first.project.project_id, second.project.project_id]) {
+      expect(selected[id]).toEqual({
+        ...core,
+        "eslint-plugin-react-hooks": "7.0.1",
+        "eslint-plugin-jsx-a11y": "6.10.2",
+      });
+    }
+    expect(selected["javascript:packages/b"]).toEqual(core);
+  } finally {
+    registry.fetcher.mockRestore();
+  }
+});
+test("missing compiler follows current typecheck target but rejects stale-membership authority", async () => {
+  const f = fixture("ts", true);
+  const registry = registryFixture();
+  const state = {
+    schema: 1,
+    projects: {},
+    waves: {
+      javascript: {
+        projects: f.targets.map((t) => t.project.project_id),
+        tools: { typescript: "6.0.0" },
+        pending: [],
+        complete: false,
+      },
+    },
+  };
+  try {
+    f.stateFile.mockResolvedValue({
+      text: JSON.stringify(state),
+      identity: "inode",
+      mode: 0o644,
+    });
+    let selected = await javascriptAdapter.resolve(
+      f.targets,
+      f.context.policy,
+      f.context.signal,
+    );
+    expect(
+      Object.values(selected).every((tools) => tools.typescript === "6.0.0"),
+    ).toBe(true);
+    state.waves.javascript.projects.pop();
+    f.stateFile.mockResolvedValue({
+      text: JSON.stringify(state),
+      identity: "inode",
+      mode: 0o644,
+    });
+    selected = await javascriptAdapter.resolve(
+      f.targets,
+      f.context.policy,
+      f.context.signal,
+    );
+    expect(
+      Object.values(selected).every((tools) => tools.typescript === "7.0.2"),
+    ).toBe(true);
+  } finally {
+    registry.fetcher.mockRestore();
+  }
+});
+test("invalid latest metadata fails rather than selecting catalog releases", async () => {
+  const f = fixture("js");
+  const registry = registryFixture();
+  try {
+    for (const invalid of [undefined, "11.0.0-beta.1", "garbage"]) {
+      registry.latest.eslint = invalid;
+      await expect(
+        javascriptAdapter.resolve(
+          f.targets,
+          f.context.policy,
+          f.context.signal,
+        ),
+      ).rejects.toThrow("exact stable");
+    }
+    registry.fetcher.mockRejectedValue(new Error("registry unavailable"));
     await expect(
-      javascriptAdapter.resolve(
-        f.targets,
-        f.context.policy,
-        f.context.signal,
-        conflicting,
-      ),
-    ).rejects.toThrow("Retained core tool eslint has inconsistent versions");
-    expect(registry.calls()).toBe(calls);
+      javascriptAdapter.resolve(f.targets, f.context.policy, f.context.signal),
+    ).rejects.toThrow("registry unavailable");
   } finally {
     registry.fetcher.mockRestore();
   }
@@ -226,4 +348,38 @@ test("old JavaScript receipts drop only the managed Prettier pin", async () => {
     ),
   );
   expect(receipt.tools.prettier).toBe("3.6.2");
+});
+
+test("compiler declaration selection leaves installed-version compatibility to persisted-target preflight", async () => {
+  const f = fixture("ts");
+  f.apps["javascript:."] = { typescript: "^7.0.0" };
+  const registry = registryFixture();
+  const application = keep(
+    spyOn(compatibility, "applicationVersions").mockRejectedValue(
+      new Error("installed compiler does not satisfy declaration"),
+    ),
+  );
+  try {
+    const selected = await javascriptAdapter.resolve(
+      f.targets,
+      f.context.policy,
+      f.context.signal,
+    );
+    expect(selected["javascript:."]?.eslint).toBe("10.0.0");
+    expect(selected["javascript:."]?.typescript).toBeUndefined();
+    expect(application).not.toHaveBeenCalled();
+    const calls = registry.calls();
+    registry.latest.eslint = "11.0.0";
+    expect(
+      await javascriptAdapter.resolve(
+        f.targets,
+        f.context.policy,
+        f.context.signal,
+        selected,
+      ),
+    ).toEqual(selected);
+    expect(registry.calls()).toBe(calls);
+  } finally {
+    registry.fetcher.mockRestore();
+  }
 });

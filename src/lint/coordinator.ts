@@ -19,9 +19,8 @@ import {
   prepareLint,
 } from "./prepare";
 import { planProjection } from "./projection";
-import { LintStateStore } from "./state";
+import { LintStateStore, lintWaveReady } from "./state";
 import { resolveLintTarget } from "./targets";
-import { sameVersions } from "./versions";
 
 interface CoordinatorEntry {
   promise: Promise<LintCoordinator>;
@@ -388,22 +387,19 @@ export async function withReadyLintTarget<T>(
           "not-ready",
           "Lint preparation is not ready; prepare this project first",
         );
-      if (target.project.ecosystem === "python") {
-        const wave = store.state.python;
-        const ids = latest.structure.projects
-          .filter((p) => p.ecosystem === "python")
-          .map((p) => p.project_id)
-          .sort();
-        if (
-          !wave?.complete ||
-          JSON.stringify([...wave.projects].sort()) !== JSON.stringify(ids) ||
-          !sameVersions(wave.tools, receipt.tools)
+      if (
+        !lintWaveReady(
+          store.state,
+          target.project.ecosystem,
+          latest.structure.projects
+            .filter((p) => p.ecosystem === target.project.ecosystem)
+            .map((p) => p.project_id),
         )
-          throw new LintError(
-            "incomplete-python-wave",
-            "Python version alignment wave is incomplete",
-          );
-      }
+      )
+        throw new LintError(
+          `incomplete-${target.project.ecosystem}-wave`,
+          "Lint version alignment wave is incomplete",
+        );
       const adapter = adapters[target.project.ecosystem];
       if (!adapter)
         throw new LintError(

@@ -41,7 +41,7 @@ export function generatedUnit(next = true) {
   const state: TypecheckState = { schema: 1, projects: {}, waves: {} };
   const store = { state, save: async () => {} } as TypecheckStateStore;
   const lint = {
-    state: { schema: 1, projects: {}, waves: {} },
+    state: { schema: 2, projects: {}, waves: {} },
     save: async () => {},
   } as unknown as LintStateStore;
   const controller = new AbortController();

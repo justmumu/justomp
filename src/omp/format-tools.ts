@@ -35,7 +35,7 @@ export function registerFormatTools(
     name: "project_format",
     label: "Format project files",
     description:
-      "Format and save supported files for one project_id from list_projects. Optional files selects exact project-relative paths. Uses shared .justomp/config.json policy and prepares only required native tools; Python discovery can align tools across Python projects. Reports preparation effects separately and retains partial writes on error or cancellation.",
+      "Format and save supported files for one project_id from list_projects. Optional files selects exact project-relative paths. Uses shared .justomp/config.json policy and prepares only required native tools; Python/Go discovery aligns latest native tools across the relevant ecosystem and waits for group readiness. Reports preparation effects separately and retains partial writes on error or cancellation.",
     parameters,
     approval: "exec",
     async execute(_callId, input, signal, onUpdate, ctx) {

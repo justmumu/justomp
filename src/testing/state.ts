@@ -4,6 +4,7 @@ import {
   publishProjectionFile,
   readProjectionFile,
 } from "../lint/files";
+import { toolMembership } from "../packaging/tool-membership";
 import type { TestTools } from "./adapters";
 import { TestError, type TestRunner } from "./model";
 export interface TestWave {
@@ -24,15 +25,7 @@ export interface TestState {
   waves: Partial<Record<TestRunner, TestWave>>;
 }
 export function nextWave(previous: TestWave | undefined, projects: string[]) {
-  const live = [...new Set(projects)].sort();
-  const fresh = live.filter((id) => !previous?.projects.includes(id));
-  if (!previous || (previous.complete && fresh.length))
-    return { resolve: true, projects: live, pending: [] as string[] };
-  return {
-    resolve: false,
-    projects: previous.projects.filter((id) => live.includes(id)),
-    pending: previous.complete ? [] : fresh,
-  };
+  return toolMembership(previous, projects);
 }
 function validTools(value: unknown): value is TestTools {
   return (
