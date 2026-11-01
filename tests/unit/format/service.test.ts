@@ -182,7 +182,7 @@ function native(f: ReturnType<typeof setup>) {
   const tools = { ruff: "0.17.3" };
   const store = {
     state: {
-      schema: 1,
+      schema: 2,
       projects: {
         [id]: {
           ecosystem: "python",
@@ -191,7 +191,9 @@ function native(f: ReturnType<typeof setup>) {
           policy_hash: lintPolicyKey(f.policy.lint.python),
         },
       },
-      python: { projects: [id], tools, complete: true },
+      waves: {
+        python: { projects: [id], versions: { [id]: tools }, complete: true },
+      },
     },
   } as unknown as LintStateStore;
   keep(spyOn(LintStateStore, "load").mockResolvedValue(store));

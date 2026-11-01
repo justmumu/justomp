@@ -22,8 +22,8 @@ export interface LintCheckContext {
   signal: AbortSignal;
 }
 export interface LintAdapter {
-  /** Python resolves once per discovery wave. JS also reconciles required plugins.
-   * With existing pins, never query latest for a retained tool; resolve missing tools only. */
+  /** Fresh discovery resolves latest once per shared tool. JS also reconciles required plugins.
+   * Existing pins mean repair: resolve newly needed tools and align their consumers, retaining unrelated targets. */
   resolve(
     targets: LintTarget[],
     policy: LintPolicy,

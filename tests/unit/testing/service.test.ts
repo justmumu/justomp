@@ -30,9 +30,11 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
       structure: { projects: [], workspaces: [], localDependencies: [] },
       scope: { cwd: "/repo", owner: "/repo", env: {}, domains: ["/repo/lock"] },
     } as unknown as TestTarget;
+  target.structure.projects = [target.project];
   const integrationPolicy = resolveIntegrationTestConfig().policy;
   let changedSuite: TestSuite | undefined;
   let mutated = false;
+  let runs = 0;
   let cleanupFails = false,
     abort = false;
   const controller = new AbortController();
@@ -54,6 +56,7 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     prepare: async () => {},
     verify: async () => true,
     run: async () => {
+      runs++;
       mutated = changedSuite !== undefined;
       if (abort) controller.abort();
       return structuredClone(native);
@@ -78,7 +81,16 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     spyOn(packaging, "getPackagingStructure").mockResolvedValue({
       structure: target.structure,
     } as Awaited<ReturnType<typeof packaging.getPackagingStructure>>),
-    spyOn(targets, "resolveTestTarget").mockResolvedValue(target),
+    spyOn(targets, "resolveTestTarget").mockImplementation(
+      async (_structure, id) =>
+        id === "other"
+          ? {
+              ...target,
+              runner: "bun",
+              project: { ...target.project, project_id: id },
+            }
+          : target,
+    ),
     spyOn(paths, "safePath").mockImplementation(async (_root, path) => path),
     spyOn(fs, "readFile").mockRejectedValue(
       Object.assign(new Error("absent"), { code: "ENOENT" }),
@@ -108,7 +120,14 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
             }),
           },
         },
-        waves: { vitest: { complete: true, projects: ["id"] } },
+        waves: {
+          vitest: {
+            complete: true,
+            projects: ["id"],
+            tools: { vitest: "4.0.0" },
+            pending: [],
+          },
+        },
       },
     } as unknown as TestStateStore),
   ];
@@ -143,6 +162,30 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     }
     mutated = false;
     changedSuite = undefined;
+    target.structure.projects.push({ ...target.project, project_id: "other" });
+    const control = await run();
+    expect(control.errors).toEqual([]);
+    expect(control.tests.total).toBe(2);
+    target.structure.projects.pop();
+    const before = runs;
+    target.structure.projects.push({ ...target.project, project_id: "new" });
+    const discovered = await run();
+    expect(discovered.errors.map((e) => e.code)).toEqual([
+      "not-ready",
+      "coverage-unavailable",
+    ]);
+    target.structure.projects.pop();
+    const state = (await TestStateStore.load(target.root)).state;
+    const wave = state.waves.vitest;
+    if (!wave) throw new Error("Missing fixture wave");
+    wave.tools.vitest = "5.0.0";
+    const mismatched = await run();
+    expect(mismatched.errors.map((e) => e.code)).toEqual([
+      "not-ready",
+      "coverage-unavailable",
+    ]);
+    expect(runs).toBe(before);
+    wave.tools.vitest = "4.0.0";
     abort = true;
     const cancelled = await run();
     expect(cancelled.errors.some((e) => e.code === "cancelled")).toBe(true);

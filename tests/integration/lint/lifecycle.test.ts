@@ -112,3 +112,28 @@ test("exact config watcher reports policy repair without another tool call or la
   );
   expect(f.counts().resolves).toBe(1);
 });
+
+// Real inspection -> durable target publication -> native-adapter handoff, with no tool installs.
+test("JS and Go discovery persists one target for old and new members across restart", async () => {
+  for (const ecosystem of ["javascript", "go"] as const) {
+    const f = await fixture(ecosystem);
+    const first = await f.start();
+    expect((await first.reconcile()).complete).toBe(true);
+    f.latest("2.0.0");
+    await f.add("b");
+    expect((await first.reconcile()).complete).toBe(true);
+    expect(f.counts().resolves).toBe(2);
+    const tool = ecosystem === "go" ? "golangci-lint" : "eslint";
+    for (const name of ["a", "b"])
+      expect(
+        JSON.parse(
+          await readFile(join(f.root, name, "installed.json"), "utf8"),
+        ),
+      ).toEqual({ [tool]: "2.0.0" });
+    await first.shutdown();
+    f.latest("3.0.0");
+    const reopened = await f.start();
+    expect((await reopened.reconcile()).complete).toBe(true);
+    expect(f.counts().resolves).toBe(2);
+  }
+});

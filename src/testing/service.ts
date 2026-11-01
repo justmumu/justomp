@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { loadConfig } from "../config/load";
 import { safePath } from "../dependencies/paths";
 import { withDomains } from "../dependencies/queue";
+import { sameVersions } from "../lint/versions";
 import { getPackagingStructure } from "../packaging/get-structure";
 import type { TestAdapters } from "./adapters";
 import { testArtifacts } from "./artifacts";
@@ -197,15 +198,29 @@ export async function runTestTarget(
             "not-ready",
             "Selected project's test preparation is not ready",
           );
-        const wave = state.waves[target.runner];
-        if (
-          (target.runner === "pytest" || target.runner === "vitest") &&
-          (!wave?.complete || !wave.projects.includes(request.project_id))
-        )
-          throw new TestError(
-            "not-ready",
-            "Common test runner alignment is incomplete",
-          );
+        if (target.runner === "pytest" || target.runner === "vitest") {
+          const wave = state.waves[target.runner];
+          const members: string[] = [];
+          for (const project of target.structure.projects) {
+            if (project.ecosystem !== target.project.ecosystem) continue;
+            const member =
+              project.project_id === target.project.project_id
+                ? target
+                : await resolveTestTarget(target.structure, project.project_id);
+            if (member.runner === target.runner)
+              members.push(project.project_id);
+          }
+          if (
+            !wave?.complete ||
+            JSON.stringify([...wave.projects].sort()) !==
+              JSON.stringify(members.sort()) ||
+            !sameVersions(wave.tools, receipt.tools)
+          )
+            throw new TestError(
+              "not-ready",
+              "Common test runner alignment is incomplete",
+            );
+        }
         if (!(await adapter.verify({ target, tools: receipt.tools, signal })))
           throw new TestError(
             "not-ready",

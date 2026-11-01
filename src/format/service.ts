@@ -8,9 +8,8 @@ import type { LintCheckContext } from "../lint/adapters/types";
 import { lintDomains, prepareLint } from "../lint/prepare";
 import { planProjection } from "../lint/projection";
 import { lintAdapters } from "../lint/service";
-import { LintStateStore } from "../lint/state";
+import { LintStateStore, lintWaveReady } from "../lint/state";
 import { type LintTarget, resolveLintTarget } from "../lint/targets";
-import { sameVersions } from "../lint/versions";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { formatGo } from "./engines/go";
 import { formatPrettier, prettierVersion } from "./engines/prettier";
@@ -85,22 +84,19 @@ async function nativeContext(
       "not-ready",
       "Native format preparation is not current",
     );
-  if (target.project.ecosystem === "python") {
-    const wave = store.state.python;
-    const ids = target.structure.projects
-      .filter((project) => project.ecosystem === "python")
-      .map((project) => project.project_id)
-      .sort();
-    if (
-      !wave?.complete ||
-      JSON.stringify([...wave.projects].sort()) !== JSON.stringify(ids) ||
-      !sameVersions(wave.tools, receipt.tools)
+  if (
+    !lintWaveReady(
+      store.state,
+      target.project.ecosystem,
+      target.structure.projects
+        .filter((p) => p.ecosystem === target.project.ecosystem)
+        .map((p) => p.project_id),
     )
-      throw new FormatError(
-        "incomplete-python-wave",
-        "Python version alignment wave is incomplete",
-      );
-  }
+  )
+    throw new FormatError(
+      `incomplete-${target.project.ecosystem}-wave`,
+      "Lint version alignment wave is incomplete",
+    );
   const context: LintCheckContext = {
     target,
     policy: policy.lint,

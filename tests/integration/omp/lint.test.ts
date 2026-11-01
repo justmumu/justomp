@@ -188,11 +188,15 @@ test("startup returns before adapter setup, reports progress, and discovers new 
       async () => network.entered(),
       "background resolution did not start",
     );
-    expect(messages.some((m) => m.includes("every Python project"))).toBe(true);
+    expect(
+      messages.some((m) =>
+        m.includes("align latest tools across their consumers"),
+      ),
+    ).toBe(true);
     const pendingState = Bun.file(join(f.root, ".justomp/lint_state.json"));
     expect(
       (await pendingState.exists())
-        ? (await pendingState.json()).python?.complete
+        ? (await pendingState.json()).waves?.python?.complete
         : false,
     ).not.toBe(true);
     network.release();
@@ -201,7 +205,7 @@ test("startup returns before adapter setup, reports progress, and discovers new 
         return (
           JSON.parse(
             await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"),
-          ).python?.complete === true
+          ).waves?.python?.complete === true
         );
       } catch {
         return false;
@@ -220,7 +224,7 @@ test("startup returns before adapter setup, reports progress, and discovers new 
         await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"),
       );
       return (
-        state.python?.complete &&
+        state.waves?.python?.complete &&
         state.projects["python:apps/new/pyproject.toml"]?.ready
       );
     }, "new Python project did not prepare automatically");
