@@ -9,10 +9,12 @@ import {
   retainPackagingStructure,
   StructureError,
 } from "../packaging/get-structure";
+import { installPrecommit } from "../precommit/install";
 import { retainTestCoordinator } from "../testing/coordinator";
 import { testAdapters } from "../testing/service";
 import { retainTypecheckCoordinator } from "../typecheck/coordinator";
 import { typecheckAdapters } from "../typecheck/service";
+import { registerCommitTools } from "./commit-tools";
 import { registerDependencyTools } from "./dependency-tools";
 import { registerFormatTools } from "./format-tools";
 import { registerLintTools } from "./lint-tools";
@@ -282,6 +284,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
   registerDependencyTools(pi, (root, signal, work) =>
     track(withRoot(root, signal, work)),
   );
+  registerCommitTools(pi, (root, signal, work) =>
+    track(withRoot(root, signal, work)),
+  );
   registerFormatTools(pi, (root, signal, work) =>
     track(withRoot(root, signal, work)),
   );
@@ -393,6 +398,13 @@ export default function registerInspection(pi: ExtensionAPI): void {
     closed = false;
     try {
       const inspected = await track(inspect(ctx.cwd, false, true));
+      await track(
+        withRoot(ctx.cwd, undefined, async (root, signal) => {
+          const installation = await installPrecommit(root, signal);
+          if (installation.status === "conflict")
+            reportStartupError(ctx, new Error(installation.message));
+        }),
+      );
       // Native setup is tracked separately from the inspection handler's deadline.
       void track(
         withRoot(inspected.structure.root, undefined, async (root, signal) => {

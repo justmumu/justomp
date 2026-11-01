@@ -17,11 +17,13 @@ export interface InspectOptions {
   root: string;
   rules?: InspectionRules;
   signal?: AbortSignal;
+  excludedRoots?: readonly string[];
 }
 export async function inspectProject({
   root,
   rules = INSPECTION_DEFAULTS,
   signal,
+  excludedRoots = [],
 }: InspectOptions): Promise<PackagingStructure> {
   const started = performance.now();
   const startedAt = new Date().toISOString();
@@ -58,6 +60,12 @@ export async function inspectProject({
   while (directories.length) {
     signal?.throwIfAborted();
     const relative = directories.pop() as string;
+    if (
+      excludedRoots.some(
+        (path) => path === relative || relative.startsWith(`${path}/`),
+      )
+    )
+      continue;
     if (!matcher.mayTraverse(relative)) continue;
     const absolute = join(canonical, relative);
     try {

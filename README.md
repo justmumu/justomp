@@ -1,5 +1,10 @@
 # justomp
 
+Repository commits use one automatically installed pre-commit hook for affected
+projects. In OMP, `repo_commit({message})` validates a Conventional Commit message
+and runs the same native hook through a trusted entry. See [commit checks,
+automatic staging and existing-hook handling](docs/precommit.md).
+
 An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint and type policy, formatting files, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
@@ -57,7 +62,7 @@ Each tool/getter call rereads the small config file. Rule changes replace the wa
 
 A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next getter refreshes it. Active lint, typecheck and test lifecycles refresh discovery and prepare newly discovered projects in the background. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
 
-`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_format`, `project_typecheck`, `project_test` and `project_integration_test` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
+`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_format`, `project_typecheck`, `project_test`, `project_integration_test` and `repo_commit` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
 
 Watcher failure or an unverified filesystem disables cache reuse and uses full inspection per call. There is no polling fallback or debounce-driven scan. Shutdown releases subscriptions; sessions using the same root share the watcher until the last session releases it. Set `refresh: true` for an explicit full inspection.
 

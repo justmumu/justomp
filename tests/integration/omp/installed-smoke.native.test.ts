@@ -72,6 +72,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "src/protection/sandbox.ts",
       "docs/lint.md",
       "docs/format.md",
+      "docs/precommit.md",
       "docs/lint-defaults.json",
       "docs/typecheck.md",
       "docs/typecheck-defaults.json",
@@ -113,6 +114,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       for (const name of [
         "project_lint",
         "project_format",
+        "repo_commit",
         "project_typecheck",
         "project_test",
         "project_integration_test",
@@ -124,6 +126,19 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         "dependency_sync",
       ])
         expect(host.runner.getRegisteredTool(name)).toBeDefined();
+      const precommit = Bun.spawn(
+        [
+          process.execPath,
+          "--no-install",
+          join(installation, "node_modules/justomp/src/precommit/cli.ts"),
+        ],
+        { cwd: project, stdout: "pipe", stderr: "pipe" },
+      );
+      const precommitOutput = await new Response(precommit.stdout).text();
+      expect(await precommit.exited).toBe(2);
+      expect(JSON.parse(precommitOutput).errors).toContain(
+        "Pre-commit requires a Git working tree",
+      );
       for (const tool of ["lint", "typecheck"]) {
         const child = Bun.spawn(
           [

@@ -5,6 +5,7 @@ import { isInternalStatePath } from "../inspect/exclusions";
 import type { Project } from "../inspect/model";
 import { LintError } from "../lint/model";
 import type { LintTarget } from "../lint/targets";
+import { packagingInvocation } from "./invocation";
 
 export function childProjectRoots(
   project: Project,
@@ -13,8 +14,11 @@ export function childProjectRoots(
   const cwd = resolve("/", project.path);
   return [
     ...new Set(
-      projects
-        .map((child) => resolve("/", child.path))
+      [
+        ...projects.map((child) => child.path),
+        ...(packagingInvocation.getStore()?.excluded ?? []),
+      ]
+        .map((path) => resolve("/", path))
         .filter((path) => path !== cwd && within(cwd, path))
         .map((path) => relative(cwd, path).replaceAll("\\", "/")),
     ),

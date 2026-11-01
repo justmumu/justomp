@@ -41,6 +41,7 @@ export async function createHost(
         [
           "project_lint",
           "project_format",
+          "repo_commit",
           "project_typecheck",
           "project_test",
           "project_integration_test",

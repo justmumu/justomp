@@ -14,6 +14,7 @@
     "docs/protection.md",
     "docs/dependencies.md",
     "docs/format.md",
+    "docs/precommit.md",
     "docs/lint.md",
     "docs/lint-defaults.json",
     "docs/typecheck.md",
@@ -47,7 +48,9 @@
     "test:cost": "bun scripts/test-cost.ts"
   },
   "dependencies": {
+    "@commitlint/lint": "21.2.4",
     "chokidar": "6.0.0",
+    "conventional-changelog-conventionalcommits": "10.4.1",
     "picomatch": "4.0.7",
     "prettier": "3.9.10",
     "prettier-plugin-toml": "2.0.6",
@@ -65,6 +68,7 @@
     "@biomejs/biome": "2.6.3"
   },
   "bin": {
+    "justomp-precommit": "./src/precommit/cli.ts",
     "justomp-lint": "./src/lint/cli.ts",
     "justomp-typecheck": "./src/typecheck/cli.ts"
   }
