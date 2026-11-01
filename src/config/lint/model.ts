@@ -25,14 +25,31 @@ export interface PythonPolicy extends PolicyObject {
     };
   };
 }
+export type BiomeRuleSeverity = "off" | "info" | "warn" | "error";
+export type BiomeRuleSetting =
+  | BiomeRuleSeverity
+  | {
+      level: BiomeRuleSeverity;
+      options?: Record<string, unknown>;
+      fix?: "none" | "safe" | "unsafe";
+    };
+export type BiomeRuleMap = Record<string, Record<string, BiomeRuleSetting>>;
+export type BiomeAssistSetting =
+  | "off"
+  | "on"
+  | {
+      level: "off" | "on";
+      options?: Record<string, unknown>;
+    };
 export interface JavascriptPolicy extends PolicyObject {
-  eslint: PolicyObject & {
-    globals: Record<string, "readonly" | "writable" | "off">;
-    rules: RuleMap;
-    typed_rules: RuleMap;
-    test_rules: RuleMap;
-    react_rules: RuleMap;
-    next_rules: RuleMap;
+  biome: PolicyObject & {
+    globals: string[];
+    rules: BiomeRuleMap;
+    typed_rules: BiomeRuleMap;
+    test_rules: BiomeRuleMap;
+    react_rules: BiomeRuleMap;
+    next_rules: BiomeRuleMap;
+    organize_imports: BiomeAssistSetting;
   };
   prettier: PolicyObject & {
     printWidth: number;

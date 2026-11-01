@@ -164,7 +164,7 @@ export async function localTool(
     native,
     [
       "-e",
-      `${RESOLVE_PACKAGE}\nconst name = process.argv[3], binary = process.argv[4]; const {file, data} = pkg(name); const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[binary]; if (!bin) throw new Error('Missing local binary for ' + name); const entry = path.resolve(path.dirname(file), bin); if (!fs.existsSync(entry)) throw new Error('Missing local binary for ' + name); process.argv = [process.execPath, entry, ...process.argv.slice(5)]; if (entry.endsWith('.cjs') || (data.type !== 'module' && !entry.endsWith('.mjs'))) require(entry); else import(require('node:url').pathToFileURL(entry).href);`,
+      `${RESOLVE_PACKAGE}\nconst name = process.argv[3], binary = process.argv[4]; if (name === '@biomejs/biome') { delete process.env.BIOME_BINARY; delete process.env.BIOME_CONFIG_PATH; delete process.env.BIOME_LOG_FILE; delete process.env.BIOME_LOG_LEVEL; } const {file, data} = pkg(name); const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[binary]; if (!bin) throw new Error('Missing local binary for ' + name); const entry = path.resolve(path.dirname(file), bin); if (!fs.existsSync(entry)) throw new Error('Missing local binary for ' + name); process.argv = [process.execPath, entry, ...process.argv.slice(5)]; if (entry.endsWith('.cjs') || (data.type !== 'module' && !entry.endsWith('.mjs'))) require(entry); else import(require('node:url').pathToFileURL(entry).href);`,
       packageRoots(target, native),
       native.manager === "yarn" && !native.version.startsWith("1.")
         ? "pnp"

@@ -31,5 +31,5 @@ test("pnpm custom modules and lock directories resolve installed local tools wit
   ]);
   expect(
     await readFile(join(f.root, ".locks/pnpm-lock.yaml"), "utf8"),
-  ).toContain("eslint");
+  ).toContain("@biomejs/biome");
 }, 90000);

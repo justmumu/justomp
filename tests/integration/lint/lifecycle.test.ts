@@ -123,7 +123,7 @@ test("JS and Go discovery persists one target for old and new members across res
     await f.add("b");
     expect((await first.reconcile()).complete).toBe(true);
     expect(f.counts().resolves).toBe(2);
-    const tool = ecosystem === "go" ? "golangci-lint" : "eslint";
+    const tool = ecosystem === "go" ? "golangci-lint" : "@biomejs/biome";
     for (const name of ["a", "b"])
       expect(
         JSON.parse(

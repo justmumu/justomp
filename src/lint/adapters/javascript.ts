@@ -1,6 +1,5 @@
 import { join, relative, resolve } from "node:path";
 import { readOptional } from "../../dependencies/executable";
-import { object } from "../../dependencies/inventory";
 import type { DependencyRequest } from "../../dependencies/model";
 import { redact } from "../../dependencies/model";
 import { within } from "../../dependencies/paths";
@@ -10,7 +9,6 @@ import {
 } from "../../format/engines/prettier";
 import { formatterFor } from "../../format/selection";
 import {
-  applicationVersions,
   nodeVersion,
   toolMetadata,
   validateCompatibility,
@@ -23,11 +21,13 @@ import {
   succeeded,
 } from "../javascript/native";
 import { resolveJavascript } from "../javascript/resolve";
+import { biomeDiagnostics } from "../javascript/result";
 import {
+  BIOME_PACKAGE,
+  BIOME_TOOL,
   nativeJavascriptTools,
-  requiredJavascriptTools,
 } from "../javascript/tools";
-import { type LintCheck, type LintDiagnostic, LintError } from "../model";
+import { type LintCheck, LintError } from "../model";
 import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
 import type {
@@ -119,45 +119,24 @@ function diagnosticPath(context: LintCheckContext, filename: string) {
     ),
   };
 }
-function eslintDiagnostics(
+function biomeArgs(
   context: LintCheckContext,
-  output: string,
-): LintDiagnostic[] {
-  const start = output.indexOf("[{");
-  const end = output.lastIndexOf("]");
-  const rows: unknown = JSON.parse(
-    output.includes("[]") && start === -1 ? "[]" : output.slice(start, end + 1),
-  );
-  if (!Array.isArray(rows))
-    throw new Error("ESLint returned invalid JSON diagnostics");
-  return rows.flatMap((row) => {
-    const item = object(row);
-    if (typeof item.filePath !== "string" || !Array.isArray(item.messages))
-      throw new Error("ESLint returned invalid JSON diagnostics");
-    return item.messages.map((raw) => {
-      const message = object(raw);
-      if (typeof message.message !== "string")
-        throw new Error("ESLint returned invalid JSON diagnostics");
-      return {
-        kind: "lint" as const,
-        ...diagnosticPath(context, item.filePath as string),
-        severity:
-          message.severity === 1 ? ("warning" as const) : ("error" as const),
-        message: redact(message.message),
-        ...(typeof message.ruleId === "string" ? { rule: message.ruleId } : {}),
-        ...(typeof message.line === "number" ? { line: message.line } : {}),
-        ...(typeof message.column === "number"
-          ? { column: message.column }
-          : {}),
-        ...(typeof message.endLine === "number"
-          ? { end_line: message.endLine }
-          : {}),
-        ...(typeof message.endColumn === "number"
-          ? { end_column: message.endColumn }
-          : {}),
-      };
-    });
-  });
+  files: readonly string[],
+  write = false,
+): string[] {
+  return [
+    "check",
+    `--config-path=${context.projection.configs.lint}`,
+    "--formatter-enabled=false",
+    "--linter-enabled=true",
+    "--assist-enabled=true",
+    "--enforce-assist=true",
+    "--max-diagnostics=none",
+    "--reporter=json",
+    ...(write ? ["--write"] : []),
+    "--",
+    ...files.map((file) => `./${file}`),
+  ];
 }
 export const javascriptAdapter: LintAdapter = {
   resolve: resolveJavascript,
@@ -168,20 +147,11 @@ export const javascriptAdapter: LintAdapter = {
         const tools = nativeJavascriptTools(
           context.versions[target.project.project_id] ?? {},
         );
-        for (const name of await requiredJavascriptTools(
-          target,
-          context.policy.javascript,
-        ))
-          if (!tools[name])
-            throw new LintError(
-              "missing-tool",
-              `No resolved version for ${name}`,
-            );
-        const application = await applicationVersions(
-          target,
-          native,
-          context.signal,
-        );
+        if (!tools[BIOME_PACKAGE])
+          throw new LintError(
+            "missing-tool",
+            `No resolved version for ${BIOME_PACKAGE}`,
+          );
         const metadata = await toolMetadata(
           target,
           native,
@@ -191,7 +161,6 @@ export const javascriptAdapter: LintAdapter = {
         validateCompatibility(
           metadata,
           tools,
-          application,
           await nodeVersion(target, native, context.signal),
         );
       } catch (error) {
@@ -280,13 +249,12 @@ export const javascriptAdapter: LintAdapter = {
       validateCompatibility(
         installed,
         tools,
-        await applicationVersions(context.target, native, context.signal, true),
         await nodeVersion(context.target, native, context.signal),
       );
       const result = await localTool(
         context.target,
         native,
-        { package: "eslint", binary: "eslint" },
+        BIOME_TOOL,
         ["--version"],
         context.signal,
       );
@@ -294,7 +262,10 @@ export const javascriptAdapter: LintAdapter = {
         succeeded(result) &&
         result.stdout
           .split("\n")
-          .some((line) => line.replace(/^v/, "") === tools.eslint)
+          .some(
+            (line) =>
+              line.trim().replace(/^Version:\s*/, "") === tools[BIOME_PACKAGE],
+          )
       );
     } catch {
       context.signal.throwIfAborted();
@@ -306,17 +277,8 @@ export const javascriptAdapter: LintAdapter = {
     return localTool(
       context.target,
       native,
-      { package: "eslint", binary: "eslint" },
-      [
-        "--no-config-lookup",
-        "--fix",
-        "--config",
-        context.projection.configs.lint,
-        "--format",
-        join(import.meta.dir, "../javascript/formatter.cjs"),
-        "--",
-        ...files.map((file) => `./${file}`),
-      ],
+      BIOME_TOOL,
+      biomeArgs(context, files, true),
       context.signal,
     );
   },
@@ -324,7 +286,7 @@ export const javascriptAdapter: LintAdapter = {
     const scope = await collectLintScope(context.target);
     const checks: LintCheck[] = [];
     for (const kind of ["lint", "format"] as const) {
-      const tool = kind === "lint" ? "eslint" : "prettier";
+      const tool = kind === "lint" ? "biome" : "prettier";
       const check: LintCheck = {
         kind,
         status: scope.empty ? "no-sources" : "not-run",
@@ -332,7 +294,7 @@ export const javascriptAdapter: LintAdapter = {
         version:
           kind === "format"
             ? prettierVersion
-            : (context.versions[tool] ?? null),
+            : (context.versions[BIOME_PACKAGE] ?? null),
         exit_code: null,
         duration_ms: 0,
         diagnostics: [],
@@ -370,19 +332,11 @@ export const javascriptAdapter: LintAdapter = {
           continue;
         }
         const native = await lintManagerContext(context.target, context.signal);
-        const args = [
-          "--no-config-lookup",
-          "--no-fix",
-          "--config",
-          context.projection.configs.lint,
-          "--format",
-          join(import.meta.dir, "../javascript/formatter.cjs"),
-        ];
         const result = await localTool(
           context.target,
           native,
-          { package: tool, binary: tool },
-          [...args, "--", ...scope.files.map((file) => `./${file}`)],
+          BIOME_TOOL,
+          biomeArgs(context, scope.files),
           context.signal,
         );
         check.exit_code = result.exit_code;
@@ -393,7 +347,7 @@ export const javascriptAdapter: LintAdapter = {
           !result.truncated &&
           (result.exit_code === 0 || result.exit_code === 1)
         ) {
-          check.diagnostics = eslintDiagnostics(context, result.stdout);
+          check.diagnostics = biomeDiagnostics(context, result, scope.files);
           check.status = result.exit_code === 0 ? "passed" : "failed";
         } else
           check.reason = redact(

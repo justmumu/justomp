@@ -28,7 +28,7 @@ The OMP tool uses the `exec` approval tier. Its JSON text and `details` contain 
 | JS/TS, JSON/JSONC, YAML, Markdown/MDX, HTML, CSS/SCSS/Less | Bundled Prettier |
 | TOML, including `pyproject.toml` | Bundled Prettier TOML plugin |
 
-Ruff lint fixes and ESLint fixes are not run. Go formatting includes the agreed import organization. `go.mod`, `go.work`, sums, lockfiles and notebooks are not format targets. Known JSONC configuration filenames, including `tsconfig*.json` and Pyright configs, keep their comments.
+Ruff and Biome lint fixes are not run. Go formatting includes the agreed import organization. `go.mod`, `go.work`, sums, lockfiles and notebooks are not format targets. Known JSONC configuration filenames, including `tsconfig*.json` and Pyright configs, keep their comments.
 
 Prettier belongs to the extension, so formatting documents or TOML in a Python/Go project does not install Node packages into that project. Native preparation runs only when the selected files need Ruff or Go formatters. It reuses retained versions and existing preparation; a newly discovered Python or Go project aligns the relevant native formatter tools across that ecosystem. Formatting waits for the entire required group to reach its accepted target. Preparation can change shared manifests, locks, environments and projected settings beyond the selected files. The result reports those effects separately.
 

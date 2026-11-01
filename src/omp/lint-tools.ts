@@ -61,7 +61,7 @@ export function registerLintTools(
     name: "project_lint",
     label: "Check or fix project lint",
     description:
-      "Run lint and format checks for one project_id from list_projects. May prepare or repair native dev tools and distribute shared .justomp/config.json policy first. A newly discovered project selects latest lint tools and aligns existing consumers in its ecosystem; unchanged membership retains exact targets. Latest incompatibility fails without older fallback. Pass fix:true for Ruff safe-only fixes or standard ESLint autofix (no manual suggestions). Go reports autofix unsupported and still checks. Formatting is checked, never written; use project_format to format. Reports source changes separately from setup effects, including partial edits on failure. Without fix, checks do not fix source files. No ecosystem, manager or command input.",
+      "Run lint and format checks for one project_id from list_projects. May prepare or repair native dev tools and distribute shared .justomp/config.json policy first. A newly discovered project selects latest lint tools and aligns existing consumers in its ecosystem; unchanged membership retains exact targets. Latest incompatibility fails without older fallback. Pass fix:true for Ruff or Biome safe-only fixes (including configured import organization; no unsafe fixes). Go reports autofix unsupported and still checks. Formatting is checked, never written; use project_format to format. Reports source changes separately from setup effects, including partial edits on failure. Without fix, checks do not fix source files. No ecosystem, manager or command input.",
     parameters,
     approval: "exec",
     async execute(_callId, input, signal, onUpdate, ctx) {

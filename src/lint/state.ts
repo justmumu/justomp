@@ -21,7 +21,7 @@ export interface LintWave {
   complete: boolean;
 }
 export interface LintState {
-  schema: 2;
+  schema: 3;
   projects: Record<string, ProjectReceipt>;
   waves: Partial<Record<LintEcosystem, LintWave>>;
 }
@@ -51,12 +51,30 @@ export function lintWaveReady(
   );
 }
 function emptyState(): LintState {
-  return { schema: 2, projects: {}, waves: {} };
+  return { schema: 3, projects: {}, waves: {} };
+}
+/** An empty JavaScript selection is the durable, unprepared engine-migration state. */
+function validateSelection(
+  value: unknown,
+  unpreparedJavascript: boolean,
+): void {
+  if (
+    unpreparedJavascript &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 0
+  )
+    return;
+  validateToolVersions(value);
 }
 function parseState(text: string): LintState {
-  const state = JSON.parse(text) as LintState | LegacyLintState;
+  const state = JSON.parse(text) as
+    | LintState
+    | LegacyLintState
+    | (Omit<LintState, "schema"> & { schema: 2 });
   if (
-    (state?.schema !== 1 && state?.schema !== 2) ||
+    (state?.schema !== 1 && state?.schema !== 2 && state?.schema !== 3) ||
     !state.projects ||
     typeof state.projects !== "object" ||
     Array.isArray(state.projects)
@@ -71,9 +89,15 @@ function parseState(text: string): LintState {
       typeof receipt.policy_hash !== "string"
     )
       throw new Error("Invalid lint receipt");
-    validateToolVersions(receipt.tools);
-    if (receipt.ecosystem === "javascript")
+    validateSelection(
+      receipt.tools,
+      receipt.ecosystem === "javascript" && !receipt.ready,
+    );
+    if (receipt.ecosystem === "javascript") {
       receipt.tools = nativeJavascriptTools(receipt.tools);
+      if (state.schema !== 3 || !Object.keys(receipt.tools).length)
+        receipt.ready = false;
+    }
   }
   if (state.schema === 1 && state.python) {
     if (
@@ -88,7 +112,7 @@ function parseState(text: string): LintState {
   }
   if (state.schema === 1) {
     const migrated: LintState = {
-      schema: 2,
+      schema: 3,
       projects: state.projects,
       waves: {},
     };
@@ -111,6 +135,7 @@ function parseState(text: string): LintState {
           legacy?.complete ?? projects.every((id) => state.projects[id]?.ready),
       };
     }
+    if (migrated.waves.javascript) migrated.waves.javascript.complete = false;
     return migrated;
   }
   if (
@@ -134,12 +159,18 @@ function parseState(text: string): LintState {
     )
       throw new Error("Invalid lint wave");
     for (const id of wave.projects) {
-      validateToolVersions(wave.versions[id]);
-      if (ecosystem === "javascript")
+      validateSelection(
+        wave.versions[id],
+        ecosystem === "javascript" && !wave.complete,
+      );
+      if (ecosystem === "javascript") {
         wave.versions[id] = nativeJavascriptTools(wave.versions[id] ?? {});
+        if (state.schema !== 3 || !Object.keys(wave.versions[id]).length)
+          wave.complete = false;
+      }
     }
   }
-  return state;
+  return { ...state, schema: 3 };
 }
 /** Durable receipts and resolved targets; never a persisted lock or busy marker. */
 export class LintStateStore {

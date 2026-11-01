@@ -34,6 +34,7 @@ test("internal state, tools and generated configs never enter inspection with em
     ".justomp/lint_state.json",
     ".justomp/tools/package.json",
     "apps/web/eslint.justomp.config.mjs",
+    "apps/web/biome.justomp.jsonc",
     "apps/web/prettier.justomp.json",
     "golangci.justomp.yml",
   ]) {

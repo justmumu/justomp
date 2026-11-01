@@ -107,6 +107,21 @@ export async function publishProjectionFile(
   }
 }
 
+/** Retire only the owned snapshot observed before publishing its replacement. */
+export async function removeProjectionFile(
+  root: string,
+  path: string,
+  before: FileSnapshot,
+): Promise<void> {
+  const now = await readProjectionFile(root, path);
+  if (now.identity !== before.identity || now.text !== before.text)
+    throw new LintError(
+      "projection-conflict",
+      `Native config changed during preparation: ${path}`,
+    );
+  await unlink(path);
+}
+
 /** Reject symlinks in every path component before native source writes. */
 export async function assertSourcePath(
   root: string,

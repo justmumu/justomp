@@ -26,6 +26,7 @@ export function scopeIgnores(
     "**/.pnp.cjs",
     "**/.pnp.loader.mjs",
     "**/eslint.justomp.config.mjs",
+    "**/biome.justomp.jsonc",
     "**/prettier.justomp.json",
     "**/golangci.justomp.yml",
     ...childProjectRoots(project, projects).map(

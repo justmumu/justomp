@@ -15,6 +15,7 @@ import { COMMIT_DEFAULTS } from "../../src/config/commit/defaults";
 import { resolveFormatConfig } from "../../src/config/format/resolve";
 import { INSPECTION_DEFAULTS } from "../../src/config/inspection/defaults";
 import { resolveIntegrationTestConfig } from "../../src/config/integration-test/resolve";
+import { LEGACY_ESLINT_DEFAULTS } from "../../src/config/lint/javascript/legacy-defaults";
 import { resolveLintConfig } from "../../src/config/lint/resolve";
 import { loadConfig } from "../../src/config/load";
 import { resolveTestConfig } from "../../src/config/test/resolve";
@@ -265,4 +266,31 @@ test("format flush preserves legacy preferences while lint consumes the new shar
   expect(saved.lint.javascript.prettier.printWidth).toBe(88);
   expect(saved.format.prettier.printWidth).toBe(100);
   expect((await loadConfig(root, { flush: true })).wrote).toBe(false);
+});
+
+test("legacy lint policy flush is atomic, preserved and idempotent", async () => {
+  const root = await fixture({
+    custom: true,
+    lint: { javascript: { eslint: LEGACY_ESLINT_DEFAULTS } },
+  });
+  const path = join(root, ".justomp/config.json");
+  const first = await loadConfig(root, { flush: true });
+  expect(first.wrote).toBe(true);
+  const bytes = await readFile(path, "utf8");
+  const saved = JSON.parse(bytes);
+  expect(saved.lint.javascript.eslint).toEqual(LEGACY_ESLINT_DEFAULTS);
+  expect(saved.lint.javascript.biome).toEqual(
+    resolveLintConfig().policy.javascript.biome,
+  );
+  expect(saved.custom).toBe(true);
+  expect((await loadConfig(root, { flush: true })).wrote).toBe(false);
+  expect(await readFile(path, "utf8")).toBe(bytes);
+  const customized = JSON.stringify({
+    lint: { javascript: { eslint: { rules: { "unknown/rule": "error" } } } },
+  });
+  await writeFile(path, customized);
+  await expect(loadConfig(root, { flush: true })).rejects.toThrow(
+    "unknown/rule",
+  );
+  expect(await readFile(path, "utf8")).toBe(customized);
 });

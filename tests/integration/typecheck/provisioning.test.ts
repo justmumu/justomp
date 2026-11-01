@@ -117,13 +117,13 @@ test("JavaScript shares exact TypeScript across failure/restart and relinquishes
     "javascript:a/package.json"
   ];
   expect(invalidated.ready).toBe(false);
-  expect(invalidated.tools).toEqual({ eslint: "9.0.0" });
+  expect(invalidated.tools).toEqual({});
   expect(invalidated.policy_hash).toBe("old-lint-policy");
   const lintState = JSON.parse(await readFile(lintPath, "utf8"));
   expect(lintState.waves.javascript.complete).toBe(false);
   expect(
     lintState.waves.javascript.versions["javascript:a/package.json"],
-  ).toEqual({ eslint: "9.0.0" });
+  ).toEqual({});
   await expect(
     withReadyTypecheckTarget(
       f.root,
@@ -140,22 +140,6 @@ test("JavaScript shares exact TypeScript across failure/restart and relinquishes
     expect(
       JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8")),
     ).toEqual({ typescript: "2.0.0" });
-  // Already verified compiler ownership must also retire a map-only stale pin.
-  lintState.projects["javascript:a/package.json"].ready = true;
-  lintState.waves.javascript.versions["javascript:a/package.json"].typescript =
-    "0.9.0";
-  await writeFile(lintPath, JSON.stringify(lintState));
-  expect((await run()).complete).toBe(true);
-  const current = JSON.parse(await readFile(lintPath, "utf8")).projects[
-    "javascript:a/package.json"
-  ];
-  expect(current.ready).toBe(false);
-  expect(current.tools.typescript).toBeUndefined();
-  expect(
-    JSON.parse(await readFile(lintPath, "utf8")).waves.javascript.versions[
-      "javascript:a/package.json"
-    ].typescript,
-  ).toBeUndefined();
 });
 
 test("native workspace batch sees ready members alongside a newly discovered member", async () => {

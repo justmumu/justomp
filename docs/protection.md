@@ -25,6 +25,8 @@ JavaScript protects `package.json`, detected manager locks (including configured
 pnpm lock directories) and workspace metadata;
 Go protects module/workspace metadata and checksum files. Justomp's shared config,
 inspection/preparation state and generated lint/typecheck configs are protected.
+This includes `biome.justomp.jsonc` and `prettier.justomp.json` before creation;
+the legacy owned ESLint projection stays protected during migration.
 Newly discovered projects enter the next call's target list. Incomplete inspection
 or an unsafe path fails the call instead of returning an old allow decision.
 

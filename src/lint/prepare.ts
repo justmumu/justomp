@@ -95,7 +95,7 @@ async function checkContext(
     target,
     versions,
     policy: context.policy,
-    projection: await planProjection(target, context.policy),
+    projection: await planProjection(target, context.policy, versions),
     signal: context.signal,
   };
 }
@@ -205,7 +205,11 @@ async function prepareEcosystem(
         for (const target of batch) {
           signal.throwIfAborted();
           await applyProjection(
-            await planProjection(target, policy.lint),
+            await planProjection(
+              target,
+              policy.lint,
+              versions[target.project.project_id],
+            ),
             report.changes,
           );
         }

@@ -73,6 +73,7 @@ test("protects manifests, shared owner locks and owned projections in mixed repo
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "apps/web/eslint.justomp.config.mjs",
+    "apps/web/biome.justomp.jsonc",
     "apps/web/prettier.justomp.json",
     "services/api/go.mod",
     "services/api/go.sum",

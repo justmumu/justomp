@@ -11,8 +11,6 @@ import { javascriptAdapter as lint } from "../../../src/lint/adapters/javascript
 import type { LintOperationContext } from "../../../src/lint/adapters/types";
 import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
-import * as lintTools from "../../../src/lint/javascript/tools";
-import { LintError } from "../../../src/lint/model";
 import * as runtime from "../../../src/lint/runtime";
 import { javascriptAdapter as typecheck } from "../../../src/typecheck/adapters/javascript";
 import { memoryContext } from "../dependencies/memory";
@@ -44,7 +42,7 @@ function fixture(
   Object.assign(selected.scope, { cwd: f.context.cwd, owner: f.context.owner });
   const tools: Record<string, string> =
     feature === "lint"
-      ? { eslint: "9.39.5", prettier: "3.6.2" }
+      ? { "@biomejs/biome": "2.6.3" }
       : { typescript: "7.0.2" };
   const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
   const before: Inventory = {
@@ -225,22 +223,86 @@ test("a legacy Prettier pin leaves the user's existing dependency untouched", as
   expect(f.f.files.get(`${f.f.root}/package.json`)).toBe(manifest);
 });
 
-test("lint preflight identifies the incompatible application project before any native mutation", async () => {
+test("lint preflight identifies incompatible Node before any native mutation", async () => {
   const f = fixture("npm", "lint");
   keep(
-    spyOn(lintTools, "requiredJavascriptTools").mockResolvedValue(["eslint"]),
+    spyOn(compatibility, "toolMetadata").mockResolvedValue({
+      "@biomejs/biome": {
+        name: "@biomejs/biome",
+        version: "2.6.3",
+        engines: { node: ">=30" },
+      },
+    }),
   );
-  keep(
-    spyOn(compatibility, "applicationVersions").mockRejectedValue(
-      new LintError(
-        "incompatible-toolchain",
-        "TypeScript 5.0.0 does not satisfy declared ^7.0.0",
-      ),
-    ),
-  );
+  keep(spyOn(compatibility, "nodeVersion").mockResolvedValue("26.0.0"));
   const id = f.context.targets[0]?.project.project_id;
   await expect(lint.preflight(f.context)).rejects.toThrow(
-    `${id}: TypeScript 5.0.0`,
+    `${id}: @biomejs/biome@2.6.3`,
   );
   expect(f.steps).toEqual([]);
+});
+
+test("Biome readiness verifies exact declaration, lock, installed package and native executable", async () => {
+  const f = fixture("npm", "lint");
+  const selected = f.context.targets[0];
+  if (!selected) throw new Error("Missing target");
+  const dependency = {
+    name: "@biomejs/biome",
+    group: { kind: "dev" as const },
+    source: { kind: "registry" as const },
+    direct: true,
+    declared_specifier: "2.6.3",
+    resolutions: [{ version: "2.6.3" }],
+    evidence: { file: "package.json", field: "devDependencies.@biomejs/biome" },
+  };
+  const inventory: Inventory = {
+    complete: true,
+    diagnostics: [],
+    dependencies: [dependency],
+  };
+  keep(
+    spyOn(native, "nativeAdapter").mockReturnValue({
+      inventory: async () => inventory,
+      groups: ["dev"],
+      plan: async () => {
+        throw new Error("Readiness must not mutate dependencies");
+      },
+    }),
+  );
+  const installed = keep(
+    spyOn(native, "installedPackages").mockResolvedValue({
+      "@biomejs/biome": { name: "@biomejs/biome", version: "2.6.3" },
+    }),
+  );
+  keep(spyOn(compatibility, "nodeVersion").mockResolvedValue("26.0.0"));
+  const executable = keep(
+    spyOn(native, "localTool").mockResolvedValue(
+      output({ stdout: "Version: 2.6.3\n" }),
+    ),
+  );
+  const context = {
+    target: selected,
+    versions: f.tools,
+    policy: f.context.policy,
+    signal: f.context.signal,
+    projection: {
+      target: selected,
+      files: [],
+      current: true,
+      configs: {
+        lint: "/repo/biome.justomp.jsonc",
+        format: "/repo/prettier.justomp.json",
+      },
+    },
+  };
+  expect(await lint.verify(context)).toBe(true);
+  executable.mockResolvedValue(output({ stdout: "Version: 2.6.2\n" }));
+  expect(await lint.verify(context)).toBe(false);
+  executable.mockRejectedValue(new Error("Missing native optional package"));
+  expect(await lint.verify(context)).toBe(false);
+  installed.mockResolvedValue({});
+  expect(await lint.verify(context)).toBe(false);
+  installed.mockResolvedValue({ "@biomejs/biome": { version: "2.6.3" } });
+  dependency.declared_specifier = "^2.6.3";
+  expect(await lint.verify(context)).toBe(false);
 });

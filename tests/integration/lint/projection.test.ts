@@ -15,6 +15,7 @@ import { formatPrettier } from "../../../src/format/engines/prettier";
 import { formatterFor } from "../../../src/format/selection";
 import type { PackagingStructure, Project } from "../../../src/inspect/model";
 import { applyProjection, planProjection } from "../../../src/lint/projection";
+import { JS_MARKER } from "../../../src/lint/projections/javascript";
 import { collectLintScope } from "../../../src/lint/scope";
 import { resolveLintTarget } from "../../../src/lint/targets";
 
@@ -100,9 +101,13 @@ test("generated projection conflicts, freshness and policy reconciliation are ex
     join(root, "golangci.justomp.yml"),
     "version: '2'\n# not owned\n",
   );
-  await expect(planProjection(target, policy)).rejects.toThrow("owned");
+  await expect(
+    planProjection(target, policy, { "@biomejs/biome": "2.6.3" }),
+  ).rejects.toThrow("owned");
   await rm(join(root, "golangci.justomp.yml"));
-  const plan = await planProjection(target, policy);
+  const plan = await planProjection(target, policy, {
+    "@biomejs/biome": "2.6.3",
+  });
   expect(plan.current).toBe(false);
   expect(yaml(plan.files[0]?.content ?? "")).toEqual({
     version: "2",
@@ -127,9 +132,14 @@ test("generated projection conflicts, freshness and policy reconciliation are ex
     },
   });
   expect(await applyProjection(plan)).toHaveLength(1);
-  expect((await planProjection(target, policy)).current).toBe(true);
+  expect(
+    (await planProjection(target, policy, { "@biomejs/biome": "2.6.3" }))
+      .current,
+  ).toBe(true);
   policy.go.golangci.linters.enable = [];
-  const changed = await planProjection(target, policy);
+  const changed = await planProjection(target, policy, {
+    "@biomejs/biome": "2.6.3",
+  });
   expect(changed.current).toBe(false);
   await writeFile(join(root, "golangci.justomp.yml"), "foreign replacement\n");
   await expect(applyProjection(changed)).rejects.toThrow("changed");
@@ -143,7 +153,7 @@ test("JavaScript projection executes as data and preserves explicit empty rules"
   await writeFile(join(root, "index.js"), "const x = 1;");
   const policy = resolveLintConfig({
     javascript: {
-      eslint: {
+      biome: {
         rules: {},
         typed_rules: {},
         test_rules: {},
@@ -152,19 +162,31 @@ test("JavaScript projection executes as data and preserves explicit empty rules"
       },
     },
   }).policy;
-  policy.javascript.eslint.test_rules = {
-    "no-console": [
-      "warn",
-      { allow: ["'); globalThis.projectionInjected = true; //"] },
-    ],
+  policy.javascript.biome.test_rules = {
+    suspicious: {
+      noConsole: {
+        level: "warn",
+        options: { allow: ["'); globalThis.projectionInjected = true; //"] },
+      },
+    },
   };
-  const plan = await planProjection(target, policy);
+  const plan = await planProjection(target, policy, {
+    "@biomejs/biome": "2.6.3",
+  });
   await applyProjection(plan);
-  const config = (await import(plan.configs.lint)).default;
-  expect(config[1].rules).toEqual({});
-  expect(config.at(-1).rules).toEqual(policy.javascript.eslint.test_rules);
+  const config = Bun.JSONC.parse(await readFile(plan.configs.lint, "utf8")) as {
+    linter: { rules: unknown };
+    overrides: { linter: { rules: unknown } }[];
+  };
+  expect(config.linter.rules).toEqual({ preset: "none" });
+  expect(config.overrides.at(-1)?.linter.rules).toEqual(
+    policy.javascript.biome.test_rules,
+  );
   expect(Reflect.has(globalThis, "projectionInjected")).toBe(false);
-  expect((await planProjection(target, policy)).current).toBe(true);
+  expect(
+    (await planProjection(target, policy, { "@biomejs/biome": "2.6.3" }))
+      .current,
+  ).toBe(true);
   expect(JSON.parse(await readFile(plan.configs.format, "utf8"))).toMatchObject(
     policy.javascript.prettier,
   );
@@ -245,7 +267,9 @@ test("formatting managed projections preserves readiness and subsequent bytes", 
   const policy = resolveLintConfig().policy;
   for (const ecosystem of ["python", "javascript", "go"] as const) {
     const { target } = await fixture(ecosystem);
-    const initial = await planProjection(target, policy);
+    const initial = await planProjection(target, policy, {
+      "@biomejs/biome": "2.6.3",
+    });
     await applyProjection(initial);
     const expected = new Map<string, string>();
     for (const file of initial.files) {
@@ -260,7 +284,9 @@ test("formatting managed projections preserves readiness and subsequent bytes", 
       await writeFile(file.path, text);
       expected.set(file.path, text);
     }
-    const next = await planProjection(target, policy);
+    const next = await planProjection(target, policy, {
+      "@biomejs/biome": "2.6.3",
+    });
     expect(next.files.filter((f) => f.changed).map((f) => f.path)).toEqual([]);
     expect(next.current).toBe(true);
     expect(await applyProjection(next)).toEqual([]);
@@ -275,7 +301,9 @@ test("formatting managed projections preserves readiness and subsequent bytes", 
       );
       expect(drift).not.toBe(formatted);
       await writeFile(path, drift);
-      const repair = await planProjection(target, policy);
+      const repair = await planProjection(target, policy, {
+        "@biomejs/biome": "2.6.3",
+      });
       expect(repair.current).toBe(false);
       expect(await applyProjection(repair)).toEqual([
         {
@@ -284,8 +312,44 @@ test("formatting managed projections preserves readiness and subsequent bytes", 
           kind: "updated",
         },
       ]);
-      expect((await planProjection(target, policy)).current).toBe(true);
+      expect(
+        (await planProjection(target, policy, { "@biomejs/biome": "2.6.3" }))
+          .current,
+      ).toBe(true);
       expect(await readFile(path, "utf8")).not.toContain("120.0");
     }
   }
+});
+
+test("Biome publication retires only unchanged owned legacy config after replacement", async () => {
+  const { root, target } = await fixture();
+  const legacy = join(root, "eslint.justomp.config.mjs");
+  const managed = join(root, "biome.justomp.jsonc");
+  const user = join(root, "biome.json");
+  const policy = resolveLintConfig().policy;
+  const versions = { "@biomejs/biome": "2.6.3" };
+  await writeFile(legacy, `${JS_MARKER}export default [];\n`);
+  await writeFile(user, '{"linter":{"enabled":false}}');
+  await writeFile(managed, "unowned");
+  await expect(planProjection(target, policy, versions)).rejects.toThrow(
+    "owned",
+  );
+  expect(await Bun.file(legacy).exists()).toBe(true);
+  await rm(managed);
+  const plan = await planProjection(target, policy, versions);
+  const changes = await applyProjection(plan);
+  expect(changes).toContainEqual({
+    project_id: target.project.project_id,
+    path: "eslint.justomp.config.mjs",
+    kind: "removed",
+  });
+  expect(await Bun.file(legacy).exists()).toBe(false);
+  expect(await Bun.file(managed).exists()).toBe(true);
+  expect(await readFile(user, "utf8")).toBe('{"linter":{"enabled":false}}');
+  await writeFile(legacy, `${JS_MARKER}export default [];\n`);
+  const pending = await planProjection(target, policy, versions);
+  await writeFile(legacy, "user replacement");
+  await expect(applyProjection(pending)).rejects.toThrow("changed");
+  expect(await readFile(legacy, "utf8")).toBe("user replacement");
+  expect((await planProjection(target, policy, versions)).current).toBe(true);
 });

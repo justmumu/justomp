@@ -1,23 +1,10 @@
-import type { JavascriptPolicy } from "../../config/lint/model";
 import type { ToolVersions } from "../adapters/types";
-import { javascriptPlugins } from "../projections/javascript";
-import { collectLintScope } from "../scope";
-import type { LintTarget } from "../targets";
 
-export async function requiredJavascriptTools(
-  target: LintTarget,
-  policy: JavascriptPolicy,
-): Promise<string[]> {
-  return [
-    "eslint",
-    "@eslint/js",
-    ...javascriptPlugins(policy, target, await collectLintScope(target)),
-  ];
-}
+export const BIOME_PACKAGE = "@biomejs/biome";
+export const BIOME_TOOL = { package: BIOME_PACKAGE, binary: "biome" } as const;
 
-/** Legacy receipts may retain target Prettier; bundled formatting no longer manages it. */
+/** Only Biome belongs to the current managed JavaScript lint environment. */
 export function nativeJavascriptTools(tools: ToolVersions): ToolVersions {
-  return Object.fromEntries(
-    Object.entries(tools).filter(([name]) => name !== "prettier"),
-  );
+  const version = tools[BIOME_PACKAGE];
+  return version ? { [BIOME_PACKAGE]: version } : {};
 }

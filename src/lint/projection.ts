@@ -1,11 +1,14 @@
 import { relative, resolve } from "node:path";
 import type { LintPolicy } from "../config/lint/model";
 import { equivalentConfig, hasProjectionMarker } from "../format/readiness";
+import type { ToolVersions } from "./adapters/types";
 import {
   type FileSnapshot,
   publishProjectionFile,
   readProjectionFile,
+  removeProjectionFile,
 } from "./files";
+import { BIOME_PACKAGE } from "./javascript/tools";
 import { LintError, type PreparationChange } from "./model";
 import { projectGo } from "./projections/go";
 import {
@@ -30,13 +33,16 @@ export interface ProjectionPlan {
   /** Explicit native paths; callers must pass these instead of auto-discovery. */
   configs: { lint: string; format: string };
   current: boolean;
+  retired?: { path: string; before: FileSnapshot }[];
 }
 /** Read-only freshness planning. Apply only after resolving again under the lease. */
 export async function planProjection(
   target: LintTarget,
   policy: LintPolicy,
+  versions: ToolVersions = {},
 ): Promise<ProjectionPlan> {
   const files: ProjectionFile[] = [];
+  const retired: { path: string; before: FileSnapshot }[] = [];
   const add = async (
     name: string,
     render: (text: string | null) => string,
@@ -56,7 +62,9 @@ export async function planProjection(
         ? "babel"
         : name.endsWith(".yml")
           ? "yaml"
-          : "json";
+          : name.endsWith(".jsonc")
+            ? "jsonc"
+            : "json";
     const changed = !(await equivalentConfig(before.text, content, parser));
     files.push({
       path,
@@ -79,10 +87,20 @@ export async function planProjection(
   } else if (target.project.ecosystem === "javascript") {
     const scope = await collectLintScope(target);
     lint = await add(
-      "eslint.justomp.config.mjs",
-      () => projectJavascript(target, policy.javascript, scope),
+      "biome.justomp.jsonc",
+      () =>
+        projectJavascript(
+          target,
+          policy.javascript,
+          scope,
+          versions[BIOME_PACKAGE] ?? "",
+        ),
       (text) => hasProjectionMarker(text, JS_MARKER),
     );
+    const legacyPath = resolve(target.scope.cwd, "eslint.justomp.config.mjs");
+    const legacy = await readProjectionFile(target.root, legacyPath);
+    if (legacy.text !== null && hasProjectionMarker(legacy.text, JS_MARKER))
+      retired.push({ path: legacyPath, before: legacy });
     format = await add(
       "prettier.justomp.json",
       () =>
@@ -106,7 +124,8 @@ export async function planProjection(
     target,
     files,
     configs: { lint, format },
-    current: files.every((file) => !file.changed),
+    current: files.every((file) => !file.changed) && retired.length === 0,
+    retired,
   };
 }
 /** Changes are appended as published, including when a later file fails. */
@@ -126,6 +145,14 @@ export async function applyProjection(
       project_id: plan.target.project.project_id,
       path: relative(plan.target.root, file.path).replaceAll("\\", "/"),
       kind: file.before.text === null ? "created" : "updated",
+    });
+  }
+  for (const file of plan.retired ?? []) {
+    await removeProjectionFile(plan.target.root, file.path, file.before);
+    changes.push({
+      project_id: plan.target.project.project_id,
+      path: relative(plan.target.root, file.path).replaceAll("\\", "/"),
+      kind: "removed",
     });
   }
   return changes;

@@ -102,7 +102,7 @@ async function nativeContext(
     policy: policy.lint,
     versions: receipt.tools,
     signal,
-    projection: await planProjection(target, policy.lint),
+    projection: await planProjection(target, policy.lint, receipt.tools),
   };
   if (
     !context.projection.current ||

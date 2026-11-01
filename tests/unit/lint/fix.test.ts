@@ -23,7 +23,7 @@ function fixture(ecosystem: "python" | "javascript" | "go" = "python") {
   const context: LintCheckContext = {
     target: selected,
     policy: resolveLintConfig().policy,
-    versions: { ruff: "0.17.3", eslint: "9.39.5" },
+    versions: { ruff: "0.17.3", "@biomejs/biome": "2.6.3" },
     signal: controller.signal,
     projection: {
       target: selected,
@@ -184,4 +184,57 @@ test("one failed after-read cannot erase changes to the remaining files", async 
     changed_files: ["apps/app/module.py"],
     errors: [{ path: "apps/app/bad.py", code: "observation-failed" }],
   });
+});
+
+for (const key of [
+  "rules",
+  "typed_rules",
+  "test_rules",
+  "react_rules",
+  "next_rules",
+] as const) {
+  test(`Biome ${key} cannot promote unsafe fixes`, async () => {
+    const f = fixture("javascript");
+    f.context.target.project.frameworks = ["next", "react"];
+    f.selectedFiles.mockResolvedValue(scope("index.ts"));
+    f.context.policy.javascript.biome[key] = {
+      suspicious: { noExplicitAny: { level: "error", fix: "safe" } },
+    };
+    await expect(f.run()).rejects.toThrow("safe-only");
+    expect(f.fix).not.toHaveBeenCalled();
+  });
+}
+test("Biome failed report preserves source edits but never claims completed fix", async () => {
+  const f = fixture("javascript");
+  await expect(f.run()).rejects.toThrow();
+  expect(f.report).toMatchObject({
+    status: "failed",
+    tool: "biome",
+    version: "2.6.3",
+    changed_files: ["apps/app/module.py"],
+  });
+});
+test("Biome successful write uses report completeness, not remaining unsafe suggestions", async () => {
+  const f = fixture("javascript");
+  f.fix.mockResolvedValue(
+    output({
+      stdout: JSON.stringify({
+        command: "check",
+        summary: {
+          changed: 1,
+          unchanged: 0,
+          matches: 0,
+          errors: 0,
+          warnings: 0,
+          infos: 0,
+          skipped: 0,
+          diagnosticsNotPrinted: 0,
+          suggestedFixesSkipped: 2,
+        },
+        diagnostics: [],
+      }),
+    }),
+  );
+  await f.run();
+  expect(f.report.status).toBe("completed");
 });

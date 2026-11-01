@@ -18,7 +18,7 @@ export async function fixture(
       ? "ruff"
       : ecosystem === "go"
         ? "golangci-lint"
-        : "eslint";
+        : "@biomejs/biome";
   const root = await mkdtemp(join(tmpdir(), "lint-lifecycle-"));
   cleanup.push(async () => {
     await closePackagingStructure(root);

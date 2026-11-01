@@ -44,7 +44,7 @@ Native managers install or upgrade project dev dependencies and update their man
 
 Exact targets and readiness evidence persist in `.justomp/typecheck_state.json`. A receipt never replaces verification of native tools, source/configuration inputs or generated outputs. Preparation, checks, lint and dependency operations share process-local resource leases. There is no persisted `BUSY` lock or rollback of completed native changes. A cancelled tool wait may leave shared setup running for another session. Closing the last owning session cancels and joins native work before releasing resources.
 
-When typecheck upgrades TypeScript, it invalidates the older lint receipt and removes lint's retained compiler pin from both its receipt and saved target map. Lint must recheck compatibility and cannot restore the old compiler. Typecheck success does not imply that the selected lint plugins support that compiler. See [lint compatibility](lint.md#javascript-and-typescript-versions).
+Typecheck owns the application TypeScript target. Managed lint uses Biome independently of the TypeScript compiler API and never installs or restores a compiler to satisfy a lint plugin. Typecheck preparation can invalidate stale legacy lint receipts; lint preparation then verifies its own current Biome environment. Typecheck success and lint success remain separate results. See [lint preparation](lint.md#javascript-and-typescript-versions).
 
 ## Native checking and generated files
 

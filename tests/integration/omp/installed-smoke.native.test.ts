@@ -71,6 +71,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/protection.md",
       "src/protection/sandbox.ts",
       "docs/lint.md",
+      "docs/lint-migration.md",
       "docs/format.md",
       "docs/precommit.md",
       "docs/prepush.md",
@@ -82,7 +83,8 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "src/testing/go/inventory.go",
       "src/testing/python/managed_pytest.py",
       "src/testing/javascript/bun-import-all.ts",
-      "src/lint/javascript/formatter.cjs",
+      "src/lint/javascript/result.ts",
+      "src/config/lint/javascript/migrate.ts",
     ])
       expect(
         await Bun.file(

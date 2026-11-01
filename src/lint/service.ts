@@ -6,6 +6,7 @@ import { javascriptAdapter } from "./adapters/javascript";
 import { pythonAdapter } from "./adapters/python";
 import { withReadyLintTarget } from "./coordinator";
 import { applyLintFix, pendingLintFix } from "./fix";
+import { BIOME_PACKAGE } from "./javascript/tools";
 import {
   type LintCheck,
   LintError,
@@ -160,12 +161,15 @@ async function runLintTarget(
         ? ["ruff", "ruff"]
         : target.project.ecosystem === "go"
           ? ["golangci-lint", "golangci-lint"]
-          : ["eslint", "prettier"];
+          : ["biome", "prettier"];
     checks = (["lint", "format"] as const).map((kind, index) => ({
       kind,
       status: "not-run",
       tool: names[index] ?? "",
-      version: preparation.tools[names[index] ?? ""] ?? null,
+      version:
+        preparation.tools[
+          names[index] === "biome" ? BIOME_PACKAGE : (names[index] ?? "")
+        ] ?? null,
       exit_code: null,
       duration_ms: 0,
       diagnostics: [],

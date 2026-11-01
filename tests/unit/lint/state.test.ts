@@ -37,7 +37,7 @@ test("schema one migration retains each accepted exact target without discovery"
   try {
     const store = await LintStateStore.load("/repo");
     expect(store.recovery).toBeUndefined();
-    expect(store.state.schema).toBe(2);
+    expect(store.state.schema).toBe(3);
     expect(store.state).toMatchObject({
       waves: {
         python: {
@@ -47,8 +47,8 @@ test("schema one migration retains each accepted exact target without discovery"
         },
         javascript: {
           projects: ["javascript:a"],
-          complete: true,
-          versions: { "javascript:a": { eslint: "9.0.0" } },
+          complete: false,
+          versions: { "javascript:a": {} },
         },
         go: {
           projects: ["go:a", "go:b"],
@@ -67,7 +67,7 @@ test("schema one migration retains each accepted exact target without discovery"
 
 test("readiness requires the whole live cohort and each accepted target", () => {
   const state: LintState = {
-    schema: 2,
+    schema: 3,
     projects: {
       "go:a": {
         ecosystem: "go",
@@ -105,14 +105,14 @@ test("readiness requires the whole live cohort and each accepted target", () => 
   expect(lintWaveReady(state, "go", ["go:a", "go:b"])).toBe(false);
 });
 
-test("incomplete schema two persists exact targets while malformed target maps recover", async () => {
+test("incomplete schema three persists exact targets while malformed target maps recover", async () => {
   const value: LintState = {
-    schema: 2,
+    schema: 3,
     projects: {},
     waves: {
       javascript: {
         projects: ["javascript:a"],
-        versions: { "javascript:a": { eslint: "9.0.0" } },
+        versions: { "javascript:a": { "@biomejs/biome": "2.6.3" } },
         complete: false,
       },
     },
@@ -135,6 +135,59 @@ test("incomplete schema two persists exact targets while malformed target maps r
     const invalid = await LintStateStore.load("/repo");
     expect(invalid.recovery).toBeDefined();
     expect(invalid.state.waves).toEqual({});
+  } finally {
+    read.mockRestore();
+  }
+});
+
+test("schema two clears legacy JavaScript readiness and keeps other ecosystems", async () => {
+  const python = {
+    ecosystem: "python" as const,
+    tools: { ruff: "0.14.0" },
+    ready: true,
+    policy_hash: "p",
+  };
+  const read = spyOn(files, "readProjectionFile").mockResolvedValue({
+    text: JSON.stringify({
+      schema: 2,
+      projects: {
+        "python:a": python,
+        "javascript:a": {
+          ecosystem: "javascript",
+          tools: { eslint: "9.0.0", typescript: "7.0.2" },
+          ready: true,
+          policy_hash: "old",
+        },
+      },
+      waves: {
+        javascript: {
+          projects: ["javascript:a"],
+          versions: { "javascript:a": { eslint: "9.0.0" } },
+          complete: true,
+        },
+      },
+    }),
+    identity: "1",
+    mode: 420,
+  });
+  try {
+    const store = await LintStateStore.load("/repo");
+    expect(store.recovery).toBeUndefined();
+    expect(store.state.projects["python:a"]).toEqual(python);
+    expect(store.state.projects["javascript:a"]).toMatchObject({
+      ready: false,
+      tools: {},
+    });
+    expect(store.state.waves.javascript).toMatchObject({
+      complete: false,
+      versions: { "javascript:a": {} },
+    });
+    read.mockResolvedValue({
+      text: JSON.stringify(store.state),
+      identity: "2",
+      mode: 420,
+    });
+    expect((await LintStateStore.load("/repo")).state).toEqual(store.state);
   } finally {
     read.mockRestore();
   }

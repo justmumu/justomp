@@ -2,8 +2,11 @@ import { relative, resolve } from "node:path";
 import { redact } from "../dependencies/model";
 import type { LintAdapter, LintCheckContext } from "./adapters/types";
 import { readSourceFile } from "./files";
+import { biomeDiagnostics } from "./javascript/result";
+import { BIOME_PACKAGE } from "./javascript/tools";
 import { type LintEcosystem, LintError, type LintFix } from "./model";
-import { collectLintScope } from "./scope";
+import { javascriptFrameworks } from "./projections/javascript";
+import { collectLintScope, type LintScope } from "./scope";
 
 export function pendingLintFix(ecosystem?: LintEcosystem): LintFix {
   return {
@@ -15,7 +18,24 @@ export function pendingLintFix(ecosystem?: LintEcosystem): LintFix {
     errors: [],
   };
 }
-function assertSafePolicy(context: LintCheckContext): void {
+function assertSafePolicy(context: LintCheckContext, scope: LintScope): void {
+  if (context.target.project.ecosystem === "javascript") {
+    const policy = context.policy.javascript.biome;
+    const { react, next } = javascriptFrameworks(context.target);
+    const maps = [policy.rules, policy.test_rules];
+    if (scope.hasTypescript) maps.push(policy.typed_rules);
+    if (react) maps.push(policy.react_rules);
+    if (next) maps.push(policy.next_rules);
+    for (const map of maps)
+      for (const group of Object.values(map))
+        for (const rule of Object.values(group))
+          if (typeof rule === "object" && rule.fix === "safe")
+            throw new LintError(
+              "unsupported-safe-fix-config",
+              "Biome safe-only fixing cannot use rule fix: safe, which can promote unsafe actions. Remove that override to use fix, or run check-only; configuration was not changed.",
+            );
+    return;
+  }
   if (context.target.project.ecosystem !== "python") return;
   const ruff = context.policy.python.ruff;
   const promotion = [ruff["extend-safe-fixes"], ruff.lint["extend-safe-fixes"]];
@@ -49,7 +69,7 @@ export async function applyLintFix(
     fix.reason = "no-sources";
     return;
   }
-  assertSafePolicy(context);
+  assertSafePolicy(context, scope);
   if (!adapter.fix)
     throw new LintError(
       "unsupported-fix",
@@ -65,8 +85,9 @@ export async function applyLintFix(
     });
   }
   context.signal.throwIfAborted();
-  fix.tool = context.target.project.ecosystem === "python" ? "ruff" : "eslint";
-  fix.version = context.versions[fix.tool] ?? null;
+  fix.tool = context.target.project.ecosystem === "python" ? "ruff" : "biome";
+  fix.version =
+    context.versions[fix.tool === "biome" ? BIOME_PACKAGE : fix.tool] ?? null;
   fix.status = "failed";
   const started = performance.now();
   try {
@@ -86,6 +107,8 @@ export async function applyLintFix(
             `${fix.tool} fix did not complete (exit ${result.exit_code}${result.truncated ? ", output truncated" : ""})`,
         ),
       );
+    if (context.target.project.ecosystem === "javascript")
+      biomeDiagnostics(context, result, scope.files);
     fix.status = "completed";
   } catch (error) {
     if (context.signal.aborted) {

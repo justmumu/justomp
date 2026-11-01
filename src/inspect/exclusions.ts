@@ -12,7 +12,7 @@ export function isInternalStatePath(path: string): boolean {
 export function isInternalPath(path: string): boolean {
   return (
     isInternalStatePath(path) ||
-    /(?:^|\/)(?:eslint\.justomp\.config\.mjs|prettier\.justomp\.json|golangci\.justomp\.yml)$/.test(
+    /(?:^|\/)(?:biome\.justomp\.jsonc|eslint\.justomp\.config\.mjs|prettier\.justomp\.json|golangci\.justomp\.yml)$/.test(
       path,
     )
   );

@@ -410,7 +410,7 @@ export async function withReadyLintTarget<T>(
         target,
         versions: receipt.tools,
         policy: policy.lint,
-        projection: await planProjection(target, policy.lint),
+        projection: await planProjection(target, policy.lint, receipt.tools),
         signal,
       };
       if (!context.projection.current || !(await adapter.verify(context)))
@@ -422,7 +422,7 @@ export async function withReadyLintTarget<T>(
       signal.throwIfAborted();
       const after = {
         ...context,
-        projection: await planProjection(target, policy.lint),
+        projection: await planProjection(target, policy.lint, receipt.tools),
       };
       if (!after.projection.current || !(await adapter.verify(after)))
         throw new LintError(

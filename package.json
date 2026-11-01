@@ -17,6 +17,7 @@
     "docs/precommit.md",
     "docs/prepush.md",
     "docs/lint.md",
+    "docs/lint-migration.md",
     "docs/lint-defaults.json",
     "docs/typecheck.md",
     "docs/typecheck-defaults.json",

@@ -80,16 +80,7 @@ export async function javascriptFixture(
               }
             : {}),
           ...(flavor !== "js"
-            ? { devDependencies: { typescript: "5.9.3" } }
-            : {}),
-          ...(flavor === "next"
-            ? {
-                dependencies: {
-                  next: "15.5.6",
-                  react: "19.1.1",
-                  "react-dom": "19.1.1",
-                },
-              }
+            ? { devDependencies: { typescript: "7.0.2" } }
             : {}),
         },
         null,
@@ -158,22 +149,7 @@ export async function javascriptFixture(
     for (const target of targets)
       target.scope.env.PATH = `${bin}:${target.scope.env.PATH}`;
   }
-  const tools: ToolVersions = Object.fromEntries(
-    Object.entries(TOOLS).filter(
-      ([name]) =>
-        ![
-          "typescript-eslint",
-          "eslint-plugin-react-hooks",
-          "eslint-plugin-jsx-a11y",
-          "@next/eslint-plugin-next",
-        ].includes(name) ||
-        (name === "typescript-eslint" && flavor !== "js") ||
-        ((name === "eslint-plugin-react-hooks" ||
-          name === "eslint-plugin-jsx-a11y") &&
-          ["react", "next"].includes(flavor)) ||
-        (name === "@next/eslint-plugin-next" && flavor === "next"),
-    ),
-  );
+  const tools: ToolVersions = { ...TOOLS };
   const policy = resolveLintConfig().policy,
     signal = new AbortController().signal;
   const context: LintOperationContext = {
@@ -193,7 +169,11 @@ export async function javascriptFixture(
       policy,
       signal,
       versions: context.versions[target.project.project_id] ?? {},
-      projection: await planProjection(target, policy),
+      projection: await planProjection(
+        target,
+        policy,
+        context.versions[target.project.project_id],
+      ),
     };
   };
   return {
@@ -204,7 +184,11 @@ export async function javascriptFixture(
     async project() {
       for (const target of targets)
         await applyProjection(
-          await planProjection(target, policy),
+          await planProjection(
+            target,
+            policy,
+            context.versions[target.project.project_id],
+          ),
           context.changes,
         );
     },
@@ -214,7 +198,11 @@ export async function javascriptFixture(
         await javascriptAdapter.prepareBatch(context);
         for (const target of targets)
           await applyProjection(
-            await planProjection(target, policy),
+            await planProjection(
+              target,
+              policy,
+              context.versions[target.project.project_id],
+            ),
             context.changes,
           );
       });

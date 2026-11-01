@@ -76,6 +76,7 @@ export function collectProtectedPaths(
       add(join(owner, "package.json"));
       locks(owner, managers);
       add(join(cwd, "eslint.justomp.config.mjs"));
+      add(join(cwd, "biome.justomp.jsonc"));
       add(join(cwd, "prettier.justomp.json"));
     } else {
       // go.sum belongs to the module, even when a go.work owner is above it.
