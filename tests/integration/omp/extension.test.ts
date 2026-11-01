@@ -75,7 +75,7 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
       .join("\n"),
   ).toContain('"name":"hello"');
 });
-test("nested sessions install one repository hook without changing tool cwd", async () => {
+test("nested sessions install both repository hooks without changing tool cwd", async () => {
   const root = await realpath(
     await mkdtemp(join(tmpdir(), "justomp-hook-host-")),
   );
@@ -89,10 +89,13 @@ test("nested sessions install one repository hook without changing tool cwd", as
   );
   await h.runner.emit({ type: "session_start" });
   const hook = await readFile(join(root, ".git/hooks/pre-commit"), "utf8");
+  const push = await readFile(join(root, ".git/hooks/pre-push"), "utf8");
+  expect(h.runner.getRegisteredTool("repo_push")).toBeUndefined();
   await h.runner.emit({ type: "session_start" });
   expect(await readFile(join(root, ".git/hooks/pre-commit"), "utf8")).toBe(
     hook,
   );
+  expect(await readFile(join(root, ".git/hooks/pre-push"), "utf8")).toBe(push);
   expect((await h.tool.execute("scope", {})).details.structure.root).toBe(
     nested,
   );

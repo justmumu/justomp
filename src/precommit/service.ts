@@ -1,11 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join } from "node:path";
 import {
   changes,
   type Fingerprints,
   fingerprint,
 } from "../dependencies/changes";
-import { readManifest } from "../inspect/readers/manifest";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { packagingInvocation } from "../packaging/invocation";
 import { git, gitContext, gitlinks, gitText, stagedRecords } from "./git";
@@ -14,7 +13,7 @@ import { type GateOperations, nativeOperations } from "./operations";
 import { emptyResult, runGate } from "./pipeline";
 import { configConsumers, selectProjects, sharedInputs } from "./selection";
 import { EffectLedger } from "./staging";
-import { workspaceIncludesGitlink } from "./workspace";
+import { assertWorkspaceBoundary } from "./workspace";
 
 export async function runPrecommit(
   cwd: string,
@@ -103,28 +102,7 @@ export async function runPrecommit(
           await ledger.observe(paths);
         };
         if (selected.length) {
-          // Inspection rules cannot override native workspace membership.
-          for (const workspace of excluded.length ? structure.workspaces : []) {
-            const declaration = readManifest(
-              workspace.declaration,
-              await readFile(join(context.root, workspace.declaration), "utf8"),
-            ).workspace;
-            if (!declaration) continue;
-            for (const path of excluded) {
-              const member = relative(
-                resolve(context.root, declaration.path),
-                resolve(context.root, path),
-              );
-              if (
-                member &&
-                !member.startsWith("..") &&
-                workspaceIncludesGitlink(declaration, member)
-              )
-                throw new Error(
-                  `Workspace ${workspace.declaration} includes submodule ${path}; native setup cannot exclude it safely`,
-                );
-            }
-          }
+          await assertWorkspaceBoundary(context.root, structure, excluded);
           const preparation = await operations.prepare(context.root, signal);
           result.stages.push(preparation);
           result.changed_files = preparation.effects;

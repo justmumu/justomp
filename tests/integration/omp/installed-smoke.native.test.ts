@@ -73,6 +73,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/lint.md",
       "docs/format.md",
       "docs/precommit.md",
+      "docs/prepush.md",
       "docs/lint-defaults.json",
       "docs/typecheck.md",
       "docs/typecheck-defaults.json",
@@ -126,19 +127,20 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         "dependency_sync",
       ])
         expect(host.runner.getRegisteredTool(name)).toBeDefined();
-      const precommit = Bun.spawn(
-        [
-          process.execPath,
-          "--no-install",
-          join(installation, "node_modules/justomp/src/precommit/cli.ts"),
-        ],
-        { cwd: project, stdout: "pipe", stderr: "pipe" },
-      );
-      const precommitOutput = await new Response(precommit.stdout).text();
-      expect(await precommit.exited).toBe(2);
-      expect(JSON.parse(precommitOutput).errors).toContain(
-        "Pre-commit requires a Git working tree",
-      );
+      for (const [tool, label] of [
+        ["precommit", "Pre-commit"],
+        ["prepush", "Pre-push"],
+      ]) {
+        const child = Bun.spawn(
+          [join(installation, "node_modules/.bin", `justomp-${tool}`)],
+          { cwd: project, stdout: "pipe", stderr: "pipe" },
+        );
+        const output = await new Response(child.stdout).text();
+        expect(await child.exited).toBe(2);
+        expect(JSON.parse(output).errors).toContain(
+          `${label} requires a Git working tree`,
+        );
+      }
       for (const tool of ["lint", "typecheck"]) {
         const child = Bun.spawn(
           [

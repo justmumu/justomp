@@ -94,3 +94,7 @@ This is input validation, not a new commit-msg hook: existing repository hooks
 may change the message. The result reports the actual committed message and hash.
 On cancellation, inspect `committed` and `commit_hash` before retrying. A null
 `committed` value means the result could not identify whether this call committed.
+
+## Pre-push
+
+The [repository pre-push hook](prepush.md) checks the current working tree without lint fixes, formatting or staging. It runs lock consistency, format checks, lint, typecheck and unit tests with coverage for all discovered projects. Git and its hook retain the sandbox of their caller; no trusted push tool is added.

@@ -1,4 +1,5 @@
-import { z } from "@oh-my-pi/pi-coding-agent";
+// Import the schema API without OMP's process-wide CLI signal handlers.
+import { z } from "@oh-my-pi/omptype/zod";
 
 const text = z
   .string()

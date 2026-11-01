@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { runProcess } from "../../../src/dependencies/runner";
-import { formatGo } from "../../../src/format/engines/go";
+import { checkGoFormat, formatGo } from "../../../src/format/engines/go";
 import { assertFormatProcess } from "../../../src/format/engines/process";
 import { goLintAdapter } from "../../../src/lint/adapters/go";
 import { withGoEnvironment } from "../../../src/lint/go/environment";
@@ -53,12 +53,19 @@ test("native Go setup is isolated and clean/format-only checks preserve project 
   ).toBe(true);
   expect(await f.bytes()).toEqual(unformatted);
   const context = await f.checkContext();
+  const diff = await checkGoFormat(context, ["main.go"]);
+  expect(diff.exit_code, diff.stderr).toBe(1);
+  expect(diff.stdout).toContain("main.go");
+  expect(await f.bytes()).toEqual(unformatted);
   const untouched = "package main\nfunc untouched(){}\n";
   await writeFile(join(f.root, "other.go"), untouched);
   assertFormatProcess(await formatGo(context, ["main.go"]), "golangci-lint");
   expect(await readFile(join(f.root, "other.go"), "utf8")).toBe(untouched);
   await unlink(join(f.root, "other.go"));
   expect((await goLintAdapter.check(context))[1]?.status).toBe("passed");
+  const clean = await checkGoFormat(context, ["main.go"]);
+  expect(clean.exit_code, clean.stderr).toBe(0);
+  expect(clean.stdout).toBe("");
   const formatted = await f.bytes();
   assertFormatProcess(await formatGo(context, ["main.go"]), "golangci-lint");
   expect(await f.bytes()).toEqual(formatted);

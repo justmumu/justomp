@@ -1,6 +1,11 @@
-import { posix } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, posix, relative, resolve } from "node:path";
 import picomatch from "picomatch";
-import type { WorkspaceDeclaration } from "../inspect/model";
+import type {
+  PackagingStructure,
+  WorkspaceDeclaration,
+} from "../inspect/model";
+import { readManifest } from "../inspect/readers/manifest";
 
 /** A workspace member may equal a gitlink or live inside it. A gitlink inside
  * an ordinary member is not itself a member of that workspace. */
@@ -43,4 +48,34 @@ export function workspaceIncludesGitlink(
     };
     return match(0, 0);
   });
+}
+
+/** Native workspace membership must not pull excluded submodules into setup. */
+export async function assertWorkspaceBoundary(
+  root: string,
+  structure: PackagingStructure,
+  excluded: string[],
+): Promise<void> {
+  // Inspection rules cannot override native workspace membership.
+  for (const workspace of excluded.length ? structure.workspaces : []) {
+    const declaration = readManifest(
+      workspace.declaration,
+      await readFile(join(root, workspace.declaration), "utf8"),
+    ).workspace;
+    if (!declaration) continue;
+    for (const path of excluded) {
+      const member = relative(
+        resolve(root, declaration.path),
+        resolve(root, path),
+      );
+      if (
+        member &&
+        !member.startsWith("..") &&
+        workspaceIncludesGitlink(declaration, member)
+      )
+        throw new Error(
+          `Workspace ${workspace.declaration} includes submodule ${path}; native setup cannot exclude it safely`,
+        );
+    }
+  }
 }
