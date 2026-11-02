@@ -16,16 +16,25 @@ export async function importAllSources(
         if (file === undefined) {
           return;
         }
-        try {
-          await load(pathToFileURL(resolve(cwd, file)).href);
-        } catch (error) {
-          failures.push({
-            file,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
+        await importSource(cwd, file, load, failures);
       }
     }),
   );
   return failures.sort((a, b) => a.file.localeCompare(b.file));
+}
+
+async function importSource(
+  cwd: string,
+  file: string,
+  load: (url: string) => Promise<unknown>,
+  failures: { file: string; message: string }[],
+): Promise<void> {
+  try {
+    await load(pathToFileURL(resolve(cwd, file)).href);
+  } catch (error) {
+    failures.push({
+      file,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }

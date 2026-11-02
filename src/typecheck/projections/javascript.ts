@@ -41,38 +41,7 @@ export async function planJavascriptProjection(
     if (before.text !== null && !hasProjectionMarker(before.text, marker)) {
       throw new TypecheckError("projection-conflict", `Config filename is not owned by justomp: ${path}`);
     }
-    const shared = policy.javascript.compilerOptions;
-    const config = {
-      ...(context.node ? { extends: context.node.path } : {}),
-      compilerOptions: {
-        ...(!context.node
-          ? {
-              target: "ESNext",
-              module: "NodeNext",
-              moduleResolution: "NodeNext",
-              jsx: "preserve",
-            }
-          : {}),
-        ...Object.fromEntries(STRICT_OPTIONS.map((key) => [key, shared.strict])),
-        ...shared,
-        // Production rootDir constrains emit, not the expanded source/test check.
-        rootDir: target.root,
-        noEmit: true,
-        noCheck: false,
-        emitDeclarationOnly: false,
-        incremental: false,
-        composite: false,
-      },
-      files: context.files.map((file) => `./${relative(target.scope.cwd, file).replaceAll("\\", "/")}`),
-      include: [],
-      exclude: [],
-      references:
-        context.node?.references.map((path) => ({
-          path: declarations[relative(target.root, path)]
-            ? resolve(target.root, declarations[relative(target.root, path)] as string)
-            : path,
-        })) ?? [],
-    };
+    const config = projectionConfig(target, policy, context, declarations);
     const content = `${marker}// Native config graph: ${fingerprint}\n${JSON.stringify(config, null, 2)}\n`;
     const graphCurrent = before.text?.split(/\r?\n/).includes(`// Native config graph: ${fingerprint}`) ?? false;
     const changed = !graphCurrent || !(await equivalentConfig(before.text, content, "jsonc"));
@@ -89,4 +58,45 @@ export async function planJavascriptProjection(
     configs: { check: files.map((file) => file.path) },
     current: files.every((file) => !file.changed),
   };
+}
+
+function projectionConfig(
+  target: TypecheckTarget,
+  policy: TypecheckPolicy,
+  context: ReturnType<typeof javascriptCheckContexts>[number],
+  declarations: Record<string, string>,
+) {
+  const shared = policy.javascript.compilerOptions;
+  const config = {
+    ...(context.node ? { extends: context.node.path } : {}),
+    compilerOptions: {
+      ...(!context.node
+        ? {
+            target: "ESNext",
+            module: "NodeNext",
+            moduleResolution: "NodeNext",
+            jsx: "preserve",
+          }
+        : {}),
+      ...Object.fromEntries(STRICT_OPTIONS.map((key) => [key, shared.strict])),
+      ...shared,
+      // Production rootDir constrains emit, not the expanded source/test check.
+      rootDir: target.root,
+      noEmit: true,
+      noCheck: false,
+      emitDeclarationOnly: false,
+      incremental: false,
+      composite: false,
+    },
+    files: context.files.map((file) => `./${relative(target.scope.cwd, file).replaceAll("\\", "/")}`),
+    include: [],
+    exclude: [],
+    references:
+      context.node?.references.map((path) => ({
+        path: declarations[relative(target.root, path)]
+          ? resolve(target.root, declarations[relative(target.root, path)] as string)
+          : path,
+      })) ?? [],
+  };
+  return config;
 }

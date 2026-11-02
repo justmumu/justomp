@@ -13,82 +13,113 @@ function literal(value: string): string {
  * Only exclusion syntax is interpreted here; no config discovery or ignore walker.
  * https://docs.rs/globset/latest/globset/#syntax
  */
-function glob(pattern: string): RegExp {
-  const bytes = Buffer.from(pattern).toString("latin1");
-  let source = "";
-  let alternate = false;
-  for (let i = 0; i < bytes.length; i++) {
-    const char = bytes[i];
-    if (char === "\\") {
-      const next = bytes[++i];
-      if (next === undefined) {
-        unsupported(`trailing escape in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      source += literal(next);
-    } else if (char === "*") {
-      if (bytes[i + 1] === "*") {
-        const before = bytes[i - 1];
-        const after = bytes[i + 2];
-        if ((before !== undefined && before !== "/") || (after !== undefined && after !== "/")) {
-          unsupported(`non-segment ** in Ruff exclusion ${JSON.stringify(pattern)}`);
-        }
-        i++;
-        if (after === "/") {
-          source += "(?:[\\s\\S]*/)?";
-          i++;
-          continue;
-        }
-      }
-      source += "[\\s\\S]*";
-    } else if (char === "?") {
-      source += "[\\s\\S]";
-    } else if (char === "[") {
-      const start = i + 1;
-      let end = start;
-      if (bytes[end] === "!" || bytes[end] === "^") {
-        end++;
-      }
-      if (bytes[end] === "]") {
-        end++;
-      }
-      while (end < bytes.length && bytes[end] !== "]") {
-        end++;
-      }
-      if (end === bytes.length) {
-        unsupported(`unclosed class in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      let body = bytes.slice(start, end);
-      const negate = body.startsWith("!") || body.startsWith("^");
-      if (negate) {
-        body = body.slice(1);
-      }
-      if (body.includes("\\") || (body.includes("[") && body !== "[")) {
-        unsupported(`unsupported class in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      source += `[${negate ? "^" : ""}${body.replace(/[[\]^]/g, "\\$&")}]`;
-      i = end;
-    } else if (char === "{") {
-      if (alternate) {
-        unsupported(`nested alternatives in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      alternate = true;
-      source += "(?:";
-    } else if (char === "}") {
-      if (!alternate || bytes[i - 1] === "," || bytes[i - 1] === "{") {
-        unsupported(`invalid alternatives in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      alternate = false;
-      source += ")";
-    } else if (char === "," && alternate) {
-      if (bytes[i - 1] === "{" || bytes[i - 1] === ",") {
-        unsupported(`empty alternative in Ruff exclusion ${JSON.stringify(pattern)}`);
-      }
-      source += "|";
-    } else {
-      source += literal(char ?? "");
-    }
+interface GlobCursor {
+  bytes: string;
+  pattern: string;
+  index: number;
+  alternate: boolean;
+}
+function globStar(cursor: GlobCursor): string {
+  const { bytes, index, pattern } = cursor;
+  if (bytes[index + 1] !== "*") {
+    return "[\\s\\S]*";
   }
-  if (alternate) {
+  const before = bytes[index - 1];
+  const after = bytes[index + 2];
+  if ((before !== undefined && before !== "/") || (after !== undefined && after !== "/")) {
+    unsupported(`non-segment ** in Ruff exclusion ${JSON.stringify(pattern)}`);
+  }
+  cursor.index++;
+  if (after === "/") {
+    cursor.index++;
+    return "(?:[\\s\\S]*/)?";
+  }
+  return "[\\s\\S]*";
+}
+function classSource(body: string, pattern: string): string {
+  const negate = body.startsWith("!") || body.startsWith("^");
+  if (negate) {
+    body = body.slice(1);
+  }
+  if (body.includes("\\") || (body.includes("[") && body !== "[")) {
+    unsupported(`unsupported class in Ruff exclusion ${JSON.stringify(pattern)}`);
+  }
+  return `[${negate ? "^" : ""}${body.replace(/[[\]^]/g, "\\$&")}]`;
+}
+function globClass(cursor: GlobCursor): string {
+  const { bytes, pattern } = cursor;
+  const start = cursor.index + 1;
+  let end = start;
+  if (bytes[end] === "!" || bytes[end] === "^") {
+    end++;
+  }
+  if (bytes[end] === "]") {
+    end++;
+  }
+  while (end < bytes.length && bytes[end] !== "]") {
+    end++;
+  }
+  if (end === bytes.length) {
+    unsupported(`unclosed class in Ruff exclusion ${JSON.stringify(pattern)}`);
+  }
+  cursor.index = end;
+  return classSource(bytes.slice(start, end), pattern);
+}
+function globAlternative(cursor: GlobCursor, char: "{" | "}" | ","): string {
+  const { bytes, index, pattern, alternate } = cursor;
+  if (char === "{") {
+    if (alternate) {
+      unsupported(`nested alternatives in Ruff exclusion ${JSON.stringify(pattern)}`);
+    }
+    cursor.alternate = true;
+    return "(?:";
+  }
+  if (char === "}") {
+    if (!alternate || bytes[index - 1] === "," || bytes[index - 1] === "{") {
+      unsupported(`invalid alternatives in Ruff exclusion ${JSON.stringify(pattern)}`);
+    }
+    cursor.alternate = false;
+    return ")";
+  }
+  if (!alternate) {
+    return literal(char);
+  }
+  if (bytes[index - 1] === "{" || bytes[index - 1] === ",") {
+    unsupported(`empty alternative in Ruff exclusion ${JSON.stringify(pattern)}`);
+  }
+  return "|";
+}
+function globToken(cursor: GlobCursor): string {
+  const char = cursor.bytes[cursor.index];
+  switch (char) {
+    case "\\": {
+      const next = cursor.bytes[++cursor.index];
+      if (next === undefined) {
+        unsupported(`trailing escape in Ruff exclusion ${JSON.stringify(cursor.pattern)}`);
+      }
+      return literal(next);
+    }
+    case "*":
+      return globStar(cursor);
+    case "?":
+      return "[\\s\\S]";
+    case "[":
+      return globClass(cursor);
+    case "{":
+    case "}":
+    case ",":
+      return globAlternative(cursor, char);
+    default:
+      return literal(char ?? "");
+  }
+}
+function glob(pattern: string): RegExp {
+  const cursor: GlobCursor = { bytes: Buffer.from(pattern).toString("latin1"), pattern, index: 0, alternate: false };
+  let source = "";
+  for (; cursor.index < cursor.bytes.length; cursor.index++) {
+    source += globToken(cursor);
+  }
+  if (cursor.alternate) {
     unsupported(`unclosed alternatives in Ruff exclusion ${JSON.stringify(pattern)}`);
   }
   try {
@@ -114,6 +145,21 @@ function patterns(value: unknown, field: string, cwd: string): (path: string) =>
   };
 }
 
+function ancestorsIncluded(
+  absolute: string,
+  cwd: string,
+  excluded: (path: string) => boolean,
+  extended: (path: string) => boolean,
+): boolean {
+  for (let current = absolute; ; current = dirname(current)) {
+    if (excluded(current) || extended(current)) {
+      return false;
+    }
+    if (current === cwd || dirname(current) === current) {
+      return true;
+    }
+  }
+}
 /** Match the exact filename invocation used by formatPython, including force-exclude.
  * Ruff's top-level exclusions check ancestors; format.exclude checks the file only.
  * Explicit files bypass include and gitignore discovery, so neither is reproduced.
@@ -149,14 +195,7 @@ export function filterPythonFormatScope(
       if (formatted(absolute)) {
         return false;
       }
-      for (let current = absolute; ; current = dirname(current)) {
-        if (excluded(current) || extended(current)) {
-          return false;
-        }
-        if (current === cwd || dirname(current) === current) {
-          return true;
-        }
-      }
+      return ancestorsIncluded(absolute, cwd, excluded, extended);
     }),
   };
 }

@@ -37,10 +37,10 @@ interface State {
   key: string;
   rules: InspectionRules;
   watcher: StructureWatcher;
-  snapshot?: PackagingStructure;
+  snapshot?: PackagingStructure | undefined;
   published?: PackagingStructure;
   revision: number;
-  job?: Job;
+  job?: Job | undefined;
   closed: boolean;
   projectKey?: string;
 }
@@ -145,48 +145,10 @@ async function refreshState(
       await state.watcher.start(signal);
     }
     for (;;) {
-      signal.throwIfAborted();
-      if (state.closed) {
-        throw new StructureError("closed", "Packaging inspection closed");
+      const result = await refreshAttempt(state, signal);
+      if (result) {
+        return result;
       }
-      const revision = state.watcher.revision;
-      const structure = await inspectProject({
-        root: state.root,
-        rules: state.rules,
-        signal,
-      });
-      if (!structure.complete) {
-        throw new StructureError("incomplete", "Project inspection is incomplete", structure);
-      }
-      if (revision !== state.watcher.revision) {
-        continue;
-      }
-      const latest = await loadConfig(state.root, { signal });
-      if (latest.key !== state.key) {
-        throw new StructureError("config-changed", "Inspection rules changed during refresh; call again");
-      }
-      signal.throwIfAborted();
-      const published = state.job?.publish !== false;
-      const publishMs = published ? await publishSnapshot(structure, signal) : 0;
-      signal.throwIfAborted();
-      if (state.closed) {
-        throw new StructureError("closed", "Packaging inspection closed");
-      }
-      if (revision !== state.watcher.revision) {
-        continue;
-      }
-      const projectKey = JSON.stringify(structure.projects.map((p) => p.project_id).sort());
-      const changed = state.projectKey !== undefined && state.projectKey !== projectKey;
-      state.projectKey = projectKey;
-      state.snapshot = freeze(structure);
-      if (published) {
-        state.published = state.snapshot;
-      }
-      state.revision = revision;
-      if (changed) {
-        notify(state.root);
-      }
-      return { structure: state.snapshot, publishMs };
     }
   } catch (error) {
     if (signal.aborted) {
@@ -296,70 +258,22 @@ export async function getPackagingStructure(
     const canonical = await realpath(root);
     const invocation = packagingInvocation.getStore();
     if (invocation?.root === canonical) {
-      const config = await loadConfig(canonical, { signal });
-      const structure = await inspectProject({
-        root: canonical,
-        rules: config.rules,
-        signal,
-        excludedRoots: invocation.excluded,
-      });
-      if (!structure.complete) {
-        throw new StructureError("incomplete", "Repository inspection incomplete", structure);
-      }
-      return {
-        structure,
-        cacheHit: false,
-        refreshed: true,
-        waitMs: performance.now() - started,
-        publishMs: 0,
-        watcher: {
-          ready: false,
-          healthy: false,
-          revision: 0,
-          reason: "repository-invocation",
-          watchedPaths: [],
-        },
-      };
+      return await inspectInvocation(canonical, invocation.excluded, signal, started);
     }
     aliases.set(resolve(root), canonical);
     const config = await loadConfig(canonical, { signal });
     signal.throwIfAborted();
-    let state = states.get(canonical);
-    if (
-      !state ||
-      state.key !== config.key ||
-      state.closed ||
-      (state.watcher.ready && !state.watcher.healthy && !state.watcher.reason)
-    ) {
-      const previous = state;
-      state = {
-        root: canonical,
-        key: config.key,
-        rules: config.rules,
-        watcher: new StructureWatcher(canonical, config.rules),
-        revision: -1,
-        closed: false,
-      };
-      state.watcher.subscribe(() => notify(canonical));
-      states.set(canonical, state);
-      if (previous) {
-        await stop(previous);
-      }
+    const { state, previous } = currentState(canonical, config);
+    if (previous) {
+      await stop(previous);
     }
     signal.throwIfAborted();
-    const cacheHit =
-      !options.refresh &&
-      state.watcher.healthy &&
-      state.snapshot !== undefined &&
-      (options.publish === false || state.published === state.snapshot) &&
-      state.revision === state.watcher.revision;
+    const cacheHit = isCacheHit(state, options);
     const result = cacheHit
       ? { structure: state.snapshot as PackagingStructure, publishMs: 0 }
       : await joinJob(state, signal, options.publish !== false);
     signal.throwIfAborted();
-    if (state.closed) {
-      throw new StructureError("closed", "Packaging scope changed during request");
-    }
+    assertScopeOpen(state);
     if (state.watcher.healthy && state.revision !== state.watcher.revision) {
       return await getPackagingStructure(root, {
         ...options,
@@ -387,4 +301,135 @@ export async function getPackagingStructure(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function recordSnapshot(
+  state: State,
+  structure: PackagingStructure,
+  revision: number,
+  published: boolean,
+  publishMs: number,
+): { structure: PackagingStructure; publishMs: number } {
+  const projectKey = JSON.stringify(structure.projects.map((p) => p.project_id).sort());
+  const changed = state.projectKey !== undefined && state.projectKey !== projectKey;
+  state.projectKey = projectKey;
+  state.snapshot = freeze(structure);
+  if (published) {
+    state.published = state.snapshot;
+  }
+  state.revision = revision;
+  if (changed) {
+    notify(state.root);
+  }
+  return { structure: state.snapshot, publishMs };
+}
+
+async function refreshAttempt(
+  state: State,
+  signal: AbortSignal,
+): Promise<{ structure: PackagingStructure; publishMs: number } | undefined> {
+  signal.throwIfAborted();
+  if (state.closed) {
+    throw new StructureError("closed", "Packaging inspection closed");
+  }
+  const revision = state.watcher.revision;
+  const structure = await inspectProject({
+    root: state.root,
+    rules: state.rules,
+    signal,
+  });
+  if (!structure.complete) {
+    throw new StructureError("incomplete", "Project inspection is incomplete", structure);
+  }
+  if (revision !== state.watcher.revision) {
+    return;
+  }
+  const latest = await loadConfig(state.root, { signal });
+  if (latest.key !== state.key) {
+    throw new StructureError("config-changed", "Inspection rules changed during refresh; call again");
+  }
+  signal.throwIfAborted();
+  const published = state.job?.publish !== false;
+  const publishMs = published ? await publishSnapshot(structure, signal) : 0;
+  signal.throwIfAborted();
+  if (state.closed) {
+    throw new StructureError("closed", "Packaging inspection closed");
+  }
+  if (revision !== state.watcher.revision) {
+    return;
+  }
+  return recordSnapshot(state, structure, revision, published, publishMs);
+}
+
+async function inspectInvocation(
+  canonical: string,
+  excluded: readonly string[],
+  signal: AbortSignal,
+  started: number,
+): Promise<PackagingResult> {
+  const config = await loadConfig(canonical, { signal });
+  const structure = await inspectProject({
+    root: canonical,
+    rules: config.rules,
+    signal,
+    excludedRoots: excluded,
+  });
+  if (!structure.complete) {
+    throw new StructureError("incomplete", "Repository inspection incomplete", structure);
+  }
+  return {
+    structure,
+    cacheHit: false,
+    refreshed: true,
+    waitMs: performance.now() - started,
+    publishMs: 0,
+    watcher: {
+      ready: false,
+      healthy: false,
+      revision: 0,
+      reason: "repository-invocation",
+      watchedPaths: [],
+    },
+  };
+}
+
+function currentState(
+  canonical: string,
+  config: { key: string; rules: InspectionRules },
+): { state: State; previous: State | undefined } {
+  const previous = states.get(canonical);
+  if (
+    previous &&
+    previous.key === config.key &&
+    !previous.closed &&
+    !(previous.watcher.ready && !previous.watcher.healthy && !previous.watcher.reason)
+  ) {
+    return { state: previous, previous: undefined };
+  }
+  const state: State = {
+    root: canonical,
+    key: config.key,
+    rules: config.rules,
+    watcher: new StructureWatcher(canonical, config.rules),
+    revision: -1,
+    closed: false,
+  };
+  state.watcher.subscribe(() => notify(canonical));
+  states.set(canonical, state);
+  return { state, previous };
+}
+function assertScopeOpen(state: State): void {
+  if (state.closed) {
+    throw new StructureError("closed", "Packaging scope changed during request");
+  }
+}
+
+function isCacheHit(state: State, options: { refresh?: boolean; publish?: boolean }): boolean {
+  return (
+    !options.refresh &&
+    state.watcher.healthy &&
+    state.snapshot !== undefined &&
+    (options.publish === false || state.published === state.snapshot) &&
+    state.revision === state.watcher.revision
+  );
 }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { type Adapter } from "../../../src/dependencies/model";
 import { executeDependency } from "../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { fixture, roots } from "./outcomes-fixture";
 
 afterEach(async () => {
@@ -34,8 +35,10 @@ test("cancelled native list cannot become successful incomplete inventory", asyn
       expect(result.cancelled).toBe(true);
       return { dependencies: [], complete: false, diagnostics: [] };
     },
-    plan: async () => {
-      throw new Error("list only");
+    plan: () => {
+      return suppliedResponse(() => {
+        throw new Error("list only");
+      });
     },
   };
   const operation = executeDependency(

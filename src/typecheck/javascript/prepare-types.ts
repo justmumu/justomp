@@ -34,6 +34,7 @@ import { JavascriptConfigRead } from "./read-session";
 interface DeclarationStep {
   target: TypecheckTarget;
   node: JavascriptConfigNode;
+  entries: string[];
   outputs: string[];
   args: string[];
   projection: string;
@@ -157,9 +158,17 @@ async function effectiveDeclarationStep(
       exclude,
     ).map((file) => resolve(target.scope.cwd, file)),
   };
+  const entries = resolved.files;
+  if (exclude.length) {
+    const owned = new Set((await collectTypecheckScope(target)).files.map((file) => resolve(target.scope.cwd, file)));
+    resolved.files = (await read.programFiles(target, args, entries, node.references)).filter((file) =>
+      owned.has(file),
+    );
+  }
   return {
     target,
     node: resolved,
+    entries,
     args,
     outputs: await declarationOutputs(target, resolved),
     projection: join(dirname(node.path), `tsconfig.justomp.declarations.${contentHash(node.path).slice(0, 12)}.json`),
@@ -171,32 +180,14 @@ async function declarationOutputs(target: TypecheckTarget, node: JavascriptConfi
     unsupported(`Declaration bundles are not supported: ${node.path}`);
   }
   const inputs = node.files.filter((path) => !/\.d\.[cm]?ts$/.test(path) && /\.(?:[cm]?[jt]s|[jt]sx)$/.test(path));
-  const root =
-    typeof options.rootDir === "string"
-      ? resolve(dirname(node.path), options.rootDir)
-      : options.composite
-        ? dirname(node.path)
-        : commonDirectory(inputs);
-  const output =
-    typeof options.declarationDir === "string"
-      ? resolve(dirname(node.path), options.declarationDir)
-      : typeof options.outDir === "string"
-        ? resolve(dirname(node.path), options.outDir)
-        : undefined;
+  const { root, output } = declarationDirectories(node, inputs);
   const outputs: string[] = [];
   for (const input of inputs) {
     if (!within(root, input)) {
       unsupported(`Native rootDir does not contain declaration input: ${input}`);
     }
     const destination = output ? resolve(output, relative(root, input)) : input;
-    const extension = extname(destination);
-    const path =
-      destination.slice(0, -extension.length) +
-      (extension === ".mts" || extension === ".mjs"
-        ? ".d.mts"
-        : extension === ".cts" || extension === ".cjs"
-          ? ".d.cts"
-          : ".d.ts");
+    const path = declarationPath(destination);
     await safePath(target.root, path);
     outputs.push(path);
     if (options.declarationMap) {
@@ -216,7 +207,9 @@ export async function resolveJavascriptTypes(
   const policy = (await loadConfig(target.root, { signal, flush: false })).typecheck.javascript;
   const shared = policy.compilerOptions;
   const useSavedNext = next === undefined;
-  next ??= { ...store.state.generated?.[target.project.project_id]?.next };
+  const resolvedNext = next ?? {
+    ...store.state.generated?.[target.project.project_id]?.next,
+  };
   const targets = new Map<string, TypecheckTarget>([[target.project.project_id, target]]);
   const steps = new Map<string, DeclarationStep>();
   const visiting = new Set<string>(),
@@ -230,6 +223,57 @@ export async function resolveJavascriptTypes(
     }
     return member;
   };
+  async function visitDependencies(localIds: Set<string>): Promise<void> {
+    for (const id of [...localIds].sort()) {
+      const dependency = await getTarget(id);
+      await visitProject(dependency, await dependencyNeedsEmit(dependency, policy.exclude));
+    }
+  }
+  function retainNext(member: TypecheckTarget): void {
+    const ownNext = store.state.generated?.[member.project.project_id]?.next[member.project.project_id];
+    if (useSavedNext && ownNext) {
+      resolvedNext[member.project.project_id] = ownNext;
+    }
+  }
+  function discoverNext(member: TypecheckTarget, data: Record<string, unknown>): void {
+    if (
+      [data.dependencies, data.devDependencies, data.peerDependencies].some(
+        (section) => object(section).next !== undefined,
+      )
+    ) {
+      nextTargets.set(member.project.project_id, member);
+    }
+  }
+  async function visitGraph(
+    member: TypecheckTarget,
+    graph: Awaited<ReturnType<typeof readJavascriptConfigGraph>>,
+    emit: boolean,
+  ): Promise<void> {
+    const nodeMap = new Map(graph.nodes.map((node) => [node.path, node]));
+    const visitedNodes = new Set<string>();
+    const visitNode = async (node: JavascriptConfigNode, required: boolean): Promise<void> => {
+      if (visitedNodes.has(node.path)) {
+        return;
+      }
+      visitedNodes.add(node.path);
+      await visitReferences(node, required, {
+        member,
+        nodeMap,
+        getTarget,
+        visitNode,
+        visitProject,
+      });
+      if (required && node.project_id === member.project.project_id) {
+        await recordDeclaration(member, node, shared, read, policy.exclude, steps);
+      }
+    };
+    for (const root of graph.roots) {
+      const node = nodeMap.get(root);
+      if (node) {
+        await visitNode(node, emit);
+      }
+    }
+  }
   const visitProject = async (member: TypecheckTarget, emit: boolean, entry?: string): Promise<void> => {
     if (emit && entry && steps.has(entry)) {
       return;
@@ -242,144 +286,22 @@ export async function resolveJavascriptTypes(
       return;
     }
     visiting.add(key);
-    const ownNext = store.state.generated?.[member.project.project_id]?.next[member.project.project_id];
-    if (useSavedNext && ownNext) {
-      next[member.project.project_id] = ownNext;
-    }
+    retainNext(member);
     const data = await manifest(member);
-    if (
-      [data.dependencies, data.devDependencies, data.peerDependencies].some(
-        (section) => object(section).next !== undefined,
-      )
-    ) {
-      nextTargets.set(member.project.project_id, member);
-    }
-    const native = await read.native(member);
-    const dependencies = {
-      ...object(data.dependencies),
-      ...object(data.devDependencies),
-      ...object(data.optionalDependencies),
-      ...object(data.peerDependencies),
-    };
-    const localIds = new Set(
-      (member.structure.localDependencies ?? [])
-        .filter((edge) => edge.from === member.project.project_id)
-        .map((edge) => edge.to),
-    );
-    const candidates = member.structure.projects.filter(
-      (project) => project.ecosystem === "javascript" && project.name && dependencies[project.name] !== undefined,
-    );
-    for (const name of new Set(candidates.map((project) => project.name as string))) {
-      const matches = candidates.filter((project) => project.name === name);
-      if (matches.length > 1) {
-        unsupported(`Ambiguous local package '${name}'`);
-      }
-      const result = await nodeRun(
-        member,
-        native,
-        [
-          "-e",
-          `const fs=require('node:fs'),path=require('node:path'),req=require('node:module').createRequire(path.join(process.cwd(),'package.json'));try {let file;try{file=req.resolve(process.argv[1]+'/package.json')}catch{let dir=path.dirname(req.resolve(process.argv[1]));while(!fs.existsSync(path.join(dir,'package.json'))){const parent=path.dirname(dir);if(parent===dir)throw Error();dir=parent}file=path.join(dir,'package.json')}console.log(fs.realpathSync(file))}catch{}`,
-          name,
-        ],
-        signal,
-      );
-      assertTypecheckNative(result, `Resolve local dependency ${name}`);
-      const found = result.stdout.trim();
-      for (const candidate of matches) {
-        if (found && found === (await realpath(resolve(target.root, candidate.manifest)))) {
-          localIds.add(candidate.project_id);
-        }
-      }
-    }
-    for (const id of [...localIds].sort()) {
-      const dependency = await getTarget(id);
-      const expected = packageOutputs(await manifest(dependency));
-      if (expected.some((path) => /\.d\.[cm]?ts$/.test(path))) {
-        await visitProject(dependency, true);
-      } else if (expected.some((path) => /\.[cm]?tsx?$/.test(path))) {
-        await visitProject(dependency, false);
-      } else if (!expected.length && (await collectTypecheckScope(dependency, policy.exclude)).empty)
-      // JSON-only configuration packages are inputs, not declaration producers.
-      {
-        await visitProject(dependency, false);
-      } else {
-        unsupported(`Local package ${id} has no supported native declaration entry (types/exports/main)`);
-      }
-    }
-    const nextInput = next?.[member.project.project_id];
+    discoverNext(member, data);
+    const localIds = await localDependencyIds(member, data, read, signal);
+    await visitDependencies(localIds);
+    const nextInput = resolvedNext[member.project.project_id];
     const graph = await readJavascriptConfigGraph(
       member,
       signal,
-      entry ?? (nextInput ? resolve(target.root, nextInput.config) : undefined),
+      graphEntry(entry, nextInput, target.root),
       read,
       policy.exclude,
     );
-    const nodeMap = new Map(graph.nodes.map((node) => [node.path, node]));
-    const visitedNodes = new Set<string>();
-    const visitNode = async (node: JavascriptConfigNode, required: boolean): Promise<void> => {
-      if (visitedNodes.has(node.path)) {
-        return;
-      }
-      visitedNodes.add(node.path);
-      for (const path of node.references) {
-        const dependency = nodeMap.get(path);
-        if (!dependency) {
-          unsupported(`Missing reference metadata: ${path}`);
-        }
-        if (dependency.project_id === member.project.project_id) {
-          // A solution's app/test references select check contexts; a source-bearing
-          // consumer reference also needs the referenced config's native outputs.
-          const needed = required || node.files.length > 0;
-          if (needed && dependency.compilerOptions.composite !== true) {
-            unsupported(`Referenced config must retain native composite:true: ${path}`);
-          }
-          await visitNode(dependency, needed);
-        } else {
-          const origin = await getTarget(dependency.project_id);
-          if (dependency.compilerOptions.composite !== true) {
-            unsupported(`Referenced project must retain native composite:true: ${path}`);
-          }
-          await visitProject(origin, true, path);
-        }
-      }
-      if (required && node.project_id === member.project.project_id) {
-        const step = await effectiveDeclarationStep(member, node, shared, read, policy.exclude);
-        if (step.outputs.length) {
-          steps.set(node.path, step);
-        }
-      }
-    };
-    for (const root of graph.roots) {
-      const node = nodeMap.get(root);
-      if (node) {
-        await visitNode(node, emit);
-      }
-    }
+    await visitGraph(member, graph, emit);
     if (emit) {
-      const expected = packageOutputs(data).filter((path) => /\.d\.[cm]?ts$/.test(path));
-      const outputs = [...steps.values()]
-        .filter((step) => step.target.project.project_id === member.project.project_id)
-        .flatMap((step) => step.outputs);
-      for (const path of expected) {
-        const absolute = await safePath(target.root, resolve(member.scope.cwd, path));
-        // A source declaration package need not carry a native tsconfig.
-        const sourceDeclarations = (
-          graph.nodes.length
-            ? graph.nodes.flatMap((node) => node.files)
-            : graph.scope.files.map((file) => resolve(member.scope.cwd, file))
-        ).filter((file) => /\.d\.[cm]?ts$/.test(file));
-        const matches = (candidate: string) =>
-          path.includes("*")
-            ? new Bun.Glob(path.replace(/^\.\//, "")).match(relative(member.scope.cwd, candidate))
-            : candidate === absolute;
-        if (![...outputs, ...sourceDeclarations].some(matches)) {
-          unsupported(`Native declaration output does not match package types/exports: ${absolute}`);
-        }
-      }
-      if (!outputs.length && expected.some((path) => !/\.d\.[cm]?ts$/.test(path))) {
-        unsupported(`No declaration config for ${member.project.project_id}`);
-      }
+      await validatePackageOutputs(member, data, graph, steps);
     }
     visiting.delete(key);
     visited.add(key);
@@ -402,7 +324,7 @@ export async function resolveJavascriptTypes(
     project_ids: [...targets.keys()].sort(),
     declarations: [...steps.values()],
     next_targets: [...nextTargets.values()],
-    next: Object.fromEntries(Object.entries(next).filter(([id]) => nextTargets.has(id))),
+    next: Object.fromEntries(Object.entries(resolvedNext).filter(([id]) => nextTargets.has(id))),
   };
 }
 function preparation(context: TypecheckCheckContext): TypecheckPreparation {
@@ -473,7 +395,7 @@ async function projectDeclarations(plan: JavascriptTypePlan): Promise<Record<str
             declaration: true,
             emitDeclarationOnly: true,
           },
-          files: step.node.files,
+          files: step.entries,
           include: [],
           exclude: [],
           references: step.node.references.map((path) => ({
@@ -554,7 +476,12 @@ export async function verifyJavascriptTypes(plan: JavascriptTypePlan): Promise<b
 }
 async function loadNextInputs(target: TypecheckTarget, signal: AbortSignal): Promise<NextTypeInputs> {
   const native = await lintManagerContext(target, signal);
-  const installed = await installedPackages(target, native, ["next"], signal);
+  const installed: Partial<Awaited<ReturnType<typeof installedPackages>>> = await installedPackages(
+    target,
+    native,
+    ["next"],
+    signal,
+  );
   if (!installed.next) {
     unsupported(`Next is declared but not installed for ${target.project.project_id}`);
   }
@@ -635,6 +562,7 @@ export async function prepareJavascriptTypes(
     plan.targets,
     generatedPaths(plan),
     plan.exclude,
+    plan.declarations.flatMap((step) => step.node.files),
   );
   let store = await TypecheckStateStore.load(context.target.root);
   const next = { ...plan.next };
@@ -650,35 +578,28 @@ export async function prepareJavascriptTypes(
       next[target.project.project_id] = await loadNextInputs(target, context.signal);
     }
     plan = await resolveJavascriptTypes(context.target, context.signal, next);
-    if (plan.project_ids.some((id) => !leasedProjectIds.includes(id))) {
-      throw new ChangedClosure(plan.project_ids, report);
-    }
+    assertLeasedClosure(plan, leasedProjectIds, report);
     if (
       initialSourceBefore !==
-      (await fingerprintTypecheckAnalysisSources(effectTargets, generatedPaths(plan), plan.exclude))
+      (await fingerprintTypecheckAnalysisSources(
+        effectTargets,
+        generatedPaths(plan),
+        plan.exclude,
+        plan.declarations.flatMap((step) => step.node.files),
+      ))
     ) {
       throw new TypecheckError(
         "source-changed",
         "Source or route inputs changed during native config loading; prepare again",
       );
     }
-    const discoveredTargets = plan.targets.filter(
-      (target) => !effectTargets.some((existing) => existing.project.project_id === target.project.project_id),
+    await snapshotDiscovered(plan, effectTargets, before);
+    const sourceBefore = await fingerprintTypecheckAnalysisSources(
+      plan.targets,
+      generatedPaths(plan),
+      plan.exclude,
+      plan.declarations.flatMap((step) => step.node.files),
     );
-    if (discoveredTargets.length) {
-      const discoveredBefore = await snapshotTypecheckFiles(
-        discoveredTargets,
-        snapshotOutputs(plan),
-        Object.values(plan.next).map((input) => input.dist),
-      );
-      for (const [path, hash] of Object.entries(discoveredBefore)) {
-        if (!(path in before)) {
-          before[path] = hash;
-        }
-      }
-      effectTargets.push(...discoveredTargets);
-    }
-    const sourceBefore = await fingerprintTypecheckAnalysisSources(plan.targets, generatedPaths(plan), plan.exclude);
     store.state.generated ??= {};
     const declarations = await projectDeclarations(plan);
     store.state.generated[context.target.project.project_id] = {
@@ -689,83 +610,22 @@ export async function prepareJavascriptTypes(
       outputs: {},
       next,
     };
-    for (const target of plan.next_targets) {
-      const id = target.project.project_id;
-      const input = next[id];
-      if (!input) {
-        continue;
-      }
-      const own = store.state.generated[id] ?? {
-        ready: false,
-        project_ids: [id],
-        input_hash: "",
-        outputs: {},
-        next: {},
-      };
-      own.ready = false;
-      own.next = { ...own.next, [id]: input };
-      store.state.generated[id] = own;
-    }
+    recordNextInputs(store, plan, next);
     await store.save();
-    for (const target of plan.next_targets) {
-      const result = await localTool(
-        target,
-        await lintManagerContext(target, context.signal),
-        { package: "next", binary: "next" },
-        ["typegen"],
-        context.signal,
-      );
-      assertTypecheckNative(result, "Native next typegen (no build/dev fallback)");
-    }
+    await generateNext(context, plan);
     for (const step of plan.declarations) {
-      context.signal.throwIfAborted();
-      if (!report.affected_projects.includes(step.target.project.project_id)) {
-        report.affected_projects.push(step.target.project.project_id);
-      }
-      const args = [...step.args];
-      args[args.lastIndexOf("--project") + 1] = step.projection;
-      const result = await typescriptRun(step.target, args, context.signal);
-      const emitted: string[] = [];
-      for (const line of result.stdout.split("\n")) {
-        if (line.startsWith("TSFILE: ")) {
-          const path = await safePath(
-            context.target.root,
-            resolve(step.target.scope.cwd, line.slice("TSFILE: ".length).trim()),
-          );
-          emitted.push(path);
-          observedOutputs.add(path);
-        }
-      }
-      const output = result.stdout
-        .split("\n")
-        .filter((line) => !line.startsWith("TSFILE: "))
-        .join("\n");
-      if (
-        !result.cancelled &&
-        !result.truncated &&
-        !result.stderr.trim() &&
-        [0, 1, 2].includes(result.exit_code ?? -1)
-      ) {
-        const diagnostics = typescriptDiagnostics({ ...context, target: step.target }, output);
-        report.diagnostics.push(...diagnostics);
-      }
-      assertTypecheckNative(result, `Prepare declarations for ${step.target.project.project_id}`);
-      const unexpected = emitted.filter((path) => !step.outputs.includes(path));
-      if (unexpected.length) {
-        unsupported(`Native declaration output differed from effective config prediction: ${unexpected.join(", ")}`);
-      }
-      for (const output of step.outputs) {
-        if (!emitted.includes(output) || !(await Bun.file(output).exists())) {
-          unsupported(`Native declaration output is missing from this invocation: ${output}`);
-        }
-      }
+      await generateDeclaration(context, step, report, observedOutputs);
     }
     plan = await resolveJavascriptTypes(context.target, context.signal, next);
-    if (plan.project_ids.some((id) => !leasedProjectIds.includes(id))) {
-      throw new ChangedClosure(plan.project_ids, report);
-    }
+    assertLeasedClosure(plan, leasedProjectIds, report);
     if (
-      sourceBefore !== (await fingerprintTypecheckAnalysisSources(plan.targets, generatedPaths(plan), plan.exclude))
+      sourceBefore !==
+      (await fingerprintTypecheckAnalysisSources(
+        plan.targets,
+        generatedPaths(plan),
+        plan.exclude,
+        plan.declarations.flatMap((step) => step.node.files),
+      ))
     ) {
       throw new TypecheckError(
         "source-changed",
@@ -774,24 +634,7 @@ export async function prepareJavascriptTypes(
     }
     await invalidateTools(context, plan);
     // Next can rewrite native config and dependencies. It never selects the retained compiler target.
-    const current = await TypecheckStateStore.load(context.target.root);
-    for (const target of plan.targets) {
-      const receipt = current.state.projects[target.project.project_id];
-      if (
-        !receipt?.ready ||
-        !(await javascriptAdapter.verifyTools({
-          ...context,
-          target,
-          versions: receipt.tools,
-        }))
-      ) {
-        throw new TypecheckError(
-          "generator-changed-toolchain",
-          "Generated preparation changed the exact compiler environment; prepare the retained target again",
-        );
-      }
-      await applyProjection(await javascriptAdapter.plan(target, context.policy, context.signal), report.changes);
-    }
+    await verifyPreparedCompilers(context, plan, report);
     await verifyReadyTypecheckContext(context, {
       javascript: javascriptAdapter,
     });
@@ -800,14 +643,7 @@ export async function prepareJavascriptTypes(
       generatedPaths(plan),
       Object.values(plan.next).map((input) => input.dist),
     );
-    const outputs: Record<string, string> = {};
-    for (const path of generatedPaths(plan)) {
-      for (const [file, hash] of Object.entries(after)) {
-        if (within(resolve(context.target.root, path), resolve(context.target.root, file))) {
-          outputs[file] = hash;
-        }
-      }
-    }
+    const outputs = generatedOutputHashes(context.target.root, plan, after);
     store = await TypecheckStateStore.load(context.target.root);
     store.state.generated ??= {};
     const receipt: GeneratedTypeReceipt = {
@@ -821,20 +657,7 @@ export async function prepareJavascriptTypes(
     store.state.generated[context.target.project.project_id] = receipt;
     await store.save();
   } catch (error) {
-    if (error instanceof ChangedClosure) {
-      throw error;
-    }
-    report.status = "failed";
-    report.complete = false;
-    report.cancelled = context.signal.aborted;
-    report.errors.push(preparationFailure(error, context.target.project.project_id));
-    // A failed or cancelled native generator can still have changed the compiler.
-    // Native processes have settled; verify their retained effects before returning.
-    try {
-      await invalidateTools({ ...context, signal: new AbortController().signal }, plan);
-    } catch (verificationError) {
-      report.errors.push(preparationFailure(verificationError, context.target.project.project_id));
-    }
+    await recordGenerationFailure(context, plan, report, error);
   } finally {
     report.changes.push(
       ...changedTypecheckFiles(
@@ -867,8 +690,10 @@ export async function withJavascriptTypes<T>(
   operation: (context: TypecheckCheckContext) => Promise<T>,
   signal = new AbortController().signal,
 ): Promise<JavascriptTypesResult<T>> {
-  let retained: TypecheckPreparation | undefined;
-  let value: T | undefined;
+  const state: JavascriptInvocation<T> = {
+    retained: undefined,
+    value: undefined,
+  };
   let extra: string[] = [];
   for (;;) {
     try {
@@ -885,79 +710,494 @@ export async function withJavascriptTypes<T>(
         projectId,
         adapters,
         async (context) => {
-          const current = await resolveJavascriptTypes(context.target, signal);
-          if (current.project_ids.some((id) => !ids.includes(id))) {
-            throw new ChangedClosure(current.project_ids);
-          }
-          if (mode === "prepare") {
-            const result = await prepareJavascriptTypes(context, current, ids);
-            if (retained) {
-              result.changes.unshift(...retained.changes);
-            }
-            retained = result;
-            if (!result.complete) {
-              return;
-            }
-          } else {
-            retained = { ...preparation(context), action: "not-attempted" };
-            if (!(await verifyJavascriptTypes(current))) {
-              throw new TypecheckError(
-                "stale-generated-types",
-                "Generated types are missing or stale; run full typecheck preparation",
-              );
-            }
-          }
-          const verified = await verifyReadyTypecheckContext(context, adapters);
-          value = await operation(verified);
-          if (!(await verifyJavascriptTypes(await resolveJavascriptTypes(verified.target, signal)))) {
-            throw new TypecheckError(
-              "stale-generated-types",
-              "Required generated inputs or outputs changed during the check; prepare again",
-            );
-          }
+          await operateTypes(context, ids, adapters, mode, operation, signal, state);
         },
         signal,
         ids,
       );
-      if (!retained) {
-        throw new TypecheckError("not-ready", "Generated preparation did not run");
-      }
-      return {
-        ready: retained.complete,
-        preparation: retained,
-        ...(value === undefined ? {} : { value }),
-      };
+      return invocationResult(state);
     } catch (error) {
       if (error instanceof ChangedClosure) {
         extra = error.ids;
-        if (error.preparation) {
-          if (retained) {
-            error.preparation.changes.unshift(...retained.changes);
-          }
-          retained = error.preparation;
-        }
+        retainClosure(state, error);
         continue;
       }
-      retained ??= {
-        status: "failed",
-        action: "not-attempted",
-        tools: {},
-        affected_projects: [],
-        changes: [],
-        diagnostics: [],
-        complete: false,
-        cancelled: signal.aborted,
-        errors: [],
-      };
-      retained.status = "failed";
-      retained.complete = false;
-      retained.cancelled ||= signal.aborted;
-      retained.errors.push(preparationFailure(error, projectId));
-      return {
-        ready: false,
-        preparation: retained,
-        ...(value === undefined ? {} : { value }),
-      };
+      state.retained = failedGeneratedPreparation(state.retained, error, projectId, signal);
+      return invocationResult(state, false);
     }
+  }
+}
+
+function declarationPath(destination: string): string {
+  const extension = extname(destination);
+  const path =
+    destination.slice(0, -extension.length) +
+    (extension === ".mts" || extension === ".mjs"
+      ? ".d.mts"
+      : extension === ".cts" || extension === ".cjs"
+        ? ".d.cts"
+        : ".d.ts");
+  return path;
+}
+
+async function localDependencyIds(
+  member: TypecheckTarget,
+  data: Record<string, unknown>,
+  read: JavascriptConfigRead,
+  signal: AbortSignal,
+): Promise<Set<string>> {
+  const native = await read.native(member);
+  const dependencies = {
+    ...object(data.dependencies),
+    ...object(data.devDependencies),
+    ...object(data.optionalDependencies),
+    ...object(data.peerDependencies),
+  };
+  const structure: Partial<TypecheckTarget["structure"]> = member.structure;
+  const localIds = new Set(
+    (structure.localDependencies ?? [])
+      .filter((edge) => edge.from === member.project.project_id)
+      .map((edge) => edge.to),
+  );
+  const candidates = member.structure.projects.filter(
+    (project) => project.ecosystem === "javascript" && project.name && dependencies[project.name] !== undefined,
+  );
+  for (const name of new Set(candidates.map((project) => project.name as string))) {
+    const matches = candidates.filter((project) => project.name === name);
+    if (matches.length > 1) {
+      unsupported(`Ambiguous local package '${name}'`);
+    }
+    const result = await nodeRun(
+      member,
+      native,
+      [
+        "-e",
+        `const fs=require('node:fs'),path=require('node:path'),req=require('node:module').createRequire(path.join(process.cwd(),'package.json'));try {let file;try{file=req.resolve(process.argv[1]+'/package.json')}catch{let dir=path.dirname(req.resolve(process.argv[1]));while(!fs.existsSync(path.join(dir,'package.json'))){const parent=path.dirname(dir);if(parent===dir)throw Error();dir=parent}file=path.join(dir,'package.json')}console.log(fs.realpathSync(file))}catch{}`,
+        name,
+      ],
+      signal,
+    );
+    assertTypecheckNative(result, `Resolve local dependency ${name}`);
+    const found = result.stdout.trim();
+    for (const candidate of matches) {
+      if (found && found === (await realpath(resolve(member.root, candidate.manifest)))) {
+        localIds.add(candidate.project_id);
+      }
+    }
+  }
+  return localIds;
+}
+
+async function validatePackageOutputs(
+  member: TypecheckTarget,
+  data: Record<string, unknown>,
+  graph: Awaited<ReturnType<typeof readJavascriptConfigGraph>>,
+  steps: Map<string, DeclarationStep>,
+): Promise<void> {
+  const expected = packageOutputs(data).filter((path) => /\.d\.[cm]?ts$/.test(path));
+  const outputs = [...steps.values()]
+    .filter((step) => step.target.project.project_id === member.project.project_id)
+    .flatMap((step) => step.outputs);
+  for (const path of expected) {
+    const absolute = await safePath(member.root, resolve(member.scope.cwd, path));
+    // A source declaration package need not carry a native tsconfig.
+    const sourceDeclarations = (
+      graph.nodes.length
+        ? graph.nodes.flatMap((node) => node.files)
+        : graph.scope.files.map((file) => resolve(member.scope.cwd, file))
+    ).filter((file) => /\.d\.[cm]?ts$/.test(file));
+    const matches = (candidate: string) =>
+      path.includes("*")
+        ? new Bun.Glob(path.replace(/^\.\//, "")).match(relative(member.scope.cwd, candidate))
+        : candidate === absolute;
+    if (![...outputs, ...sourceDeclarations].some(matches)) {
+      unsupported(`Native declaration output does not match package types/exports: ${absolute}`);
+    }
+  }
+  if (!outputs.length && expected.some((path) => !/\.d\.[cm]?ts$/.test(path))) {
+    unsupported(`No declaration config for ${member.project.project_id}`);
+  }
+}
+
+function recordNextInputs(
+  store: TypecheckStateStore,
+  plan: JavascriptTypePlan,
+  next: Record<string, NextTypeInputs>,
+): void {
+  store.state.generated ??= {};
+  for (const target of plan.next_targets) {
+    const id = target.project.project_id;
+    const input = next[id];
+    if (!input) {
+      continue;
+    }
+    const own = store.state.generated[id] ?? {
+      ready: false,
+      project_ids: [id],
+      input_hash: "",
+      outputs: {},
+      next: {},
+    };
+    own.ready = false;
+    own.next = { ...own.next, [id]: input };
+    store.state.generated[id] = own;
+  }
+}
+
+async function generateDeclaration(
+  context: TypecheckCheckContext,
+  step: DeclarationStep,
+  report: TypecheckPreparation,
+  observedOutputs: Set<string>,
+): Promise<void> {
+  context.signal.throwIfAborted();
+  if (!report.affected_projects.includes(step.target.project.project_id)) {
+    report.affected_projects.push(step.target.project.project_id);
+  }
+  const args = [...step.args];
+  args[args.lastIndexOf("--project") + 1] = step.projection;
+  const result = await typescriptRun(step.target, args, context.signal);
+  const emitted = await emittedOutputs(context, step, result.stdout, observedOutputs);
+  const output = result.stdout
+    .split("\n")
+    .filter((line) => !line.startsWith("TSFILE: "))
+    .join("\n");
+  if (!result.cancelled && !result.truncated && !result.stderr.trim() && [0, 1, 2].includes(result.exit_code ?? -1)) {
+    const diagnostics = typescriptDiagnostics({ ...context, target: step.target }, output);
+    report.diagnostics.push(...diagnostics);
+  }
+  assertTypecheckNative(result, `Prepare declarations for ${step.target.project.project_id}`);
+  const unexpected = emitted.filter((path) => !step.outputs.includes(path));
+  if (unexpected.length) {
+    unsupported(`Native declaration output differed from effective config prediction: ${unexpected.join(", ")}`);
+  }
+  for (const output of step.outputs) {
+    if (!emitted.includes(output) || !(await Bun.file(output).exists())) {
+      unsupported(`Native declaration output is missing from this invocation: ${output}`);
+    }
+  }
+}
+
+async function emittedOutputs(
+  context: TypecheckCheckContext,
+  step: DeclarationStep,
+  stdout: string,
+  observedOutputs: Set<string>,
+): Promise<string[]> {
+  const emitted: string[] = [];
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("TSFILE: ")) {
+      const path = await safePath(
+        context.target.root,
+        resolve(step.target.scope.cwd, line.slice("TSFILE: ".length).trim()),
+      );
+      emitted.push(path);
+      observedOutputs.add(path);
+    }
+  }
+  return emitted;
+}
+
+async function verifyPreparedCompilers(
+  context: TypecheckCheckContext,
+  plan: JavascriptTypePlan,
+  report: TypecheckPreparation,
+): Promise<void> {
+  const current = await TypecheckStateStore.load(context.target.root);
+  for (const target of plan.targets) {
+    const receipt = current.state.projects[target.project.project_id];
+    if (
+      !receipt?.ready ||
+      !(await javascriptAdapter.verifyTools({
+        ...context,
+        target,
+        versions: receipt.tools,
+      }))
+    ) {
+      throw new TypecheckError(
+        "generator-changed-toolchain",
+        "Generated preparation changed the exact compiler environment; prepare the retained target again",
+      );
+    }
+    await applyProjection(await javascriptAdapter.plan(target, context.policy, context.signal), report.changes);
+  }
+}
+
+function generatedOutputHashes(
+  root: string,
+  plan: JavascriptTypePlan,
+  after: Record<string, string>,
+): Record<string, string> {
+  const outputs: Record<string, string> = {};
+  for (const path of generatedPaths(plan)) {
+    for (const [file, hash] of Object.entries(after)) {
+      if (within(resolve(root, path), resolve(root, file))) {
+        outputs[file] = hash;
+      }
+    }
+  }
+  return outputs;
+}
+
+async function snapshotDiscovered(
+  plan: JavascriptTypePlan,
+  effectTargets: TypecheckTarget[],
+  before: Record<string, string>,
+): Promise<void> {
+  const discoveredTargets = plan.targets.filter(
+    (target) => !effectTargets.some((existing) => existing.project.project_id === target.project.project_id),
+  );
+  if (discoveredTargets.length) {
+    const discoveredBefore = await snapshotTypecheckFiles(
+      discoveredTargets,
+      snapshotOutputs(plan),
+      Object.values(plan.next).map((input) => input.dist),
+    );
+    for (const [path, hash] of Object.entries(discoveredBefore)) {
+      if (!(path in before)) {
+        before[path] = hash;
+      }
+    }
+    effectTargets.push(...discoveredTargets);
+  }
+}
+
+function declarationDirectories(node: JavascriptConfigNode, inputs: string[]) {
+  const options = node.compilerOptions;
+  const root =
+    typeof options.rootDir === "string"
+      ? resolve(dirname(node.path), options.rootDir)
+      : options.composite
+        ? dirname(node.path)
+        : commonDirectory(inputs);
+  const output =
+    typeof options.declarationDir === "string"
+      ? resolve(dirname(node.path), options.declarationDir)
+      : typeof options.outDir === "string"
+        ? resolve(dirname(node.path), options.outDir)
+        : undefined;
+  return { root, output };
+}
+
+async function dependencyNeedsEmit(dependency: TypecheckTarget, exclude: readonly string[]): Promise<boolean> {
+  const expected = packageOutputs(await manifest(dependency));
+  if (expected.some((path) => /\.d\.[cm]?ts$/.test(path))) {
+    return true;
+  } else if (expected.some((path) => /\.[cm]?tsx?$/.test(path))) {
+    return false;
+  } else if (!expected.length && (await collectTypecheckScope(dependency, exclude)).empty)
+  // JSON-only configuration packages are inputs, not declaration producers.
+  {
+    return false;
+  } else {
+    unsupported(
+      `Local package ${dependency.project.project_id} has no supported native declaration entry (types/exports/main)`,
+    );
+  }
+}
+
+interface ReferenceTraversal {
+  member: TypecheckTarget;
+  nodeMap: Map<string, JavascriptConfigNode>;
+  getTarget: (id: string) => Promise<TypecheckTarget>;
+  visitNode: (node: JavascriptConfigNode, required: boolean) => Promise<void>;
+  visitProject: (member: TypecheckTarget, emit: boolean, entry?: string) => Promise<void>;
+}
+async function visitReferences(
+  node: JavascriptConfigNode,
+  required: boolean,
+  traversal: ReferenceTraversal,
+): Promise<void> {
+  for (const path of node.references) {
+    await visitReference(path, node, required, traversal);
+  }
+}
+
+async function recordDeclaration(
+  member: TypecheckTarget,
+  node: JavascriptConfigNode,
+  shared: Parameters<typeof effectiveDeclarationStep>[2],
+  read: JavascriptConfigRead,
+  exclude: readonly string[],
+  steps: Map<string, DeclarationStep>,
+): Promise<void> {
+  const step = await effectiveDeclarationStep(member, node, shared, read, exclude);
+  if (step.outputs.length) {
+    steps.set(node.path, step);
+  }
+}
+
+function prependChanges(result: TypecheckPreparation, retained: TypecheckPreparation | undefined): void {
+  if (retained) {
+    result.changes.unshift(...retained.changes);
+  }
+}
+
+async function requireGeneratedTypes(current: JavascriptTypePlan): Promise<void> {
+  if (!(await verifyJavascriptTypes(current))) {
+    throw new TypecheckError(
+      "stale-generated-types",
+      "Generated types are missing or stale; run full typecheck preparation",
+    );
+  }
+}
+
+async function verifyAfterCheck(verified: TypecheckCheckContext, signal: AbortSignal): Promise<void> {
+  if (!(await verifyJavascriptTypes(await resolveJavascriptTypes(verified.target, signal)))) {
+    throw new TypecheckError(
+      "stale-generated-types",
+      "Required generated inputs or outputs changed during the check; prepare again",
+    );
+  }
+}
+
+function failedGeneratedPreparation(
+  retained: TypecheckPreparation | undefined,
+  error: unknown,
+  projectId: string,
+  signal: AbortSignal,
+): TypecheckPreparation {
+  retained ??= {
+    status: "failed",
+    action: "not-attempted",
+    tools: {},
+    affected_projects: [],
+    changes: [],
+    diagnostics: [],
+    complete: false,
+    cancelled: signal.aborted,
+    errors: [],
+  };
+  retained.status = "failed";
+  retained.complete = false;
+  retained.cancelled ||= signal.aborted;
+  retained.errors.push(preparationFailure(error, projectId));
+  return retained;
+}
+
+async function generateNext(context: TypecheckCheckContext, plan: JavascriptTypePlan): Promise<void> {
+  for (const target of plan.next_targets) {
+    const result = await localTool(
+      target,
+      await lintManagerContext(target, context.signal),
+      { package: "next", binary: "next" },
+      ["typegen"],
+      context.signal,
+    );
+    assertTypecheckNative(result, "Native next typegen (no build/dev fallback)");
+  }
+}
+
+function graphEntry(
+  entry: string | undefined,
+  nextInput: NextTypeInputs | undefined,
+  root: string,
+): string | undefined {
+  return entry ?? (nextInput ? resolve(root, nextInput.config) : undefined);
+}
+
+async function visitReference(
+  path: string,
+  node: JavascriptConfigNode,
+  required: boolean,
+  traversal: ReferenceTraversal,
+): Promise<void> {
+  const { member, nodeMap, getTarget, visitNode, visitProject } = traversal;
+  const dependency = nodeMap.get(path);
+  if (!dependency) {
+    unsupported(`Missing reference metadata: ${path}`);
+  }
+  if (dependency.project_id === member.project.project_id) {
+    // A solution's app/test references select check contexts; a source-bearing
+    // consumer reference also needs the referenced config's native outputs.
+    const needed = required || node.files.length > 0;
+    if (needed && dependency.compilerOptions.composite !== true) {
+      unsupported(`Referenced config must retain native composite:true: ${path}`);
+    }
+    await visitNode(dependency, needed);
+  } else {
+    const origin = await getTarget(dependency.project_id);
+    if (dependency.compilerOptions.composite !== true) {
+      unsupported(`Referenced project must retain native composite:true: ${path}`);
+    }
+    await visitProject(origin, true, path);
+  }
+}
+
+function assertLeasedClosure(plan: JavascriptTypePlan, ids: readonly string[], report: TypecheckPreparation): void {
+  if (plan.project_ids.some((id) => !ids.includes(id))) {
+    throw new ChangedClosure(plan.project_ids, report);
+  }
+}
+
+interface JavascriptInvocation<T> {
+  retained: TypecheckPreparation | undefined;
+  value: T | undefined;
+}
+async function operateTypes<T>(
+  context: TypecheckCheckContext,
+  ids: string[],
+  adapters: TypecheckAdapterRegistry,
+  mode: "prepare" | "check-only",
+  operation: (context: TypecheckCheckContext) => Promise<T>,
+  signal: AbortSignal,
+  state: JavascriptInvocation<T>,
+): Promise<void> {
+  const current = await resolveJavascriptTypes(context.target, signal);
+  if (current.project_ids.some((id) => !ids.includes(id))) {
+    throw new ChangedClosure(current.project_ids);
+  }
+  if (mode === "prepare") {
+    const result = await prepareJavascriptTypes(context, current, ids);
+    prependChanges(result, state.retained);
+    state.retained = result;
+    if (!result.complete) {
+      return;
+    }
+  } else {
+    state.retained = { ...preparation(context), action: "not-attempted" };
+    await requireGeneratedTypes(current);
+  }
+  const verified = await verifyReadyTypecheckContext(context, adapters);
+  state.value = await operation(verified);
+  await verifyAfterCheck(verified, signal);
+}
+
+function invocationResult<T>(state: JavascriptInvocation<T>, ready?: boolean): JavascriptTypesResult<T> {
+  if (!state.retained) {
+    throw new TypecheckError("not-ready", "Generated preparation did not run");
+  }
+  return {
+    ready: ready ?? state.retained.complete,
+    preparation: state.retained,
+    ...(state.value === undefined ? {} : { value: state.value }),
+  };
+}
+function retainClosure<T>(state: JavascriptInvocation<T>, error: ChangedClosure): void {
+  if (error.preparation) {
+    prependChanges(error.preparation, state.retained);
+    state.retained = error.preparation;
+  }
+}
+
+async function recordGenerationFailure(
+  context: TypecheckCheckContext,
+  plan: JavascriptTypePlan,
+  report: TypecheckPreparation,
+  error: unknown,
+): Promise<void> {
+  if (error instanceof ChangedClosure) {
+    throw error;
+  }
+  report.status = "failed";
+  report.complete = false;
+  report.cancelled = context.signal.aborted;
+  report.errors.push(preparationFailure(error, context.target.project.project_id));
+  // A failed or cancelled native generator can still have changed the compiler.
+  // Native processes have settled; verify their retained effects before returning.
+  try {
+    await invalidateTools({ ...context, signal: new AbortController().signal }, plan);
+  } catch (verificationError) {
+    report.errors.push(preparationFailure(verificationError, context.target.project.project_id));
   }
 }

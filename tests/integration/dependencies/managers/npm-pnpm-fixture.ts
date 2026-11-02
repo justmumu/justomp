@@ -9,6 +9,12 @@ import managerVersions from "../../../fixtures/dependencies/manager-versions.jso
 import { measuredVersion } from "../../../fixtures/dependencies/measured-version";
 import { registryArchives } from "./registry-archives";
 
+interface FixtureManifest {
+  [key: string]: unknown;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
 export async function fixture(manager: "npm" | "pnpm") {
   const expectedVersion = managerVersions.managers[manager];
   const root = await realpath(await mkdtemp(join(tmpdir(), `justomp-${manager}-`)));
@@ -116,7 +122,8 @@ export async function fixture(manager: "npm" | "pnpm") {
     publish: () => {
       available = ["1.0.0", "1.1.0", "2.0.0"];
     },
-    manifest: async (path = ".") => JSON.parse(await readFile(join(project, path, "package.json"), "utf8")),
+    manifest: async (path = ".") =>
+      JSON.parse(await readFile(join(project, path, "package.json"), "utf8")) as FixtureManifest,
     async operate(
       adapter: Adapter,
       request: DependencyRequest extends infer R

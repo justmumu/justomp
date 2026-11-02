@@ -7,6 +7,7 @@ import {
   verifyJavascriptTypes,
   withJavascriptTypes,
 } from "../../../src/typecheck/javascript/prepare-types";
+import { suppliedResponse } from "../../response";
 import { output, scope } from "../checks/fixture";
 import { generatedUnit } from "./generated-fixture";
 
@@ -25,19 +26,17 @@ async function prepare(f: ReturnType<typeof fixture>) {
   const plan = await resolveJavascriptTypes(f.selected, f.controller.signal);
   return prepareJavascriptTypes(f.context, plan, plan.project_ids);
 }
-async function run(
-  f: ReturnType<typeof fixture>,
-  mode: "prepare" | "check-only" = "prepare",
-  check = async () => "checked",
-) {
-  return withJavascriptTypes(
-    f.selected.root,
-    f.selected.project.project_id,
-    { javascript: javascriptAdapter },
-    mode,
-    check,
-    f.controller.signal,
-  );
+function run(f: ReturnType<typeof fixture>, mode: "prepare" | "check-only" = "prepare", check = async () => "checked") {
+  return suppliedResponse(() => {
+    return withJavascriptTypes(
+      f.selected.root,
+      f.selected.project.project_id,
+      { javascript: javascriptAdapter },
+      mode,
+      check,
+      f.controller.signal,
+    );
+  });
 }
 
 test("Next preparation passes resolved custom paths through generation and saves verifiable output receipts", async () => {
@@ -69,9 +68,11 @@ test("Next preparation passes resolved custom paths through generation and saves
 test("readonly refuses stale generated inputs and preserves a completed check after a late change", async () => {
   const f = fixture();
   let checked = 0;
-  const check = async () => {
-    checked++;
-    return "diagnostics";
+  const check = () => {
+    return suppliedResponse(() => {
+      checked++;
+      return "diagnostics";
+    });
   };
   expect((await run(f, "check-only", check)).ready).toBe(false);
   expect(checked).toBe(0);
@@ -84,20 +85,24 @@ test("readonly refuses stale generated inputs and preserves a completed check af
   expect(clean).toMatchObject({ ready: true, value: "diagnostics" });
   expect(f.load).not.toHaveBeenCalled();
   expect(f.generate).not.toHaveBeenCalled();
-  const late = await run(f, "check-only", async () => {
-    f.fingerprints.inputs = "changed-during-check";
-    return "diagnostics";
+  const late = await run(f, "check-only", () => {
+    return suppliedResponse(() => {
+      f.fingerprints.inputs = "changed-during-check";
+      return "diagnostics";
+    });
   });
   expect(late).toMatchObject({ ready: false, value: "diagnostics" });
   expect(late.preparation.errors[0]?.code).toBe("stale-generated-types");
 });
 test("Next config failure prevents generation and checking while retaining supplied completed effects", async () => {
   const f = fixture();
-  f.load.mockImplementation(async () => {
-    f.write("apps/app/config-log.txt", "started");
-    return output({
-      exit_code: 1,
-      stderr: "required fixture environment missing",
+  f.load.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.write("apps/app/config-log.txt", "started");
+      return output({
+        exit_code: 1,
+        stderr: "required fixture environment missing",
+      });
     });
   });
   const result = await run(f);
@@ -124,10 +129,12 @@ test("typegen rejection never falls back to build or invokes the checker", async
 });
 test("cancelled generation retains its effects and blocks checking", async () => {
   const f = fixture();
-  f.load.mockImplementation(async () => {
-    f.write("apps/app/config-started.txt", "started");
-    f.controller.abort(new Error("cancel"));
-    return output({ exit_code: null, cancelled: true });
+  f.load.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.write("apps/app/config-started.txt", "started");
+      f.controller.abort(new Error("cancel"));
+      return output({ exit_code: null, cancelled: true });
+    });
   });
   const result = await run(f);
   expect(result).toMatchObject({
@@ -143,12 +150,14 @@ test("cancelled generation retains its effects and blocks checking", async () =>
 });
 test("generator toolchain changes invalidate readiness without changing the retained version target", async () => {
   const f = fixture();
-  f.generate.mockImplementation(async () => {
-    f.write("apps/app/package.json", {
-      devDependencies: { typescript: "5.9.3" },
+  f.generate.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.write("apps/app/package.json", {
+        devDependencies: { typescript: "5.9.3" },
+      });
+      f.verify.mockResolvedValue(false);
+      return output();
     });
-    f.verify.mockResolvedValue(false);
-    return output();
   });
   const result = await run(f);
   expect(result.ready).toBe(false);
@@ -170,15 +179,19 @@ for (const boundary of ["config", "generation"] as const) {
     const f = fixture();
     if (boundary === "config") {
       const original = required(f.load.getMockImplementation());
-      f.load.mockImplementation(async (...args) => {
-        f.fingerprints.source = "changed";
-        return original(...args);
+      f.load.mockImplementation((...args) => {
+        return suppliedResponse(() => {
+          f.fingerprints.source = "changed";
+          return original(...args);
+        });
       });
     } else {
       const original = required(f.generate.getMockImplementation());
-      f.generate.mockImplementation(async (...args) => {
-        f.fingerprints.source = "changed";
-        return original(...args);
+      f.generate.mockImplementation((...args) => {
+        return suppliedResponse(() => {
+          f.fingerprints.source = "changed";
+          return original(...args);
+        });
       });
     }
     const result = await run(f);
@@ -190,9 +203,11 @@ for (const boundary of ["config", "generation"] as const) {
 test("unexpected emitted paths are reported as effects but never receive a successful receipt", async () => {
   const f = fixture(false),
     member = f.add("core");
-  f.compile.mockImplementation(async () => {
-    f.write("packages/core/types/extra.d.ts", "unexpected");
-    return output({ stdout: "TSFILE: /repo/packages/core/types/extra.d.ts\n" });
+  f.compile.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.write("packages/core/types/extra.d.ts", "unexpected");
+      return output({ stdout: "TSFILE: /repo/packages/core/types/extra.d.ts\n" });
+    });
   });
   const result = await run(f);
   expect(result.ready).toBe(false);
@@ -242,16 +257,18 @@ test("declaration ordering, arguments and rewritten references come from our sup
     ui.project.project_id,
   ]);
   const compiled: string[] = [];
-  f.compile.mockImplementation(async (member, args) => {
-    compiled.push(member.project.project_id);
-    expect(args).toContain("--emitDeclarationOnly");
-    expect(args.slice(args.lastIndexOf("--noCheck"), args.lastIndexOf("--noCheck") + 2)).toEqual([
-      "--noCheck",
-      "false",
-    ]);
-    const path = join(member.scope.cwd, "types/index.d.ts");
-    f.write(path, "declaration");
-    return output({ stdout: `TSFILE: ${path}\n` });
+  f.compile.mockImplementation((member, args) => {
+    return suppliedResponse(() => {
+      compiled.push(member.project.project_id);
+      expect(args).toContain("--emitDeclarationOnly");
+      expect(args.slice(args.lastIndexOf("--noCheck"), args.lastIndexOf("--noCheck") + 2)).toEqual([
+        "--noCheck",
+        "false",
+      ]);
+      const path = join(member.scope.cwd, "types/index.d.ts");
+      f.write(path, "declaration");
+      return output({ stdout: `TSFILE: ${path}\n` });
+    });
   });
   const result = await prepareJavascriptTypes(f.context, plan, plan.project_ids);
   expect(result.complete).toBe(true);
@@ -268,21 +285,23 @@ test("declaration ordering, arguments and rewritten references come from our sup
 test("a dynamically discovered Next reference reacquires the expanded closure and preserves the first effects", async () => {
   const f = fixture();
   let loads = 0;
-  f.load.mockImplementation(async () => {
-    loads++;
-    f.write("apps/app/config-loads.txt", String(loads));
-    if (loads === 1) {
-      const lib = f.add("library");
-      f.graphs.delete(lib.project.project_id);
-      f.write(lib.project.manifest, { types: "index.d.ts" });
-      f.graphs.set(lib.project.project_id, {
-        nodes: [],
-        roots: [],
-        scope: scope("index.d.ts"),
+  f.load.mockImplementation(() => {
+    return suppliedResponse(() => {
+      loads++;
+      f.write("apps/app/config-loads.txt", String(loads));
+      if (loads === 1) {
+        const lib = f.add("library");
+        f.graphs.delete(lib.project.project_id);
+        f.write(lib.project.manifest, { types: "index.d.ts" });
+        f.graphs.set(lib.project.project_id, {
+          nodes: [],
+          roots: [],
+          scope: scope("index.d.ts"),
+        });
+      }
+      return output({
+        stdout: 'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
       });
-    }
-    return output({
-      stdout: 'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
     });
   });
   const result = await run(f);

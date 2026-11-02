@@ -82,7 +82,8 @@ for (const [name, adapter] of [
       }
       dependency.declared_specifier = "2.0.0";
       for (const resolutions of [undefined, [{ version: "1.0.0", evidence: "native lock" }]]) {
-        dependency.resolutions = resolutions;
+        const { resolutions: _previous, ...unresolved } = dependency;
+        after.dependencies[0] = resolutions === undefined ? unresolved : { ...unresolved, resolutions };
         await expect(
           adapter.verify?.(
             f.context,

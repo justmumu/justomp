@@ -36,63 +36,76 @@ export async function readOptional(path: string): Promise<string | undefined> {
 // Unknown forms fail explicitly instead of being misread as npm semver.
 export function uvRequirement(version: string, requirement: string): boolean {
   const actual = version.split(".").map(Number);
-  const compare = (wanted: number[]) => {
-    for (let i = 0; i < Math.max(actual.length, wanted.length); i++) {
-      const difference = (actual[i] ?? 0) - (wanted[i] ?? 0);
-      if (difference) {
-        return Math.sign(difference);
-      }
-    }
-    return 0;
-  };
-  return requirement.split(",").every((clause) => {
-    const match = /^(===|==|!=|~=|<=|>=|<|>)\s*(\d+(?:\.\d+)*)(\.\*)?$/.exec(clause.trim());
-    if (!match?.[2]) {
-      throw new DependencyError(
-        "unsupported-manager-requirement",
-        "uv manager requirements currently support numeric release specifiers and equality wildcards",
-      );
-    }
-    const wanted = match[2].split(".").map(Number),
-      comparison = compare(wanted);
-    if (match[3]) {
-      if (match[1] !== "==" && match[1] !== "!=") {
-        throw new DependencyError("unsupported-manager-requirement", "Wildcard manager versions require == or !=");
-      }
-      const equal = wanted.every((value, index) => actual[index] === value);
-      return match[1] === "==" ? equal : !equal;
-    }
-    switch (match[1]) {
-      case "===":
-        return version === match[2];
-      case "==":
-        return comparison === 0;
-      case "!=":
-        return comparison !== 0;
-      case "<=":
-        return comparison <= 0;
-      case ">=":
-        return comparison >= 0;
-      case "<":
-        return comparison < 0;
-      case ">":
-        return comparison > 0;
-      case "~=": {
-        if (wanted.length < 2) {
-          throw new DependencyError(
-            "unsupported-manager-requirement",
-            "Compatible-release manager versions need at least two components",
-          );
-        }
-        const upper = wanted.slice(0, -1);
-        upper[upper.length - 1] = (upper.at(-1) ?? 0) + 1;
-        return comparison >= 0 && compare(upper) < 0;
-      }
-      default:
-        return false;
-    }
-  });
+  return requirement.split(",").every((clause) => releaseClause(version, actual, clause));
 }
+function compareRelease(actual: number[], wanted: number[]) {
+  for (let i = 0; i < Math.max(actual.length, wanted.length); i++) {
+    const difference = (actual[i] ?? 0) - (wanted[i] ?? 0);
+    if (difference) {
+      return Math.sign(difference);
+    }
+  }
+  return 0;
+}
+
+function releaseClause(version: string, actual: number[], clause: string): boolean {
+  const match = /^(===|==|!=|~=|<=|>=|<|>)\s*(\d+(?:\.\d+)*)(\.\*)?$/.exec(clause.trim());
+  if (!match?.[2]) {
+    throw new DependencyError(
+      "unsupported-manager-requirement",
+      "uv manager requirements currently support numeric release specifiers and equality wildcards",
+    );
+  }
+  const wanted = match[2].split(".").map(Number),
+    comparison = compareRelease(actual, wanted);
+  if (match[3]) {
+    if (match[1] !== "==" && match[1] !== "!=") {
+      throw new DependencyError("unsupported-manager-requirement", "Wildcard manager versions require == or !=");
+    }
+    const equal = wanted.every((value, index) => actual[index] === value);
+    return match[1] === "==" ? equal : !equal;
+  }
+  return releaseComparison(match[1], version, match[2], actual, wanted, comparison);
+}
+function releaseComparison(
+  operator: string | undefined,
+  version: string,
+  wantedText: string,
+  actual: number[],
+  wanted: number[],
+  comparison: number,
+): boolean {
+  switch (operator) {
+    case "===":
+      return version === wantedText;
+    case "==":
+      return comparison === 0;
+    case "!=":
+      return comparison !== 0;
+    case "<=":
+      return comparison <= 0;
+    case ">=":
+      return comparison >= 0;
+    case "<":
+      return comparison < 0;
+    case ">":
+      return comparison > 0;
+    case "~=": {
+      if (wanted.length < 2) {
+        throw new DependencyError(
+          "unsupported-manager-requirement",
+          "Compatible-release manager versions need at least two components",
+        );
+      }
+      const upper = wanted.slice(0, -1);
+      upper[upper.length - 1] = (upper.at(-1) ?? 0) + 1;
+      return comparison >= 0 && compareRelease(actual, upper) < 0;
+    }
+    default:
+      return false;
+  }
+}
+
 const pnpmScopeKeys = [
   "modules-dir",
   "virtual-store-dir",
@@ -149,18 +162,7 @@ function mergePnpmRc(settings: Record<string, unknown>, text: string | undefined
     if (!match?.[1]) {
       continue;
     }
-    const key = match[1];
-    const normalized = key.replace(/["'[\]]/g, "");
-    if (!pnpmScopeKeys.some((field) => field === normalized)) {
-      continue;
-    }
-    if (section || key !== normalized) {
-      throw new DependencyError(
-        "unsupported-config",
-        "Scoped pnpm destination settings require plain INI keys outside sections",
-      );
-    }
-    settings[key] = match[2];
+    mergePnpmSetting(settings, match[1], match[2], section);
   }
 }
 function resolvePnpmDirectories(
@@ -176,20 +178,7 @@ function resolvePnpmDirectories(
     }
   }
   if (workspace !== undefined) {
-    const doc = parseDocument(workspace);
-    if (doc.errors.length) {
-      throw new DependencyError("invalid-config", "Invalid pnpm-workspace.yaml");
-    }
-    const values = object(doc.toJS());
-    if (Object.keys(values).some((key) => key.includes("${"))) {
-      throw new DependencyError("unsupported-config", "Interpolated pnpm workspace configuration keys are unsupported");
-    }
-    for (const key of pnpmScopeKeys) {
-      const camel = key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
-      if (values[camel] !== undefined) {
-        settings[key] = values[camel];
-      }
-    }
+    mergePnpmWorkspace(settings, workspace);
   }
   return pnpmDirectoryValues(cwd, owner, settings);
 }
@@ -238,10 +227,7 @@ function pnpmDirectoryValues(cwd: string, owner: string, settings: Record<string
   };
 }
 export async function resolveManagerScope(root: string, project: Project, projects: readonly Project[] = [project]) {
-  const manager = project.manager;
-  if (!manager || !["uv", "npm", "pnpm", "yarn", "bun", "go"].includes(manager) || project.status === "ambiguous") {
-    throw new DependencyError("unsupported-manager", "Inspection must identify one supported package manager");
-  }
+  const manager = supportedManager(project);
   const cwd = await safePath(root, project.path),
     owner = await safePath(root, project.managerRoot);
   const env = managerEnvironment(manager, owner);
@@ -262,67 +248,15 @@ export async function resolveManagerScope(root: string, project: Project, projec
     await writePath(join(owner, "node_modules"));
   }
   if (manager === "pnpm") {
-    const paths = await pnpmDirectories(cwd, owner);
-    await writePath(paths.lockDirectory);
-    await writePath(join(paths.lockDirectory, "pnpm-lock.yaml"));
-    for (const directory of paths.virtualStoreDirectories) {
-      await writePath(directory);
-    }
-    const memberDirectories = [
-      ...new Set([
-        cwd,
-        owner,
-        ...projects
-          .filter((member) => member.ecosystem === "javascript" && member.managerRoot === project.managerRoot)
-          .map((member) => resolve(root, member.path)),
-      ]),
-    ];
-    pnpm = { ...paths, memberDirectories };
-    // pnpm writes a modules area beside its lock and relative to every member.
-    for (const directory of new Set([paths.lockDirectory, ...memberDirectories])) {
-      // Native pnpm uses join. Resolve additionally rejects absolute external
-      // settings conservatively instead of interpreting them as nested paths.
-      await writePath(resolve(directory, paths.modulesDirectory));
-      await writePath(join(directory, paths.modulesDirectory));
-    }
+    pnpm = await pnpmWriteScope(root, project, projects, cwd, owner, writePath);
   }
   if (manager === "yarn") {
     await writePath(join(owner, ".yarn", "unplugged"));
     await writePath(join(owner, ".yarn", "install-state.gz"));
   }
-  if (manager === "uv") {
-    env.UV_PROJECT = cwd;
-  }
-  if (manager === "go") {
-    env.GOWORK = (await readOptional(join(owner, "go.work"))) !== undefined ? join(owner, "go.work") : "off";
-  }
-  // Check scope-affecting project configuration on every request, including hidden files.
+  await configureManagerEnvironment(manager, cwd, owner, env);
   for (const directory of new Set([cwd, owner])) {
-    const npmrc = await readOptional(join(directory, ".npmrc"));
-    for (const line of npmrc?.split("\n") ?? []) {
-      const match = /^\s*(prefix|lockfile-dir|modules-dir|virtual-store-dir)\s*=\s*(.+?)\s*$/.exec(line);
-      if (match?.[2] && (manager !== "pnpm" || match[1] === "prefix")) {
-        await writePath(resolve(directory, match[2]));
-      }
-    }
-    const yarnrc = await readOptional(join(directory, ".yarnrc.yml"));
-    if (yarnrc) {
-      const doc = parseDocument(yarnrc);
-      if (doc.errors.length) {
-        throw new DependencyError("invalid-config", "Invalid .yarnrc.yml");
-      }
-      const values = object(doc.toJS());
-      for (const field of ["yarnPath", "pnpUnpluggedFolder", "installStatePath", "lockfileFilename"]) {
-        if (typeof values[field] === "string") {
-          const path = resolve(directory, values[field]);
-          if (field === "yarnPath") {
-            await safePath(root, path);
-          } else {
-            await writePath(path);
-          }
-        }
-      }
-    }
+    await configuredWriteScope(root, manager, directory, writePath);
   }
   if (manager === "go" && /(?:^|\s)-(?:modfile|overlay)(?:=|\s)/.test(env.GOFLAGS ?? "")) {
     throw new DependencyError(
@@ -330,28 +264,7 @@ export async function resolveManagerScope(root: string, project: Project, projec
       "Go metadata redirection cannot be used by scoped dependency tools",
     );
   }
-  // Native workspace discovery must not silently select an ancestor outside this root.
-  for (let parent = dirname(root); parent !== dirname(parent); parent = dirname(parent)) {
-    const marker =
-      manager === "uv"
-        ? "pyproject.toml"
-        : manager === "pnpm"
-          ? "pnpm-workspace.yaml"
-          : manager === "go"
-            ? "go.work"
-            : "package.json";
-    const text = await readOptional(join(parent, marker));
-    if (
-      manager !== "go" &&
-      text &&
-      (marker === "pnpm-workspace.yaml" || /workspaces|\[tool\.uv\.workspace\]/.test(text))
-    ) {
-      throw new DependencyError(
-        "outside-root",
-        "A native workspace ancestor exists outside the inspection root; select the workspace root",
-      );
-    }
-  }
+  await validateWorkspaceAncestors(root, manager);
   return { manager, cwd, owner, env, domains: [...domains].sort(), pnpm };
 }
 // Call only under the scope's acquired lease, after the installed-version probe.
@@ -428,7 +341,7 @@ export async function resolveExecutable(
   scope?: Awaited<ReturnType<typeof resolveManagerScope>>,
 ) {
   const { manager, cwd, owner, env } = scope ?? (await resolveManagerScope(root, project));
-  const command = Bun.which(manager, { PATH: env.PATH });
+  const command = Bun.which(manager, env.PATH === undefined ? {} : { PATH: env.PATH });
   if (!command) {
     throw new DependencyError("manager-unavailable", `${manager} is not installed; install it explicitly`);
   }
@@ -445,6 +358,129 @@ export async function resolveExecutable(
       `${manager} could not report an installed version; automatic bootstrap is disabled`,
     );
   }
+  validateManagerVersion(project, manager, version);
+  return { command, manager, version, cwd, owner, env };
+}
+
+function mergePnpmSetting(settings: Record<string, unknown>, key: string, value: string | undefined, section: boolean) {
+  const normalized = key.replace(/["'[\]]/g, "");
+  if (!pnpmScopeKeys.some((field) => field === normalized)) {
+    return;
+  }
+  if (section || key !== normalized) {
+    throw new DependencyError(
+      "unsupported-config",
+      "Scoped pnpm destination settings require plain INI keys outside sections",
+    );
+  }
+  settings[key] = value;
+}
+
+function mergePnpmWorkspace(settings: Record<string, unknown>, workspace: string) {
+  const doc = parseDocument(workspace);
+  if (doc.errors.length) {
+    throw new DependencyError("invalid-config", "Invalid pnpm-workspace.yaml");
+  }
+  const values = object(doc.toJS());
+  if (Object.keys(values).some((key) => key.includes("${"))) {
+    throw new DependencyError("unsupported-config", "Interpolated pnpm workspace configuration keys are unsupported");
+  }
+  for (const key of pnpmScopeKeys) {
+    const camel = key.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    if (values[camel] !== undefined) {
+      settings[key] = values[camel];
+    }
+  }
+}
+
+type WritePath = (path: string) => Promise<void>;
+async function pnpmWriteScope(
+  root: string,
+  project: Project,
+  projects: readonly Project[],
+  cwd: string,
+  owner: string,
+  writePath: WritePath,
+) {
+  const paths = await pnpmDirectories(cwd, owner);
+  await writePath(paths.lockDirectory);
+  await writePath(join(paths.lockDirectory, "pnpm-lock.yaml"));
+  for (const directory of paths.virtualStoreDirectories) {
+    await writePath(directory);
+  }
+  const memberDirectories = [
+    ...new Set([
+      cwd,
+      owner,
+      ...projects
+        .filter((member) => member.ecosystem === "javascript" && member.managerRoot === project.managerRoot)
+        .map((member) => resolve(root, member.path)),
+    ]),
+  ];
+
+  // pnpm writes a modules area beside its lock and relative to every member.
+  for (const directory of new Set([paths.lockDirectory, ...memberDirectories])) {
+    // Native pnpm uses join. Resolve additionally rejects absolute external
+    // settings conservatively instead of interpreting them as nested paths.
+    await writePath(resolve(directory, paths.modulesDirectory));
+    await writePath(join(directory, paths.modulesDirectory));
+  }
+
+  return { ...paths, memberDirectories };
+}
+
+async function configuredWriteScope(root: string, manager: string, directory: string, writePath: WritePath) {
+  const npmrc = await readOptional(join(directory, ".npmrc"));
+  for (const line of npmrc?.split("\n") ?? []) {
+    const match = /^\s*(prefix|lockfile-dir|modules-dir|virtual-store-dir)\s*=\s*(.+?)\s*$/.exec(line);
+    if (match?.[2] && (manager !== "pnpm" || match[1] === "prefix")) {
+      await writePath(resolve(directory, match[2]));
+    }
+  }
+  await yarnWriteScope(root, directory, writePath);
+}
+async function yarnWriteScope(root: string, directory: string, writePath: WritePath) {
+  const yarnrc = await readOptional(join(directory, ".yarnrc.yml"));
+  if (!yarnrc) {
+    return;
+  }
+  const doc = parseDocument(yarnrc);
+  if (doc.errors.length) {
+    throw new DependencyError("invalid-config", "Invalid .yarnrc.yml");
+  }
+  const values = object(doc.toJS());
+  for (const field of ["yarnPath", "pnpUnpluggedFolder", "installStatePath", "lockfileFilename"]) {
+    if (typeof values[field] === "string") {
+      const path = resolve(directory, values[field]);
+      if (field === "yarnPath") {
+        await safePath(root, path);
+      } else {
+        await writePath(path);
+      }
+    }
+  }
+}
+
+async function validateWorkspaceAncestors(root: string, manager: string) {
+  const markers: Record<string, string> = { uv: "pyproject.toml", pnpm: "pnpm-workspace.yaml", go: "go.work" };
+  const marker = markers[manager] ?? "package.json";
+  // Native workspace discovery must not silently select an ancestor outside this root.
+  for (let parent = dirname(root); parent !== dirname(parent); parent = dirname(parent)) {
+    const text = await readOptional(join(parent, marker));
+    if (
+      manager !== "go" &&
+      text &&
+      (marker === "pnpm-workspace.yaml" || /workspaces|\[tool\.uv\.workspace\]/.test(text))
+    ) {
+      throw new DependencyError(
+        "outside-root",
+        "A native workspace ancestor exists outside the inspection root; select the workspace root",
+      );
+    }
+  }
+}
+
+function validateManagerVersion(project: Project, manager: string, version: string) {
   const requirement = project.managerVersion?.split("+sha")[0];
   if (
     requirement &&
@@ -466,5 +502,26 @@ export async function resolveExecutable(
       `${manager} ${version} is outside the tested adapter family`,
     );
   }
-  return { command, manager, version, cwd, owner, env };
+}
+
+async function configureManagerEnvironment(
+  manager: string,
+  cwd: string,
+  owner: string,
+  env: Record<string, string | undefined>,
+) {
+  if (manager === "uv") {
+    env.UV_PROJECT = cwd;
+  }
+  if (manager === "go") {
+    env.GOWORK = (await readOptional(join(owner, "go.work"))) !== undefined ? join(owner, "go.work") : "off";
+  }
+}
+
+function supportedManager(project: Project): string {
+  const manager = project.manager;
+  if (!manager || !["uv", "npm", "pnpm", "yarn", "bun", "go"].includes(manager) || project.status === "ambiguous") {
+    throw new DependencyError("unsupported-manager", "Inspection must identify one supported package manager");
+  }
+  return manager;
 }

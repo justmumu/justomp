@@ -56,7 +56,8 @@ test("unrelated ecosystem policy does not stale Python; unsupported ecosystem fa
   await writeFile(join(f.root, "js/package.json"), '{"name":"js","packageManager":"npm@11.0.0"}');
   const result = await coordinator.reconcile();
   expect(result.complete).toBe(false);
-  expect(result.projects["python:a/pyproject.toml"]?.complete).toBe(true);
+  const projects: Partial<typeof result.projects> = result.projects;
+  expect(projects["python:a/pyproject.toml"]?.complete).toBe(true);
   expect(await withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true)).toBe(
     true,
   );

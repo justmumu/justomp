@@ -26,12 +26,25 @@ export interface ProjectionPlan {
   current: boolean;
   retired?: { path: string; before: FileSnapshot }[];
 }
+function projectionParser(name: string) {
+  const parser = name.endsWith(".toml")
+    ? "toml"
+    : name.endsWith(".mjs")
+      ? "babel"
+      : name.endsWith(".yml")
+        ? "yaml"
+        : name.endsWith(".jsonc")
+          ? "jsonc"
+          : "json";
+  return parser;
+}
 /** Read-only freshness planning. Apply only after resolving again under the lease. */
 export async function planProjection(
   target: LintTarget,
   policy: LintPolicy,
   versions: ToolVersions = {},
 ): Promise<ProjectionPlan> {
+  const selectedVersions: Partial<ToolVersions> = versions;
   const files: ProjectionFile[] = [];
   const retired: { path: string; before: FileSnapshot }[] = [];
   const add = async (name: string, render: (text: string | null) => string, owned?: (text: string) => boolean) => {
@@ -41,15 +54,7 @@ export async function planProjection(
       throw new LintError("projection-conflict", `Config filename is not owned by justomp: ${path}`);
     }
     const content = render(before.text);
-    const parser = name.endsWith(".toml")
-      ? "toml"
-      : name.endsWith(".mjs")
-        ? "babel"
-        : name.endsWith(".yml")
-          ? "yaml"
-          : name.endsWith(".jsonc")
-            ? "jsonc"
-            : "json";
+    const parser = projectionParser(name);
     const changed = !(await equivalentConfig(before.text, content, parser));
     files.push({
       path,
@@ -71,7 +76,7 @@ export async function planProjection(
     const scope = await collectLintScope(target, policy.javascript.exclude);
     lint = await add(
       "biome.justomp.jsonc",
-      () => projectJavascript(target, policy.javascript, scope, versions[BIOME_PACKAGE] ?? ""),
+      () => projectJavascript(target, policy.javascript, scope, selectedVersions[BIOME_PACKAGE] ?? ""),
       (text) => hasProjectionMarker(text, JS_MARKER),
     );
     const legacyPath = resolve(target.scope.cwd, "eslint.justomp.config.mjs");

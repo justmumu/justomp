@@ -1,3 +1,18 @@
+async function publishTool(temporary: string, path: string, create: boolean): Promise<void> {
+  if (create) {
+    try {
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new LintError("tool-conflict", "Go lint binary appeared during preparation");
+      }
+      throw error;
+    }
+  } else {
+    await rename(temporary, path);
+  }
+}
+
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
@@ -145,18 +160,7 @@ export async function installGolangci(
     if ((await fingerprint(root, path)) !== before) {
       throw new LintError("tool-conflict", "Go lint binary changed during preparation");
     }
-    if (before === null) {
-      try {
-        await link(temporary, path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new LintError("tool-conflict", "Go lint binary appeared during preparation");
-        }
-        throw error;
-      }
-    } else {
-      await rename(temporary, path);
-    }
+    await publishTool(temporary, path, before === null);
     changes.push({
       project_id: projectId,
       path: relative(root, path).replaceAll("\\", "/"),

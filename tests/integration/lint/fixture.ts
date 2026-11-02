@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { type LintAdapter } from "../../../src/lint/adapters/types";
 import { startLintCoordinator } from "../../../src/lint/coordinator";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -40,14 +41,18 @@ export async function fixture(ecosystem: "python" | "javascript" | "go" = "pytho
     fail = "",
     latest = "1.0.0";
   const adapter: LintAdapter = {
-    async resolve(targets, _policy, _signal, existing) {
-      if (existing) {
-        return existing;
-      }
-      resolves++;
-      return Object.fromEntries(targets.map((t) => [t.project.project_id, { [tool]: latest }]));
+    resolve(targets, _policy, _signal, existing) {
+      return suppliedResponse(() => {
+        if (existing) {
+          return existing;
+        }
+        resolves++;
+        return Object.fromEntries(targets.map((t) => [t.project.project_id, { [tool]: latest }]));
+      });
     },
-    async preflight() {},
+    preflight() {
+      return Promise.resolve();
+    },
     async prepareBatch(context) {
       prepares++;
       for (const target of context.targets) {
@@ -79,8 +84,10 @@ export async function fixture(ecosystem: "python" | "javascript" | "go" = "pytho
         return false;
       }
     },
-    async check() {
-      return [];
+    check() {
+      return suppliedResponse(() => {
+        return [];
+      });
     },
   };
   const start = async () => {

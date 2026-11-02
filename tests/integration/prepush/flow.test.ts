@@ -11,6 +11,7 @@ import { createPushOperations } from "../../../src/prepush/operations";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { VERSION as RUFF } from "../../fixtures/lint/python/fixture";
 import { VERSION as PYRIGHT, pythonFixture } from "../../fixtures/typecheck/python/fixture";
+import { suppliedResponse } from "../../response";
 
 function result(stderr: string): PrepushResult {
   const line = stderr.split("\n").find((l) => l.startsWith('{"success":'));
@@ -25,10 +26,12 @@ test("native pre-push checks prepared Python project and blocks failing unit tes
   const original = globalThis.fetch;
   try {
     globalThis.fetch = Object.assign(
-      async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-        const name = String(input).split("/").at(-2);
-        const version = name === "ruff" ? RUFF : name === "pyright" ? PYRIGHT : undefined;
-        return version ? Response.json({ releases: { [version]: [{ yanked: false }] } }) : original(input, init);
+      (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        return suppliedResponse(() => {
+          const name = String(input).split("/").at(-2);
+          const version = name === "ruff" ? RUFF : name === "pyright" ? PYRIGHT : undefined;
+          return version ? Response.json({ releases: { [version]: [{ yanked: false }] } }) : original(input, init);
+        });
       },
       { preconnect: original.preconnect },
     );

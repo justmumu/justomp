@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { type PushPorts, runPushGate } from "../../../src/prepush/pipeline";
+import { suppliedResponse } from "../../response";
 
 function ports(calls: string[], fail = "", incomplete = false): PushPorts {
   const outcome = (stage: string, id?: string) => {
@@ -67,15 +68,17 @@ test("incomplete preparation and cancellation cannot succeed", async () => {
   expect(result.complete).toBe(false);
   const controller = new AbortController();
   const p = ports([]);
-  p.prepare = async () => {
-    controller.abort();
-    return {
-      stage: "preparation",
-      success: true,
-      complete: true,
-      effects: ["lock"],
-      details: {},
-    };
+  p.prepare = () => {
+    return suppliedResponse(() => {
+      controller.abort();
+      return {
+        stage: "preparation",
+        success: true,
+        complete: true,
+        effects: ["lock"],
+        details: {},
+      };
+    });
   };
   const cancelled = await runPushGate(["api"], p, controller.signal);
   expect(cancelled.cancelled).toBe(true);

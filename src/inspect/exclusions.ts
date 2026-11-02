@@ -74,27 +74,30 @@ function compileDescendantMatcher(pattern: string, dot: boolean): (path: string)
   const segments = parts.map((part) => picomatch(part, { dot }));
   return (path: string) => {
     const dirs = path === "." ? [] : path.split("/");
-    const memo = new Map<string, boolean>();
-    const match = (i: number, j: number): boolean => {
-      if (j === dirs.length) {
-        return true;
-      }
-      if (i === parts.length) {
-        return true;
-      }
-      const key = `${i}:${j}`;
-      const cached = memo.get(key);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const part = parts[i] as string;
-      const result =
-        part === "**"
-          ? match(i + 1, j) || match(i, j + 1)
-          : (segments[i] as (s: string) => boolean)(dirs[j] as string) && match(i + 1, j + 1);
-      memo.set(key, result);
-      return result;
-    };
-    return match(0, 0);
+    return matchDescendants(parts, segments, dirs);
   };
+}
+function matchDescendants(parts: string[], segments: ((value: string) => boolean)[], dirs: string[]): boolean {
+  const memo = new Map<string, boolean>();
+  const match = (i: number, j: number): boolean => {
+    if (j === dirs.length) {
+      return true;
+    }
+    if (i === parts.length) {
+      return true;
+    }
+    const key = `${i}:${j}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const part = parts[i] as string;
+    const result =
+      part === "**"
+        ? match(i + 1, j) || match(i, j + 1)
+        : (segments[i] as (s: string) => boolean)(dirs[j] as string) && match(i + 1, j + 1);
+    memo.set(key, result);
+    return result;
+  };
+  return match(0, 0);
 }

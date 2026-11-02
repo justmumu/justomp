@@ -46,7 +46,7 @@ test("existing npm local symlink is rejected before any native mutation", async 
     { npm: npmAdapter },
   );
   expect(result.outcome).toBe("rejected");
-  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(result.diagnostics[0]?.code).toBe("outside-root");
   expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest);
 });
 test("inherited and conditional uv local sources retain their declaration base", async () => {
@@ -61,7 +61,7 @@ test("inherited and conditional uv local sources retain their declaration base",
     '[project]\nname="api"\nversion="1.0"\ndependencies=["linked"]\n',
   );
   const result = await executeDependency(root, "sync", { project_id: "python:apps/api/pyproject.toml" }, {});
-  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(result.diagnostics[0]?.code).toBe("outside-root");
 });
 test("Go work replacements are canonicalized even when not direct declarations", async () => {
   const { root } = await fixture();
@@ -69,7 +69,7 @@ test("Go work replacements are canonicalized even when not direct declarations",
   await writeFile(join(root, "go.work"), "go 1.25\nuse ./app\nreplace example.test/linked => ./linked\n");
   await writeFile(join(root, "app/go.mod"), "module example.test/app\ngo 1.25\n");
   const result = await executeDependency(root, "sync", { project_id: "go:app/go.mod" }, {});
-  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(result.diagnostics[0]?.code).toBe("outside-root");
 });
 
 async function validate(root: string, id: string) {

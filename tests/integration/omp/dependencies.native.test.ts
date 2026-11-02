@@ -16,8 +16,10 @@ test("real OMP runner performs native npm discovery, list, add, update, sync and
   await mkdir(join(root, "local"));
   await writeFile(join(root, "local/package.json"), '{"name":"local-tool-package","version":"1.0.0"}');
   const h = await host(root);
-  const projects = json(await h.getTool("list_projects").execute("projects", {}));
-  const project_id = projects.projects.find((p: { relative_path: string }) => p.relative_path === ".").project_id;
+  const projects = json<{ projects: { relative_path: string; project_id: string }[] }>(
+    await h.getTool("list_projects").execute("projects", {}),
+  );
+  const project_id = projects.projects.find((p) => p.relative_path === ".")?.project_id;
   async function call(operation: string, input: object) {
     const result = await h.getTool(`dependency_${operation}`).execute(operation, { project_id, ...input });
     const payload = json(result);
@@ -30,7 +32,7 @@ test("real OMP runner performs native npm discovery, list, add, update, sync and
     group: { kind: "runtime" },
     packages: [{ name: "local-tool-package", source: { kind: "path", path: "local" } }],
   });
-  expect((await call("list", {})).dependencies[0].name).toBe("local-tool-package");
+  expect((await call("list", {})).dependencies?.[0]?.name).toBe("local-tool-package");
   await call("update", { packages: [{ name: "local-tool-package" }] });
   await call("sync", {});
   await call("remove", {

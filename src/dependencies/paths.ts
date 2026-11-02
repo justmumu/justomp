@@ -11,7 +11,7 @@ export async function safePath(root: string, path: string): Promise<string> {
     throw new DependencyError("outside-root", "Dependency paths must stay inside the inspection root");
   }
   let existing = absolute;
-  while (true) {
+  for (;;) {
     try {
       await lstat(existing);
       break;

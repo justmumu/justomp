@@ -46,19 +46,7 @@ export async function commitRepository(
         result.committed = null;
         // Trusted, narrow entry: no shell, no initial staging, no arbitrary Git flags.
         result.native = await git(context.root, ["-c", "core.abbrev=no", "commit", "-F", path], signal);
-        // Cleanup/readback must outlive cancellation: Git may already have committed.
-        const after = await git(context.root, ["rev-parse", "--verify", "HEAD"]);
-        const hash = after.exit_code === 0 ? after.stdout.trim() : null;
-        result.committed = classifyCommit(before.exit_code === 0 ? before.stdout.trim() : null, hash, result.native);
-        if (result.committed && hash) {
-          result.commit_hash = hash;
-          result.message = (await gitText(context.root, ["show", "-s", "--format=%B", hash])).replace(/\n$/, "");
-          result.success = result.native.exit_code === 0 && !result.native.cancelled && !result.native.truncated;
-        } else if (result.committed === null) {
-          result.errors.push("This commit could not be identified with certainty; inspect Git history before retrying");
-        }
-        result.repository_status = await gitText(context.root, ["status", "--porcelain=v1", "-z"]);
-        result.cancelled = signal.aborted || result.native.cancelled;
+        await readCommittedState(context.root, before, result, signal, result.native);
         return result;
       } finally {
         await rm(temporary, { recursive: true, force: true });
@@ -69,4 +57,26 @@ export async function commitRepository(
     result.errors.push(error instanceof Error ? error.message : String(error));
     return result;
   }
+}
+
+async function readCommittedState(
+  root: string,
+  before: Awaited<ReturnType<typeof git>>,
+  result: CommitResult,
+  signal: AbortSignal,
+  native: NonNullable<CommitResult["native"]>,
+): Promise<void> {
+  // Cleanup/readback must outlive cancellation: Git may already have committed.
+  const after = await git(root, ["rev-parse", "--verify", "HEAD"]);
+  const hash = after.exit_code === 0 ? after.stdout.trim() : null;
+  result.committed = classifyCommit(before.exit_code === 0 ? before.stdout.trim() : null, hash, native);
+  if (result.committed && hash) {
+    result.commit_hash = hash;
+    result.message = (await gitText(root, ["show", "-s", "--format=%B", hash])).replace(/\n$/, "");
+    result.success = native.exit_code === 0 && !native.cancelled && !native.truncated;
+  } else if (result.committed === null) {
+    result.errors.push("This commit could not be identified with certainty; inspect Git history before retrying");
+  }
+  result.repository_status = await gitText(root, ["status", "--porcelain=v1", "-z"]);
+  result.cancelled = signal.aborted || native.cancelled;
 }

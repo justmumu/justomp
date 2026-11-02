@@ -50,7 +50,7 @@ export interface AdapterContext {
   owner: string;
   manager: string;
   version: string;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   run(step: NativeStep): Promise<ProcessResult>;
 }
 export interface NativePlan {

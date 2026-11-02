@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { changes, type Fingerprints, fingerprint } from "../dependencies/changes";
+import { type PackagingStructure, type Project } from "../inspect/model";
 import { getPackagingStructure } from "../packaging/get-structure";
 import { packagingInvocation } from "../packaging/invocation";
-import { git, gitContext, gitlinks, gitText, stagedRecords } from "./git";
+import { type GitContext, git, gitContext, gitlinks, gitText, stagedRecords } from "./git";
 import { type PrecommitResult } from "./model";
 import { type GateOperations, nativeOperations } from "./operations";
 import { emptyResult, runGate } from "./pipeline";
@@ -38,21 +39,7 @@ export async function runPrecommit(
       });
       const shared = await sharedInputs(structure);
       if (paths.includes(".justomp/config.json")) {
-        const before = await git(context.root, ["show", "HEAD:.justomp/config.json"], signal);
-        let after: string;
-        try {
-          after = await readFile(join(context.root, ".justomp/config.json"), "utf8");
-        } catch {
-          after = "null";
-        }
-        shared.set(
-          ".justomp/config.json",
-          configConsumers(
-            structure.projects,
-            before.exit_code === 0 && !before.truncated ? before.stdout : null,
-            after,
-          ),
-        );
+        await includeConfigConsumers(context, structure, shared, signal);
       }
       const selected = selectProjects(structure.projects, paths, shared);
       result.selected_projects = selected.map((p) => p.project_id);
@@ -73,48 +60,7 @@ export async function runPrecommit(
         await ledger.observe(paths);
       };
       if (selected.length) {
-        await assertWorkspaceBoundary(context.root, structure, excluded);
-        const preparation = await operations.prepare(context.root, signal);
-        result.stages.push(preparation);
-        result.changed_files = preparation.effects;
-        await observe(preparation.effects);
-        if (!preparation.complete || !preparation.success) {
-          throw new Error("Repository tool preparation incomplete; inspect preparation details");
-        }
-        const live = (
-          await getPackagingStructure(context.root, {
-            signal,
-            refresh: true,
-            publish: false,
-          })
-        ).structure;
-        const topology = (value: typeof structure) =>
-          JSON.stringify(
-            [value.projects, value.workspaces].map((items) =>
-              items.map((item) =>
-                "project_id" in item
-                  ? [item.project_id, item.path, item.manager, item.managerRoot]
-                  : [item.id, item.members],
-              ),
-            ),
-          );
-        if (topology(live) !== topology(structure)) {
-          throw new Error("Project topology changed during preparation; retry commit");
-        }
-        const additional = new Set([
-          ...preparation.affected_projects,
-          ...selectProjects(
-            structure.projects,
-            preparation.effects.filter((p) => p !== ".justomp/config.json"),
-            shared,
-          ).map((p) => p.project_id),
-        ]);
-        for (const project of structure.projects) {
-          if (additional.has(project.project_id) && !selected.some((p) => p.project_id === project.project_id)) {
-            selected.push(project);
-            result.preparation_projects.push(project.project_id);
-          }
-        }
+        await prepareSelection({ context, structure, excluded, operations, signal, result, observe, shared, selected });
       }
       const verify = async () => {
         signal.throwIfAborted();
@@ -139,15 +85,8 @@ export async function runPrecommit(
               result.staged_files = ledger.staged;
             }
           },
-          whitespace: async () => {
-            const checked = await git(context.root, ["diff", "--cached", "--check", "--"], signal);
-            if (checked.cancelled || checked.truncated || checked.exit_code === null) {
-              throw new Error("Whitespace check incomplete");
-            }
-            if (checked.exit_code !== 0) {
-              result.errors.push(checked.stdout || checked.stderr);
-            }
-            return checked.exit_code === 0;
+          whitespace: () => {
+            return checkWhitespace(context.root, result, signal);
           },
           dependencyKey: (id) => {
             const project = structure.projects.find((p) => p.project_id === id);
@@ -167,4 +106,91 @@ export async function runPrecommit(
     result.errors.push(error instanceof Error ? error.message : String(error));
     return result;
   }
+}
+
+async function includeConfigConsumers(
+  context: GitContext,
+  structure: PackagingStructure,
+  shared: Map<string, string[]>,
+  signal: AbortSignal,
+): Promise<void> {
+  const before = await git(context.root, ["show", "HEAD:.justomp/config.json"], signal);
+  let after: string;
+  try {
+    after = await readFile(join(context.root, ".justomp/config.json"), "utf8");
+  } catch {
+    after = "null";
+  }
+  shared.set(
+    ".justomp/config.json",
+    configConsumers(structure.projects, before.exit_code === 0 && !before.truncated ? before.stdout : null, after),
+  );
+}
+
+interface CommitSelection {
+  context: GitContext;
+  structure: PackagingStructure;
+  excluded: string[];
+  operations: GateOperations;
+  signal: AbortSignal;
+  result: PrecommitResult;
+  observe: (paths: string[]) => Promise<void>;
+  shared: Map<string, string[]>;
+  selected: Project[];
+}
+async function prepareSelection(selection: CommitSelection): Promise<void> {
+  const { context, structure, excluded, operations, signal, result, observe, shared, selected } = selection;
+  await assertWorkspaceBoundary(context.root, structure, excluded);
+  const preparation = await operations.prepare(context.root, signal);
+  result.stages.push(preparation);
+  result.changed_files = preparation.effects;
+  await observe(preparation.effects);
+  if (!preparation.complete || !preparation.success) {
+    throw new Error("Repository tool preparation incomplete; inspect preparation details");
+  }
+  const live = (
+    await getPackagingStructure(context.root, {
+      signal,
+      refresh: true,
+      publish: false,
+    })
+  ).structure;
+  if (topology(live) !== topology(structure)) {
+    throw new Error("Project topology changed during preparation; retry commit");
+  }
+  const additional = new Set([
+    ...preparation.affected_projects,
+    ...selectProjects(
+      structure.projects,
+      preparation.effects.filter((p) => p !== ".justomp/config.json"),
+      shared,
+    ).map((p) => p.project_id),
+  ]);
+  for (const project of structure.projects) {
+    if (additional.has(project.project_id) && !selected.some((p) => p.project_id === project.project_id)) {
+      selected.push(project);
+      result.preparation_projects.push(project.project_id);
+    }
+  }
+}
+
+function topology(value: PackagingStructure): string {
+  return JSON.stringify(
+    [value.projects, value.workspaces].map((items) =>
+      items.map((item) =>
+        "project_id" in item ? [item.project_id, item.path, item.manager, item.managerRoot] : [item.id, item.members],
+      ),
+    ),
+  );
+}
+
+async function checkWhitespace(root: string, result: PrecommitResult, signal: AbortSignal): Promise<boolean> {
+  const checked = await git(root, ["diff", "--cached", "--check", "--"], signal);
+  if (checked.cancelled || checked.truncated || checked.exit_code === null) {
+    throw new Error("Whitespace check incomplete");
+  }
+  if (checked.exit_code !== 0) {
+    result.errors.push(checked.stdout || checked.stderr);
+  }
+  return checked.exit_code === 0;
 }

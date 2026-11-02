@@ -6,6 +6,7 @@ import { readOptional } from "../dependencies/executable";
 import { object } from "../dependencies/inventory";
 import { type Inventory, type NativeStep, type ProcessResult, redact } from "../dependencies/model";
 import { runProcess } from "../dependencies/runner";
+import { metadataChangeKind } from "../lint/adapters/metadata";
 import { compatible, nodeVersion, registryPackage, satisfies, toolMetadata } from "../lint/javascript/compatibility";
 import { installedPackages, localTool, nativeAdapter, succeeded } from "../lint/javascript/native";
 import { lintManagerContext } from "../lint/runtime";
@@ -63,16 +64,7 @@ export async function trackChanges(
   try {
     await work();
   } finally {
-    for (const [path, previous] of before) {
-      const after = (await readOptional(path)) ?? null;
-      if (after !== previous) {
-        changes.push({
-          project_id: context.target.project.project_id,
-          path: relative(context.target.root, path).replaceAll("\\", "/"),
-          kind: after === null ? "removed" : previous === null ? "created" : "updated",
-        });
-      }
-    }
+    await recordChanges(context, before, changes);
   }
 }
 async function pythonPlan(context: TestToolContext) {
@@ -234,9 +226,7 @@ export async function javascriptPlan(context: TestToolContext) {
     const request = javascriptToolRequest(context.target.project.project_id, name, version, inventory);
     const plan = await adapter.plan(native, request, inventory);
     if (request.operation === "add") {
-      for (const step of plan.steps) {
-        step.args.push(native.manager === "npm" || native.manager === "pnpm" ? "--save-exact" : "--exact");
-      }
+      addExactFlag(plan.steps, native.manager);
     }
     plans.push(plan);
   }
@@ -244,30 +234,10 @@ export async function javascriptPlan(context: TestToolContext) {
 }
 export async function preflightJavascript(context: TestToolContext): Promise<void> {
   const { native, inventory } = await javascriptPlan(context);
-  const metadata = await toolMetadata(context.target, native, context.tools, context.signal),
-    node = await nodeVersion(context.target, native, context.signal),
+  const metadata = await toolMetadata(context.target, native, context.tools, context.signal);
+  const node = await nodeVersion(context.target, native, context.signal),
     selected = { ...context.tools };
-  const vite = inventory.dependencies.find((d) => d.name === "vite");
-  if (vite) {
-    const installed = await installedPackages(context.target, native, ["vite"], context.signal);
-    const candidate =
-      installed.vite?.version ??
-      vite.resolutions?.[0]?.version ??
-      (await registryPackage("vite", context.signal)).find(
-        (m) => typeof m.version === "string" && satisfies(m.version, vite.declared_specifier),
-      )?.version;
-    selected.vite = stableVersion(candidate);
-    if (!satisfies(selected.vite, vite.declared_specifier)) {
-      throw new TestError("incompatible-toolchain", "Installed Vite conflicts with its application declaration");
-    }
-    const range = object(metadata.vitest?.dependencies).vite ?? object(metadata.vitest?.peerDependencies).vite;
-    if (range && !satisfies(selected.vite, range)) {
-      throw new TestError(
-        "incompatible-toolchain",
-        `Application Vite ${selected.vite} is incompatible with Vitest ${selected.vitest}; reconcile explicitly`,
-      );
-    }
-  }
+  await selectApplicationVite(context, native, inventory, metadata, selected);
   for (const [name, data] of Object.entries(metadata)) {
     if (!compatible(data, selected, node)) {
       throw new TestError(
@@ -314,20 +284,16 @@ export async function verifyJavascript(context: TestToolContext): Promise<boolea
     if (!exactDeclarations(inventory, tools)) {
       return false;
     }
-    const installed = await installedPackages(target, native, [...Object.keys(tools), "vite"], signal),
-      node = await nodeVersion(target, native, signal),
+    const installed: Partial<Awaited<ReturnType<typeof installedPackages>>> = await installedPackages(
+      target,
+      native,
+      [...Object.keys(tools), "vite"],
+      signal,
+    );
+    const node = await nodeVersion(target, native, signal),
       selected = { ...tools };
-    const vite = inventory.dependencies.find((d) => d.name === "vite");
-    if (vite) {
-      const actual = installed.vite?.version;
-      if (typeof actual !== "string" || !satisfies(actual, vite.declared_specifier)) {
-        return false;
-      }
-      selected.vite = actual;
-      const range = object(installed.vitest?.dependencies).vite ?? object(installed.vitest?.peerDependencies).vite;
-      if (range && !satisfies(actual, range)) {
-        return false;
-      }
+    if (!verifyApplicationVite(inventory, installed, selected)) {
+      return false;
     }
     if (
       !Object.entries(tools).every(
@@ -387,4 +353,82 @@ export async function parseEvidence(result: NativeTestResult, read: () => Promis
   } catch (error) {
     result.errors.push(testIssue(error));
   }
+}
+
+async function recordChanges(
+  context: TestToolContext,
+  before: Map<string, string | null>,
+  changes: TestPreparation["changes"],
+): Promise<void> {
+  for (const [path, previous] of before) {
+    const after = (await readOptional(path)) ?? null;
+    if (after !== previous) {
+      changes.push({
+        project_id: context.target.project.project_id,
+        path: relative(context.target.root, path).replaceAll("\\", "/"),
+        kind: metadataChangeKind(previous, after),
+      });
+    }
+  }
+}
+
+function addExactFlag(steps: NativeStep[], manager: string): void {
+  for (const step of steps) {
+    step.args.push(manager === "npm" || manager === "pnpm" ? "--save-exact" : "--exact");
+  }
+}
+
+async function selectApplicationVite(
+  context: TestToolContext,
+  native: Awaited<ReturnType<typeof lintManagerContext>>,
+  inventory: Inventory,
+  metadata: Partial<Awaited<ReturnType<typeof toolMetadata>>>,
+  selected: TestTools,
+): Promise<void> {
+  const vite = inventory.dependencies.find((d) => d.name === "vite");
+  if (vite) {
+    const installed: Partial<Awaited<ReturnType<typeof installedPackages>>> = await installedPackages(
+      context.target,
+      native,
+      ["vite"],
+      context.signal,
+    );
+    const candidate =
+      installed.vite?.version ??
+      vite.resolutions?.[0]?.version ??
+      (await registryPackage("vite", context.signal)).find(
+        (m) => typeof m.version === "string" && satisfies(m.version, vite.declared_specifier),
+      )?.version;
+    selected.vite = stableVersion(candidate);
+    if (!satisfies(selected.vite, vite.declared_specifier)) {
+      throw new TestError("incompatible-toolchain", "Installed Vite conflicts with its application declaration");
+    }
+    const range = object(metadata.vitest?.dependencies).vite ?? object(metadata.vitest?.peerDependencies).vite;
+    if (range && !satisfies(selected.vite, range)) {
+      throw new TestError(
+        "incompatible-toolchain",
+        `Application Vite ${selected.vite} is incompatible with Vitest ${selected.vitest}; reconcile explicitly`,
+      );
+    }
+  }
+}
+
+function verifyApplicationVite(
+  inventory: Inventory,
+  installed: Partial<Awaited<ReturnType<typeof installedPackages>>>,
+  selected: TestTools,
+): boolean {
+  const vite = inventory.dependencies.find((d) => d.name === "vite");
+  if (vite) {
+    const actual = installed.vite?.version;
+    if (typeof actual !== "string" || !satisfies(actual, vite.declared_specifier)) {
+      return false;
+    }
+    selected.vite = actual;
+    const range = object(installed.vitest?.dependencies).vite ?? object(installed.vitest?.peerDependencies).vite;
+    if (range && !satisfies(actual, range)) {
+      return false;
+    }
+  }
+  return true;
 }

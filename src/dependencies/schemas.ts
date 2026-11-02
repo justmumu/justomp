@@ -51,7 +51,7 @@ const addItem = z
     (v) => v.source.kind === "registry" || v.version === undefined,
     "Only registry additions accept version; use Git ref or local identity",
   );
-function unique(items: { name: string; group?: z.infer<typeof groupSchema> }[]): boolean {
+function unique(items: { name: string; group?: z.infer<typeof groupSchema> | undefined }[]): boolean {
   return new Set(items.map((p) => `${p.name}:${JSON.stringify(p.group ?? null)}`)).size === items.length;
 }
 export const schemas = {

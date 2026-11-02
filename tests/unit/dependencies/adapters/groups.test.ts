@@ -46,12 +46,7 @@ for (const [name, adapter, manager, version] of managers) {
       };
       try {
         const plan = await adapter.plan(f.context, request, empty);
-        const flags =
-          name === "npm" || name === "pnpm"
-            ? [`--save-${kind === "runtime" ? "prod" : kind}`]
-            : kind === "runtime"
-              ? []
-              : [`--${kind}`];
+        const flags = addFlags(name, kind);
         const args = plan.steps[0]?.args ?? [];
         expect(args).toContain("pkg@1.0.0");
         expect(args.filter((a) => a.startsWith("--"))).toEqual(flags);
@@ -84,16 +79,7 @@ for (const [name, adapter, manager, version] of managers) {
           optional: "optionalDependencies",
           peer: "peerDependencies",
         }[kind];
-        let removal: string[][];
-        if (name === "npm") {
-          removal = [["pkg", "delete", `${field}[pkg]`], ["install"]];
-        } else if (name === "bun") {
-          removal = [["pm", "pkg", "delete", `${field}.pkg`], ["install"]];
-        } else if (name === "pnpm") {
-          removal = [["remove", "pkg", ...flags]];
-        } else {
-          removal = [["remove", "pkg"]];
-        }
+        const removal = removeArgs(name, field, flags);
         expect(remove.steps.map((step) => step.args)).toEqual(removal);
         const selected = after.dependencies[0];
         if (!selected) {
@@ -173,4 +159,26 @@ for (const [group, flags] of [
       f.close();
     }
   });
+}
+
+function addFlags(name: string, kind: string): string[] {
+  return name === "npm" || name === "pnpm"
+    ? [`--save-${kind === "runtime" ? "prod" : kind}`]
+    : kind === "runtime"
+      ? []
+      : [`--${kind}`];
+}
+function removeArgs(name: string, field: string, flags: string[]): string[][] {
+  let removal: string[][];
+  if (name === "npm") {
+    removal = [["pkg", "delete", `${field}[pkg]`], ["install"]];
+  } else if (name === "bun") {
+    removal = [["pm", "pkg", "delete", `${field}.pkg`], ["install"]];
+  } else if (name === "pnpm") {
+    removal = [["remove", "pkg", ...flags]];
+  } else {
+    removal = [["remove", "pkg"]];
+  }
+
+  return removal;
 }

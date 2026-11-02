@@ -1,3 +1,4 @@
+import { type Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { canonicalWritePath, safePath, within } from "../dependencies/paths";
@@ -36,6 +37,9 @@ async function dependencyRoots(target: LintTarget): Promise<string[]> {
       directories.add(directory);
     }
   }
+  return await canonicalDependencyRoots(target, directories);
+}
+async function canonicalDependencyRoots(target: LintTarget, directories: Set<string>): Promise<string[]> {
   const roots: string[] = [];
   for (const directory of directories) {
     const canonical = await canonicalWritePath(target.root, directory);
@@ -53,15 +57,13 @@ export interface OwnedFiles {
   childRoots: string[];
   dependencyRoots: string[];
 }
+interface FilePolicy {
+  excludeDirectory(path: string, name: string): boolean;
+  includeFile(path: string): boolean | Promise<boolean>;
+  boundaryRoot?: string;
+}
 /** Shared ownership walk. Callers supply only their file/directory policy. */
-export async function collectOwnedFiles(
-  target: LintTarget,
-  options: {
-    excludeDirectory(path: string, name: string): boolean;
-    includeFile(path: string): boolean | Promise<boolean>;
-    boundaryRoot?: string;
-  },
-): Promise<OwnedFiles> {
+export async function collectOwnedFiles(target: LintTarget, options: FilePolicy): Promise<OwnedFiles> {
   const childRoots = childProjectRoots(target.project, target.structure.projects);
   const dependencies = await dependencyRoots(target);
   const files: string[] = [];
@@ -72,25 +74,42 @@ export async function collectOwnedFiles(
     const absolute = await safePath(options.boundaryRoot ?? target.root, resolve(target.scope.cwd, directory));
     const entries = await readdir(absolute, { withFileTypes: true });
     for (const entry of entries) {
-      const path = directory ? `${directory}/${entry.name}` : entry.name;
-      if (
-        entry.isSymbolicLink() ||
-        entry.name === ".pnp.cjs" ||
-        entry.name === ".pnp.loader.mjs" ||
-        isInternalStatePath(path) ||
-        childRoots.some((child) => path === child || path.startsWith(`${child}/`))
-      ) {
+      const path = filePath(directory, entry.name);
+      if (excludedEntry(entry, path, childRoots)) {
         continue;
       }
-      if (entry.isDirectory()) {
-        if (!options.excludeDirectory(path, entry.name)) {
-          await visit(path);
-        }
-      } else if (entry.isFile() && (await options.includeFile(path))) {
-        files.push(path);
-      }
+      await collectEntry(entry, path, options, visit, files);
     }
   };
   await visit("");
   return { files: files.sort(), childRoots, dependencyRoots: dependencies };
+}
+
+function excludedEntry(entry: Dirent, path: string, childRoots: string[]): boolean {
+  return (
+    entry.isSymbolicLink() ||
+    entry.name === ".pnp.cjs" ||
+    entry.name === ".pnp.loader.mjs" ||
+    isInternalStatePath(path) ||
+    childRoots.some((child) => path === child || path.startsWith(`${child}/`))
+  );
+}
+async function collectEntry(
+  entry: Dirent,
+  path: string,
+  options: FilePolicy,
+  visit: (path: string) => Promise<void>,
+  files: string[],
+): Promise<void> {
+  if (entry.isDirectory()) {
+    if (!options.excludeDirectory(path, entry.name)) {
+      await visit(path);
+    }
+  } else if (entry.isFile() && (await options.includeFile(path))) {
+    files.push(path);
+  }
+}
+
+function filePath(directory: string, name: string): string {
+  return directory ? `${directory}/${name}` : name;
 }

@@ -143,7 +143,7 @@ bun run test:dependencies
 rm -rf "$test_managers"
 ```
 
-These environment overrides are test-harness inputs, not agent tool parameters. The product resolves the installed native manager from project metadata and `PATH`. The focused command covers the native suites and real OMP loader/approval/packaged smoke. The normal `bun run check` and `bun run test:integration` gates remain unchanged. Installed-package smoke creates a separate installation, may download missing package dependencies with scripts disabled, and performs a native local-package mutation outside the checkout.
+These environment overrides are test-harness inputs, not agent tool parameters. The product resolves the installed native manager from project metadata and `PATH`. The focused command covers the native suites and real OMP loader/approval/packaged smoke. The normal `bun run check` and `bun run check:integration` gates remain unchanged. Installed-package smoke creates a separate installation, may download missing package dependencies with scripts disabled, and performs a native local-package mutation outside the checkout.
 
 ## Shared API
 

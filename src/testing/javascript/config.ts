@@ -43,8 +43,7 @@ export function vitestConfig(context: TestRunContext, userConfig?: string): stri
   return `import {createRequire} from 'node:module';\nimport {pathToFileURL} from 'node:url';\nconst req=createRequire(${JSON.stringify(join(context.target.scope.cwd, "package.json"))});\nconst vitestReq=createRequire(req.resolve('vitest/package.json'));\nconst {loadConfigFromFile}=await import(pathToFileURL(vitestReq.resolve('vite')).href);\nconst loaded=${userConfig ? `await loadConfigFromFile({command:'serve',mode:'test'},${JSON.stringify(userConfig)},${JSON.stringify(context.target.scope.cwd)})` : "undefined"};\nconst base=loaded?.config??{}; if(base.test) {base.test={...base.test};delete base.test.workspace;delete base.test.projects;}\nexport default {...base,root:${JSON.stringify(context.target.scope.cwd)},test:{...base.test,...${options},testNamePattern:undefined,changed:undefined,related:undefined,shard:undefined}};\n`;
 }
 export function bunConfig(context: TestRunContext, existing: Record<string, unknown>, preload?: string) {
-  const nativeTest = { ...object(existing.test) };
-  delete nativeTest.rerunEach;
+  const { rerunEach: _rerunEach, ...nativeTest } = object(existing.test);
   const test = {
     ...nativeTest,
     root: context.target.scope.cwd,

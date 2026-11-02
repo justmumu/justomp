@@ -3,6 +3,7 @@ import { typescriptDiagnostics } from "../../../src/typecheck/adapters/javascrip
 import { type TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
 import { parseJavascriptConfig } from "../../../src/typecheck/javascript/config-graph";
 import { TypecheckError } from "../../../src/typecheck/model";
+import { suppliedResponse } from "../../response";
 
 test("JSONC config preserves comments, trailing commas, extends arrays and references", () => {
   expect(
@@ -71,10 +72,12 @@ test("one bounded dist-tag query selects the common exact stable TypeScript rele
   const original = globalThis.fetch;
   const fetcher = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
-        expect(new Headers(init?.headers).get("accept")).toBe("application/json");
-        urls.push(String(url));
-        return Response.json({ latest: "7.0.2", next: "8.0.0-dev.1" });
+      (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        return suppliedResponse(() => {
+          expect(new Headers(init?.headers).get("accept")).toBe("application/json");
+          urls.push(String(url));
+          return Response.json({ latest: "7.0.2", next: "8.0.0-dev.1" });
+        });
       },
       { preconnect: original.preconnect },
     ),

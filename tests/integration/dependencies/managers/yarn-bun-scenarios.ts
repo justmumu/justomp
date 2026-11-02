@@ -19,13 +19,13 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
           },
         ],
       });
-      expect((await f.manifest()).dependencies["u6-git"]).toContain("#main");
+      expect((await f.manifest()).dependencies?.["u6-git"]).toContain("#main");
       expect((await adapter.inventory(await f.context(), false)).dependencies[0]?.source.kind).toBe("git");
       await f.operate(adapter, {
         operation: "update",
         packages: [{ name: "u6-git" }],
       });
-      expect((await f.manifest()).dependencies["u6-git"]).toContain("#main");
+      expect((await f.manifest()).dependencies?.["u6-git"]).toContain("#main");
       await f.operate(adapter, { operation: "sync" });
       await f.operate(adapter, {
         operation: "remove",
@@ -84,7 +84,7 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
           group: { kind: "dev" },
           packages: [{ name: "u6-dep" }],
         });
-        expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
+        expect((await f.manifest()).dependencies?.["u6-dep"]).toBe("1.0.0");
         expect((await f.manifest()).devDependencies?.["u6-dep"]).toBeUndefined();
       } finally {
         await f.close();
@@ -111,7 +111,7 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
         group: { kind: "runtime" },
         packages: [{ name: "u6-local", source: { kind: "path", path: "local" } }],
       });
-      expect((await f.manifest()).dependencies["u6-local"]).toContain("file:");
+      expect((await f.manifest()).dependencies?.["u6-local"]).toContain("file:");
       const localGraph = await adapter.inventory(await f.context(), true);
       expect(localGraph.complete).toBe(true);
       expect(localGraph.dependencies.some((d) => d.name === "u6-child")).toBe(true);
@@ -130,12 +130,12 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
           },
         ],
       });
-      expect((await f.manifest()).dependencies["u6-b"]).toMatch(variant === "classic" ? /^file:/ : /^workspace:/);
+      expect((await f.manifest()).dependencies?.["u6-b"]).toMatch(variant === "classic" ? /^file:/ : /^workspace:/);
       await f.operate(adapter, {
         operation: "update",
         packages: [{ name: "u6-local" }],
       });
-      expect((await f.manifest()).dependencies["u6-local"]).toContain("file:");
+      expect((await f.manifest()).dependencies?.["u6-local"]).toContain("file:");
       await f.operate(adapter, { operation: "sync" });
     } finally {
       await f.close();
@@ -216,7 +216,7 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
       expect(await readFile(lock, "utf8")).toBe(before);
       await f.operate(adapter, { operation: "sync" });
       const manifest = await f.manifest();
-      manifest.dependencies["u6-other"] = "1.0.0";
+      (manifest.dependencies as Record<string, string>)["u6-other"] = "1.0.0";
       await writeFile(join(f.root, "package.json"), JSON.stringify(manifest));
       if (variant === "bun") {
         await expect(f.operate(adapter, { operation: "sync", check: true })).rejects.toThrow();

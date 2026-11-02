@@ -25,23 +25,7 @@ export const vitestTestAdapter: TestAdapter = {
   prepare: prepareJavascript,
   verify: verifyJavascript,
   async run(context) {
-    let userConfig = context.target.configFile;
-    for (const base of ["vitest", "vite"]) {
-      if (userConfig) {
-        break;
-      }
-      for (const extension of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
-        const path = join(context.target.scope.cwd, `${base}.config.${extension}`);
-        try {
-          await access(path);
-          userConfig = path;
-          break;
-        } catch {}
-      }
-      if (userConfig) {
-        break;
-      }
-    }
+    const userConfig = await findUserConfig(context.target);
     const config = join(context.artifacts, "vitest.config.mjs");
     await writeFile(config, vitestConfig(context, userConfig));
     const native = await lintManagerContext(context.target, context.signal),
@@ -75,3 +59,26 @@ export const vitestTestAdapter: TestAdapter = {
     return result;
   },
 };
+
+async function findUserConfig(target: import("../targets").TestTarget): Promise<string | undefined> {
+  let userConfig = target.configFile;
+  for (const base of ["vitest", "vite"]) {
+    if (userConfig) {
+      break;
+    }
+    for (const extension of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
+      const path = join(target.scope.cwd, `${base}.config.${extension}`);
+      try {
+        await access(path);
+        userConfig = path;
+        break;
+      } catch {
+        /* Missing or inaccessible candidates do not select a native config. */
+      }
+    }
+    if (userConfig) {
+      break;
+    }
+  }
+  return userConfig;
+}

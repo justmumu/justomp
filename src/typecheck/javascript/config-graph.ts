@@ -106,50 +106,7 @@ async function inheritedConfigs(
     if (typeof parent !== "string") {
       invalid(`Invalid TypeScript extends: ${path}`);
     }
-    let next: string;
-    let packageInput = packaged;
-    if (parent.startsWith(".") || parent.startsWith("/")) {
-      next = resolve(dirname(path), parent);
-      if (!next.endsWith(".json")) {
-        next += ".json";
-      }
-      if (!packageInput) {
-        await safePath(target.root, next);
-      }
-    } else {
-      packageInput = true;
-      const native = await read.native(target);
-      const resolved = await nodeRun(
-        target,
-        native,
-        [
-          "-e",
-          `const req=require('node:module').createRequire(process.argv[1]); let value; try {value=req.resolve(process.argv[2]);} catch {value=req.resolve(process.argv[2]+'/tsconfig.json');} console.log(value);`,
-          path,
-          parent,
-        ],
-        signal,
-      );
-      assertTypecheckNative(resolved, `Resolve inherited config ${parent}`);
-      next = resolved.stdout.trim().split("\n").at(-1) ?? "";
-    }
-    let text: string;
-    if (packageInput) {
-      const contents = await nodeRun(
-        target,
-        await read.native(target),
-        ["-e", "console.log(JSON.stringify(require('node:fs').readFileSync(process.argv[1],'utf8')))", next],
-        signal,
-      );
-      assertTypecheckNative(contents, `Read inherited TypeScript config ${next}`);
-      text = JSON.parse(contents.stdout.trim());
-    } else {
-      try {
-        text = await readFile(next, "utf8");
-      } catch {
-        invalid(`Missing inherited TypeScript config: ${next}`);
-      }
-    }
+    const { next, text, packageInput } = await readParent(target, path, parent, signal, read, packaged);
     result.push(
       { path: next, text },
       ...(await inheritedConfigs(target, next, parseJavascriptConfig(text, next), signal, read, seen, packageInput)),
@@ -158,7 +115,7 @@ async function inheritedConfigs(
   return result;
 }
 /** Compiler CLI interprets config semantics; JSONC supplies references and inherited input identities. */
-export async function readJavascriptConfigGraph(
+export function readJavascriptConfigGraph(
   target: TypecheckTarget,
   signal: AbortSignal,
   entryConfig?: string,
@@ -177,61 +134,8 @@ export async function readJavascriptConfigGraph(
       entryConfig = resolve(target.root, next.config);
     }
     const generatedFiles: string[] = [];
-    if (next) {
-      const dist = await safePath(target.root, next.dist);
-      scope.files = scope.files.filter((file) => !within(dist, resolve(target.scope.cwd, file)));
-      const visitTypes = async (directory: string): Promise<void> => {
-        let entries: import("node:fs").Dirent[];
-        try {
-          entries = await readdir(directory, { withFileTypes: true });
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            return;
-          }
-          throw error;
-        }
-        for (const entry of entries) {
-          const path = await safePath(target.root, join(directory, entry.name));
-          if (entry.isDirectory()) {
-            await visitTypes(path);
-          } else if (entry.isFile() && /\.[cm]?tsx?$/.test(entry.name)) {
-            generatedFiles.push(path);
-          }
-        }
-      };
-      await visitTypes(join(dist, "types"));
-      const env = join(target.scope.cwd, "next-env.d.ts");
-      if (await Bun.file(env).exists()) {
-        generatedFiles.push(env);
-      }
-    }
-    const candidates = new Set<string>();
-    if (entryConfig) {
-      candidates.add(await configPath(target, resolve(target.scope.cwd, entryConfig)));
-    } else {
-      const directories = new Set([target.scope.cwd]);
-      for (const file of scope.files) {
-        let directory = dirname(resolve(target.scope.cwd, file));
-        while (within(target.scope.cwd, directory)) {
-          directories.add(directory);
-          if (directory === target.scope.cwd) {
-            break;
-          }
-          directory = dirname(directory);
-        }
-      }
-      for (const directory of [...directories].sort()) {
-        for (const item of await readdir(directory, { withFileTypes: true })) {
-          if (
-            item.isFile() &&
-            /^(?:ts|js)config(?:\.[^.]+)*\.json$/.test(item.name) &&
-            !item.name.includes(".justomp.")
-          ) {
-            candidates.add(join(directory, item.name));
-          }
-        }
-      }
-    }
+    await nextSources(target, next, scope, generatedFiles);
+    const candidates = await configCandidates(target, scope, entryConfig);
     const nodes = new Map<string, JavascriptConfigNode>(),
       visiting = new Set<string>();
     const visit = async (input: string) => {
@@ -243,58 +147,8 @@ export async function readJavascriptConfigGraph(
         return;
       }
       visiting.add(path);
-      const raw = parseJavascriptConfig(await readFile(path, "utf8"), path);
-      const inherited = await inheritedConfigs(target, path, raw, signal, read);
-      const packageSpecifiers = [raw, ...inherited.map((input) => parseJavascriptConfig(input.text, input.path))]
-        .flatMap((config) => (Array.isArray(config.extends) ? config.extends : [config.extends]))
-        .filter(
-          (value): value is string => typeof value === "string" && !value.startsWith(".") && !value.startsWith("/"),
-        );
-      if (packageSpecifiers.length) {
-        // Native TS7 --showConfig can silently omit an unresolved PnP extends.
-        // File-list mode validates native resolution without emitting or typechecking.
-        const listing = await typescriptRun(
-          target,
-          ["--listFilesOnly", "--project", path, "--pretty", "false", "--noEmit", "--incremental", "false"],
-          signal,
-          await read.native(target),
-        );
-        if (listing.cancelled || listing.truncated || ![0, 1, 2].includes(listing.exit_code ?? -1)) {
-          assertTypecheckNative(listing, `Validate native config resolution ${path}`);
-        }
-        for (const specifier of packageSpecifiers) {
-          if (listing.stdout.includes(`error TS6053: File '${specifier}' not found.`)) {
-            throw new TypecheckError(
-              "incompatible-toolchain",
-              `Installed TypeScript cannot resolve installed package config '${specifier}' in the native environment; Yarn PnP requires native compiler support. Reconcile the installed toolchain explicitly; no downgrade or linker change was made.`,
-            );
-          }
-        }
-      }
-      const result = await read.showConfig(target, ["--project", path]);
-      const effective = effectiveJavascriptConfig(result, raw, path);
-      const references: string[] = [];
-      if (raw.references !== undefined && !Array.isArray(raw.references)) {
-        invalid(`Invalid TypeScript references: ${path}`);
-      }
-      for (const reference of (raw.references as unknown[] | undefined) ?? []) {
-        const value = object(reference).path;
-        if (typeof value !== "string") {
-          invalid(`Invalid TypeScript reference in ${path}`);
-        }
-        references.push(await configPath(target, resolve(dirname(path), value)));
-      }
-      const node: JavascriptConfigNode = {
-        path,
-        project_id: owner(target, path),
-        raw,
-        compilerOptions: object(effective.compilerOptions),
-        files: Array.isArray(effective.files)
-          ? effective.files.filter((p): p is string => typeof p === "string").map((p) => resolve(dirname(path), p))
-          : [],
-        references,
-        inherited,
-      };
+      const node = await readNode(target, path, signal, read);
+      const references = node.references;
       nodes.set(path, node);
       for (const reference of references) {
         await visit(reference);
@@ -375,4 +229,221 @@ export function javascriptCheckContexts(
   return contexts
     .filter((context) => context.files.length > 0)
     .map((context) => ({ ...context, files: context.files.sort() }));
+}
+
+async function readParent(
+  target: TypecheckTarget,
+  path: string,
+  parent: string,
+  signal: AbortSignal,
+  read: JavascriptConfigRead,
+  packaged: boolean,
+) {
+  let next: string;
+  let packageInput = packaged;
+  if (parent.startsWith(".") || parent.startsWith("/")) {
+    next = resolve(dirname(path), parent);
+    if (!next.endsWith(".json")) {
+      next += ".json";
+    }
+    if (!packageInput) {
+      await safePath(target.root, next);
+    }
+  } else {
+    packageInput = true;
+    const native = await read.native(target);
+    const resolved = await nodeRun(
+      target,
+      native,
+      [
+        "-e",
+        `const req=require('node:module').createRequire(process.argv[1]); let value; try {value=req.resolve(process.argv[2]);} catch {value=req.resolve(process.argv[2]+'/tsconfig.json');} console.log(value);`,
+        path,
+        parent,
+      ],
+      signal,
+    );
+    assertTypecheckNative(resolved, `Resolve inherited config ${parent}`);
+    next = resolved.stdout.trim().split("\n").at(-1) ?? "";
+  }
+  const text = await parentContents(target, next, packageInput, signal, read);
+  return { next, text, packageInput };
+}
+
+async function visitTypes(target: TypecheckTarget, directory: string, generatedFiles: string[]): Promise<void> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  for (const entry of entries) {
+    const path = await safePath(target.root, join(directory, entry.name));
+    if (entry.isDirectory()) {
+      await visitTypes(target, path, generatedFiles);
+    } else if (entry.isFile() && /\.[cm]?tsx?$/.test(entry.name)) {
+      generatedFiles.push(path);
+    }
+  }
+}
+
+async function configCandidates(
+  target: TypecheckTarget,
+  scope: TypecheckScope,
+  entryConfig: string | undefined,
+): Promise<Set<string>> {
+  const candidates = new Set<string>();
+  if (entryConfig) {
+    candidates.add(await configPath(target, resolve(target.scope.cwd, entryConfig)));
+  } else {
+    const directories = sourceDirectories(target, scope);
+    await discoverConfigs(directories, candidates);
+  }
+  return candidates;
+}
+
+async function readNode(
+  target: TypecheckTarget,
+  path: string,
+  signal: AbortSignal,
+  read: JavascriptConfigRead,
+): Promise<JavascriptConfigNode> {
+  const raw = parseJavascriptConfig(await readFile(path, "utf8"), path);
+  const inherited = await inheritedConfigs(target, path, raw, signal, read);
+  const packageSpecifiers = [raw, ...inherited.map((input) => parseJavascriptConfig(input.text, input.path))]
+    .flatMap((config) => (Array.isArray(config.extends) ? config.extends : [config.extends]))
+    .filter((value): value is string => typeof value === "string" && !value.startsWith(".") && !value.startsWith("/"));
+  await validatePackageResolution(target, path, signal, read, packageSpecifiers);
+  const result = await read.showConfig(target, ["--project", path]);
+  const effective = effectiveJavascriptConfig(result, raw, path);
+  const references = await readReferences(target, raw, path);
+  const node: JavascriptConfigNode = {
+    path,
+    project_id: owner(target, path),
+    raw,
+    compilerOptions: object(effective.compilerOptions),
+    files: Array.isArray(effective.files)
+      ? effective.files.filter((p): p is string => typeof p === "string").map((p) => resolve(dirname(path), p))
+      : [],
+    references,
+    inherited,
+  };
+  return node;
+}
+
+async function validatePackageResolution(
+  target: TypecheckTarget,
+  path: string,
+  signal: AbortSignal,
+  read: JavascriptConfigRead,
+  packageSpecifiers: string[],
+): Promise<void> {
+  if (packageSpecifiers.length) {
+    // Native TS7 --showConfig can silently omit an unresolved PnP extends.
+    // File-list mode validates native resolution without emitting or typechecking.
+    const listing = await typescriptRun(
+      target,
+      ["--listFilesOnly", "--project", path, "--pretty", "false", "--noEmit", "--incremental", "false"],
+      signal,
+      await read.native(target),
+    );
+    if (listing.cancelled || listing.truncated || ![0, 1, 2].includes(listing.exit_code ?? -1)) {
+      assertTypecheckNative(listing, `Validate native config resolution ${path}`);
+    }
+    for (const specifier of packageSpecifiers) {
+      if (listing.stdout.includes(`error TS6053: File '${specifier}' not found.`)) {
+        throw new TypecheckError(
+          "incompatible-toolchain",
+          `Installed TypeScript cannot resolve installed package config '${specifier}' in the native environment; Yarn PnP requires native compiler support. Reconcile the installed toolchain explicitly; no downgrade or linker change was made.`,
+        );
+      }
+    }
+  }
+}
+
+async function readReferences(target: TypecheckTarget, raw: Record<string, unknown>, path: string): Promise<string[]> {
+  const references: string[] = [];
+  if (raw.references !== undefined && !Array.isArray(raw.references)) {
+    invalid(`Invalid TypeScript references: ${path}`);
+  }
+  for (const reference of (raw.references as unknown[] | undefined) ?? []) {
+    const value = object(reference).path;
+    if (typeof value !== "string") {
+      invalid(`Invalid TypeScript reference in ${path}`);
+    }
+    references.push(await configPath(target, resolve(dirname(path), value)));
+  }
+  return references;
+}
+
+function sourceDirectories(target: TypecheckTarget, scope: TypecheckScope): Set<string> {
+  const directories = new Set([target.scope.cwd]);
+  for (const file of scope.files) {
+    let directory = dirname(resolve(target.scope.cwd, file));
+    while (within(target.scope.cwd, directory)) {
+      directories.add(directory);
+      if (directory === target.scope.cwd) {
+        break;
+      }
+      directory = dirname(directory);
+    }
+  }
+  return directories;
+}
+
+async function parentContents(
+  target: TypecheckTarget,
+  next: string,
+  packageInput: boolean,
+  signal: AbortSignal,
+  read: JavascriptConfigRead,
+): Promise<string> {
+  let text: string;
+  if (packageInput) {
+    const contents = await nodeRun(
+      target,
+      await read.native(target),
+      ["-e", "console.log(JSON.stringify(require('node:fs').readFileSync(process.argv[1],'utf8')))", next],
+      signal,
+    );
+    assertTypecheckNative(contents, `Read inherited TypeScript config ${next}`);
+    text = JSON.parse(contents.stdout.trim()) as string;
+  } else {
+    try {
+      text = await readFile(next, "utf8");
+    } catch {
+      invalid(`Missing inherited TypeScript config: ${next}`);
+    }
+  }
+  return text;
+}
+
+async function nextSources(
+  target: TypecheckTarget,
+  next: import("../state").NextTypeInputs | undefined,
+  scope: TypecheckScope,
+  generatedFiles: string[],
+): Promise<void> {
+  if (next) {
+    const dist = await safePath(target.root, next.dist);
+    scope.files = scope.files.filter((file) => !within(dist, resolve(target.scope.cwd, file)));
+    await visitTypes(target, join(dist, "types"), generatedFiles);
+    const env = join(target.scope.cwd, "next-env.d.ts");
+    if (await Bun.file(env).exists()) {
+      generatedFiles.push(env);
+    }
+  }
+}
+
+async function discoverConfigs(directories: Set<string>, candidates: Set<string>): Promise<void> {
+  for (const directory of [...directories].sort()) {
+    for (const item of await readdir(directory, { withFileTypes: true })) {
+      if (item.isFile() && /^(?:ts|js)config(?:\.[^.]+)*\.json$/.test(item.name) && !item.name.includes(".justomp.")) {
+        candidates.add(join(directory, item.name));
+      }
+    }
+  }
 }

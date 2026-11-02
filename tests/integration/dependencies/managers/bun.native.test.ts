@@ -19,21 +19,21 @@ test("Bun native registry lifecycle respects constraints and exact downgrades", 
       operation: "update",
       packages: [{ name: "u6-dep" }],
     });
-    expect((await f.manifest()).dependencies["u6-dep"]).toBe("^1.1.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toBe("^1.1.0");
     expect(await f.installed("u6-dep")).toBe("1.1.0");
     await f.operate(adapter, {
       operation: "update",
       mode: "latest",
       packages: [{ name: "u6-dep" }],
     });
-    expect((await f.manifest()).dependencies["u6-dep"]).toContain("2.0.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toContain("2.0.0");
     expect(await f.installed("u6-dep")).toBe("2.0.0");
     await f.operate(adapter, {
       operation: "update",
       packages: [{ name: "u6-dep", version: "v1.0.0" }],
     });
     expect(await f.installed("u6-dep")).toBe("1.0.0");
-    expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toBe("1.0.0");
     await rm(join(f.root, "node_modules"), { recursive: true, force: true });
     await f.operate(adapter, { operation: "sync", check: true });
     expect(await Bun.file(join(f.root, "node_modules/u6-dep/package.json")).exists()).toBe(false);

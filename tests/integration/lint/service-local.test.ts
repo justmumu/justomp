@@ -9,6 +9,7 @@ import { lintDomains } from "../../../src/lint/prepare";
 import { applyProjection, planProjection } from "../../../src/lint/projection";
 import { inspectLintProject, lintAdapters } from "../../../src/lint/service";
 import { LintStateStore } from "../../../src/lint/state";
+import { suppliedResponse } from "../../response";
 import { fixture } from "./fixture";
 
 test("queued check reports the policy actually checked after policy preparation", async () => {
@@ -34,8 +35,12 @@ test("queued check reports the policy actually checked after policy preparation"
     const domains = lintDomains(target.root, [target]);
     const before = await loadConfig(target.root);
     const oldHash = lintPolicyKey(before.lint.python);
-    let entered = () => {};
-    let mutate = () => {};
+    let entered = () => {
+      /* This supplied callback intentionally has no side effects. */
+    };
+    let mutate = () => {
+      /* This supplied callback intentionally has no side effects. */
+    };
     const enteredPromise = new Promise<void>((resolve) => {
       entered = resolve;
     });
@@ -64,9 +69,11 @@ test("queued check reports the policy actually checked after policy preparation"
     await enteredPromise;
     let checkedHash = "";
     const actualCheck = f.adapter.check;
-    const checkHook = spyOn(f.adapter, "check").mockImplementation(async (context) => {
-      checkedHash = lintPolicyKey(context.policy.python);
-      return actualCheck(context);
+    const checkHook = spyOn(f.adapter, "check").mockImplementation((context) => {
+      return suppliedResponse(() => {
+        checkedHash = lintPolicyKey(context.policy.python);
+        return actualCheck(context);
+      });
     });
     const checking = checkProjectLint(f.root, id);
     try {

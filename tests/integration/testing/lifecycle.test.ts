@@ -6,6 +6,7 @@ import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { type TestAdapter } from "../../../src/testing/adapters";
 import { retainTestCoordinator, waitForTestPreparation } from "../../../src/testing/coordinator";
 import { prepareTests } from "../../../src/testing/prepare";
+import { suppliedResponse } from "../../response";
 
 test("persisted runner waves resume exact versions, align new members, and share session ownership", async () => {
   const root = await mkdtemp(join(tmpdir(), "justomp-test-lifecycle-"));
@@ -19,12 +20,16 @@ test("persisted runner waves resume exact versions, align new members, and share
     await writeFile(join(root, name, "package.json"), JSON.stringify({ name, packageManager: "npm@10.9.0" }));
   };
   const adapter: TestAdapter = {
-    resolve: async () => {
-      resolves++;
-      return { vitest: latest };
+    resolve: () => {
+      return suppliedResponse(() => {
+        resolves++;
+        return { vitest: latest };
+      });
     },
-    preflight: async () => {
-      preflights++;
+    preflight: () => {
+      return suppliedResponse(() => {
+        preflights++;
+      });
     },
     verify: async ({ target, tools }) => {
       try {
@@ -47,8 +52,10 @@ test("persisted runner waves resume exact versions, align new members, and share
         kind: "updated",
       });
     },
-    run: async () => {
-      throw new Error("startup must not run tests");
+    run: () => {
+      return suppliedResponse(() => {
+        throw new Error("startup must not run tests");
+      });
     },
   };
   const signal = new AbortController().signal;
@@ -79,7 +86,9 @@ test("persisted runner waves resume exact versions, align new members, and share
     await two.release();
     expect(two.coordinator.isClosed).toBe(true);
     await add("c");
-    let entered = () => {},
+    let entered = () => {
+        /* This supplied callback intentionally has no side effects. */
+      },
       joined = false;
     const started = new Promise<void>((resolve) => {
       entered = resolve;

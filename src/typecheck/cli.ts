@@ -26,10 +26,10 @@ async function main(): Promise<void> {
       values["project-id"],
       controller.signal,
     );
-    console.log(JSON.stringify(result));
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exitCode = result.success ? 0 : result.complete ? 1 : 2;
   } catch (error) {
-    console.log(JSON.stringify(typecheckFailure(error, controller.signal)));
+    process.stdout.write(`${JSON.stringify(typecheckFailure(error, controller.signal))}\n`);
     process.exitCode = 2;
   } finally {
     process.off("SIGINT", cancel);

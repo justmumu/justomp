@@ -45,5 +45,5 @@ test("native two-step failure reports metadata and never rolls back", async () =
   );
   expect(result.outcome).toBe("partial_change");
   expect(await readFile(join(root, "package.json"), "utf8")).toContain("99999.0.0");
-  expect("native_steps" in result && result.native_steps?.length).toBe(2);
+  expect("native_steps" in result && result.native_steps.length).toBe(2);
 });

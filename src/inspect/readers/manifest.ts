@@ -71,74 +71,9 @@ function js(file: string, path: string, source: string): ParsedManifest {
   const p = project(path, file, "javascript", optionalString(data.name, "name"));
   const diagnostics: Diagnostic[] = [];
   const references: LocalReference[] = [];
-  if (data.packageManager !== undefined) {
-    const manager = optionalString(data.packageManager, "packageManager") as string;
-    const match = /^(npm|pnpm|yarn|bun)@(.+)$/.exec(manager);
-    if (match?.[1]) {
-      p.managerCandidates.push(match[1]);
-      p.managerVersion = match[2];
-    } else {
-      p.status = "ambiguous";
-      diagnostics.push(
-        diagnostic("unsupported-manager", file, `Unsupported packageManager ${manager}`, "packageManager"),
-      );
-    }
-    p.evidence.push(evidence(file, "packageManager", manager));
-  }
-  const engines = optionalObject(data.engines, "engines");
-  p.runtime = {};
-  for (const [name, version] of Object.entries(engines)) {
-    if (typeof version !== "string") {
-      throw new Error(`engines.${name} must be a string`);
-    }
-    p.runtime[name] = version;
-    p.evidence.push(evidence(file, `engines.${name}`, version));
-  }
-  for (const group of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-    for (const [name, spec] of Object.entries(optionalObject(data[group], group))) {
-      if (typeof spec !== "string") {
-        throw new Error(`${group}.${name} must be a string`);
-      }
-      const ev = evidence(file, `${group}.${name}`, spec);
-      if (["next", "react", "vue", "svelte", "typescript"].includes(name)) {
-        p.frameworks.push(name);
-        p.evidence.push(ev);
-      }
-      if (spec.startsWith("workspace:")) {
-        const value = spec.slice(10);
-        if (value.startsWith(".")) {
-          references.push({
-            name,
-            target: value,
-            kind: "workspace-path",
-            evidence: ev,
-          });
-        } else if (["*", "^", "~"].includes(value) || /^[~^]?\d/.test(value)) {
-          references.push({
-            name,
-            workspace: true,
-            kind: "workspace",
-            evidence: ev,
-          });
-        } else {
-          diagnostics.push(
-            diagnostic("unresolved", file, `Unsupported workspace alias ${name}: ${spec}`, `${group}.${name}`),
-          );
-        }
-      } else if (spec.startsWith("file:") || spec.startsWith("link:")) {
-        references.push({
-          name,
-          target: spec.slice(5),
-          kind: spec.startsWith("file:") ? "file" : "link",
-          evidence: ev,
-        });
-      } else if (spec.startsWith("catalog:")) {
-        diagnostics.push(
-          diagnostic("unresolved", file, `Catalog dependency ${name} is not resolved`, `${group}.${name}`),
-        );
-      }
-    }
-  }
+  jsManager(data, p, diagnostics, file);
+  jsRuntime(data, p, file);
+  jsDependencies(data, p, references, diagnostics, file);
   let workspace: ParsedManifest["workspace"];
   if (data.workspaces !== undefined) {
     const definition = Array.isArray(data.workspaces)
@@ -167,34 +102,7 @@ function python(file: string, path: string, source: string): ParsedManifest {
   const diagnostics: Diagnostic[] = [];
   const references: LocalReference[] = [];
   const uvSources: Record<string, LocalReference | null> = {};
-  for (const [name, value] of Object.entries(optionalObject(uv.sources, "tool.uv.sources"))) {
-    const field = `tool.uv.sources.${name}`;
-    uvSources[normalizePythonName(name)] = null;
-    if (Array.isArray(value)) {
-      diagnostics.push(diagnostic("unresolved", file, `Conditional uv sources for ${name} are not resolved`, field));
-      continue;
-    }
-    const s = object(value, field);
-    if (s.marker !== undefined || s.extra !== undefined || s.group !== undefined) {
-      diagnostics.push(diagnostic("unresolved", file, `Conditional uv source ${name} is not resolved`, field));
-      continue;
-    }
-    if (s.workspace === true) {
-      uvSources[normalizePythonName(name)] = {
-        name,
-        workspace: true,
-        kind: "uv-workspace",
-        evidence: evidence(file, field),
-      };
-    } else if (s.path !== undefined) {
-      uvSources[normalizePythonName(name)] = {
-        name,
-        target: optionalString(s.path, `${field}.path`),
-        kind: "uv-path",
-        evidence: evidence(file, field),
-      };
-    }
-  }
+  readUvSources(uv, file, diagnostics, uvSources);
   let metadata: ObjectValue | undefined = data.project === undefined ? undefined : object(data.project, "project");
   let poetry = false;
   if (!metadata && tool.poetry !== undefined) {
@@ -211,62 +119,7 @@ function python(file: string, path: string, source: string): ParsedManifest {
   }
   let parsed: ParsedProject | undefined;
   if (metadata) {
-    const name = optionalString(metadata.name, poetry ? "tool.poetry.name" : "project.name");
-    if (!name) {
-      throw new Error("Python project metadata requires a name");
-    }
-    const p = project(path, file, "python", name);
-    p.evidence[0] = evidence(file, poetry ? "tool.poetry.name" : "project.name", name);
-    if (poetry) {
-      p.managerCandidates.push("poetry");
-    }
-    if (Object.keys(uv).length) {
-      p.managerCandidates.push("uv");
-    }
-    if (requiredVersion) {
-      p.managerVersion = requiredVersion;
-      p.evidence.push(evidence(file, "tool.uv.required-version", requiredVersion));
-    }
-    const runtime = optionalString(metadata["requires-python"], "project.requires-python");
-    if (runtime) {
-      p.runtime = { python: runtime };
-      p.evidence.push(evidence(file, "project.requires-python", runtime));
-    }
-    const requirements = poetry ? [] : strings(metadata.dependencies, "project.dependencies");
-    const optional = optionalObject(metadata["optional-dependencies"], "project.optional-dependencies");
-    for (const [group, values] of Object.entries(optional)) {
-      requirements.push(...strings(values, `project.optional-dependencies.${group}`));
-    }
-    const groups = optionalObject(data["dependency-groups"], "dependency-groups");
-    for (const [group, items] of Object.entries(groups)) {
-      if (!Array.isArray(items)) {
-        throw new Error(`dependency-groups.${group} must be an array`);
-      }
-      for (const item of items) {
-        if (typeof item === "string") {
-          requirements.push(item);
-        }
-      }
-    }
-    const names = new Set(requirements.map((r) => normalizePythonName(/^([A-Za-z0-9_.-]+)/.exec(r)?.[1] ?? "")));
-    for (const dependency of requirements) {
-      const name = /^([A-Za-z0-9_.-]+)/.exec(dependency)?.[1];
-      if (name && ["fastapi", "django", "flask"].includes(normalizePythonName(name))) {
-        p.frameworks.push(name);
-        p.evidence.push(evidence(file, "project.dependencies", dependency));
-      }
-      const direct = /^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*@\s*(\.?\.?\/[^; ]+|file:[^; ]+)/.exec(dependency);
-      if (direct?.[1] && direct[2]) {
-        references.push({
-          name: direct[1],
-          target: direct[2].replace(/^file:/, ""),
-          kind: "python-path",
-          evidence: evidence(file, "project.dependencies", dependency),
-        });
-      }
-    }
-
-    parsed = { project: p, references, dependencyNames: [...names], uvSources };
+    parsed = pythonProject({ data, metadata, poetry, uv, requiredVersion, file, path, references, uvSources });
   } else {
     diagnostics.push(
       diagnostic("tooling-only", file, "No Python project metadata; tooling/workspace declaration only"),
@@ -354,4 +207,239 @@ export function readManifest(file: string, source: string): ParsedManifest {
     },
     diagnostics,
   };
+}
+
+function jsManager(data: ObjectValue, p: Project, diagnostics: Diagnostic[], file: string): void {
+  if (data.packageManager !== undefined) {
+    const manager = optionalString(data.packageManager, "packageManager") as string;
+    const match = /^(npm|pnpm|yarn|bun)@(.+)$/.exec(manager);
+    if (match?.[1]) {
+      p.managerCandidates.push(match[1]);
+      p.managerVersion = match[2] as string;
+    } else {
+      p.status = "ambiguous";
+      diagnostics.push(
+        diagnostic("unsupported-manager", file, `Unsupported packageManager ${manager}`, "packageManager"),
+      );
+    }
+    p.evidence.push(evidence(file, "packageManager", manager));
+  }
+}
+
+function jsRuntime(data: ObjectValue, p: Project, file: string): void {
+  const engines = optionalObject(data.engines, "engines");
+  p.runtime = {};
+  for (const [name, version] of Object.entries(engines)) {
+    if (typeof version !== "string") {
+      throw new Error(`engines.${name} must be a string`);
+    }
+    p.runtime[name] = version;
+    p.evidence.push(evidence(file, `engines.${name}`, version));
+  }
+}
+
+function jsDependencies(
+  data: ObjectValue,
+  p: Project,
+  references: LocalReference[],
+  diagnostics: Diagnostic[],
+  file: string,
+): void {
+  for (const group of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+    for (const [name, spec] of Object.entries(optionalObject(data[group], group))) {
+      if (typeof spec !== "string") {
+        throw new Error(`${group}.${name} must be a string`);
+      }
+      const ev = evidence(file, `${group}.${name}`, spec);
+      if (["next", "react", "vue", "svelte", "typescript"].includes(name)) {
+        p.frameworks.push(name);
+        p.evidence.push(ev);
+      }
+      jsReference(name, spec, ev, references, diagnostics);
+    }
+  }
+}
+
+function jsReference(
+  name: string,
+  spec: string,
+  ev: Evidence,
+  references: LocalReference[],
+  diagnostics: Diagnostic[],
+): void {
+  const file = ev.file;
+  if (spec.startsWith("workspace:")) {
+    jsWorkspaceReference(name, spec, ev, references, diagnostics);
+  } else if (spec.startsWith("file:") || spec.startsWith("link:")) {
+    references.push({
+      name,
+      target: spec.slice(5),
+      kind: spec.startsWith("file:") ? "file" : "link",
+      evidence: ev,
+    });
+  } else if (spec.startsWith("catalog:")) {
+    diagnostics.push(diagnostic("unresolved", file, `Catalog dependency ${name} is not resolved`, ev.field));
+  }
+}
+
+function jsWorkspaceReference(
+  name: string,
+  spec: string,
+  ev: Evidence,
+  references: LocalReference[],
+  diagnostics: Diagnostic[],
+): void {
+  const file = ev.file;
+  const value = spec.slice(10);
+  if (value.startsWith(".")) {
+    references.push({
+      name,
+      target: value,
+      kind: "workspace-path",
+      evidence: ev,
+    });
+  } else if (["*", "^", "~"].includes(value) || /^[~^]?\d/.test(value)) {
+    references.push({
+      name,
+      workspace: true,
+      kind: "workspace",
+      evidence: ev,
+    });
+  } else {
+    diagnostics.push(diagnostic("unresolved", file, `Unsupported workspace alias ${name}: ${spec}`, ev.field));
+  }
+}
+
+function readUvSources(
+  uv: ObjectValue,
+  file: string,
+  diagnostics: Diagnostic[],
+  uvSources: Record<string, LocalReference | null>,
+): void {
+  for (const [name, value] of Object.entries(optionalObject(uv.sources, "tool.uv.sources"))) {
+    readUvSource(name, value, file, diagnostics, uvSources);
+  }
+}
+function readUvSource(
+  name: string,
+  value: unknown,
+  file: string,
+  diagnostics: Diagnostic[],
+  uvSources: Record<string, LocalReference | null>,
+): void {
+  const field = `tool.uv.sources.${name}`;
+  uvSources[normalizePythonName(name)] = null;
+  if (Array.isArray(value)) {
+    diagnostics.push(diagnostic("unresolved", file, `Conditional uv sources for ${name} are not resolved`, field));
+    return;
+  }
+  const s = object(value, field);
+  if (s.marker !== undefined || s.extra !== undefined || s.group !== undefined) {
+    diagnostics.push(diagnostic("unresolved", file, `Conditional uv source ${name} is not resolved`, field));
+    return;
+  }
+  if (s.workspace === true) {
+    uvSources[normalizePythonName(name)] = {
+      name,
+      workspace: true,
+      kind: "uv-workspace",
+      evidence: evidence(file, field),
+    };
+  } else if (s.path !== undefined) {
+    uvSources[normalizePythonName(name)] = {
+      name,
+      target: optionalString(s.path, `${field}.path`) as string,
+      kind: "uv-path",
+      evidence: evidence(file, field),
+    };
+  }
+}
+
+interface PythonProjectInput {
+  data: ObjectValue;
+  metadata: ObjectValue;
+  poetry: boolean;
+  uv: ObjectValue;
+  requiredVersion: string | undefined;
+  file: string;
+  path: string;
+  references: LocalReference[];
+  uvSources: Record<string, LocalReference | null>;
+}
+function pythonProject({
+  data,
+  metadata,
+  poetry,
+  uv,
+  requiredVersion,
+  file,
+  path,
+  references,
+  uvSources,
+}: PythonProjectInput): ParsedProject {
+  const name = optionalString(metadata.name, poetry ? "tool.poetry.name" : "project.name");
+  if (!name) {
+    throw new Error("Python project metadata requires a name");
+  }
+  const p = project(path, file, "python", name);
+  p.evidence[0] = evidence(file, poetry ? "tool.poetry.name" : "project.name", name);
+  if (poetry) {
+    p.managerCandidates.push("poetry");
+  }
+  if (Object.keys(uv).length) {
+    p.managerCandidates.push("uv");
+  }
+  if (requiredVersion) {
+    p.managerVersion = requiredVersion;
+    p.evidence.push(evidence(file, "tool.uv.required-version", requiredVersion));
+  }
+  const runtime = optionalString(metadata["requires-python"], "project.requires-python");
+  if (runtime) {
+    p.runtime = { python: runtime };
+    p.evidence.push(evidence(file, "project.requires-python", runtime));
+  }
+  const requirements = pythonRequirements(metadata, data, poetry);
+  const names = new Set(requirements.map((r) => normalizePythonName(/^([A-Za-z0-9_.-]+)/.exec(r)?.[1] ?? "")));
+  pythonReferences(requirements, p, references, file);
+
+  return { project: p, references, dependencyNames: [...names], uvSources };
+}
+
+function pythonRequirements(metadata: ObjectValue, data: ObjectValue, poetry: boolean): string[] {
+  const requirements = poetry ? [] : strings(metadata.dependencies, "project.dependencies");
+  const optional = optionalObject(metadata["optional-dependencies"], "project.optional-dependencies");
+  for (const [group, values] of Object.entries(optional)) {
+    requirements.push(...strings(values, `project.optional-dependencies.${group}`));
+  }
+  const groups = optionalObject(data["dependency-groups"], "dependency-groups");
+  for (const [group, items] of Object.entries(groups)) {
+    if (!Array.isArray(items)) {
+      throw new Error(`dependency-groups.${group} must be an array`);
+    }
+    for (const item of items) {
+      if (typeof item === "string") {
+        requirements.push(item);
+      }
+    }
+  }
+  return requirements;
+}
+
+function pythonReferences(requirements: string[], p: Project, references: LocalReference[], file: string): void {
+  for (const dependency of requirements) {
+    const name = /^([A-Za-z0-9_.-]+)/.exec(dependency)?.[1];
+    if (name && ["fastapi", "django", "flask"].includes(normalizePythonName(name))) {
+      p.frameworks.push(name);
+      p.evidence.push(evidence(file, "project.dependencies", dependency));
+    }
+    const direct = /^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*@\s*(\.?\.?\/[^; ]+|file:[^; ]+)/.exec(dependency);
+    if (direct?.[1] && direct[2]) {
+      references.push({
+        name: direct[1],
+        target: direct[2].replace(/^file:/, ""),
+        kind: "python-path",
+        evidence: evidence(file, "project.dependencies", dependency),
+      });
+    }
+  }
 }

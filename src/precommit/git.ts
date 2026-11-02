@@ -11,7 +11,7 @@ export interface GitContext {
   signal?: AbortSignal;
 }
 export async function git(cwd: string, args: string[], signal?: AbortSignal) {
-  return runProcess("git", args, {
+  return await runProcess("git", args, {
     cwd,
     ...(signal ? { signal } : {}),
     limit: 16 * 1024 * 1024,
@@ -69,9 +69,7 @@ export function parseStagedRecords(text: string): StagedRecord[] {
     const count = /^[RC]/.test(status) ? 2 : 1;
     const paths = fields.slice(cursor, cursor + count);
     cursor += count;
-    if (paths.length !== count || paths.some((p) => !p)) {
-      throw new Error("Incomplete Git index paths");
-    }
+    validateRecordPaths(paths, count);
     records.push({ status, paths });
   }
   return records;
@@ -91,4 +89,10 @@ export async function gitlinks(context: GitContext): Promise<string[]> {
     .split("\0")
     .filter((line) => line.startsWith("160000 "))
     .map((line) => line.slice(line.indexOf("\t") + 1));
+}
+
+function validateRecordPaths(paths: string[], count: number): void {
+  if (paths.length !== count || paths.some((p) => !p)) {
+    throw new Error("Incomplete Git index paths");
+  }
 }

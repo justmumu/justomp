@@ -6,6 +6,7 @@ import { applyGoLintResult, applyGoReadiness } from "../../../src/lint/go/result
 import { type LintCheck } from "../../../src/lint/model";
 import * as runtime from "../../../src/lint/runtime";
 import * as scopes from "../../../src/lint/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
 function fixture() {
@@ -120,8 +121,10 @@ test("pre-aborted Go lint leaves both checks cancelled", async () => {
     controller = new AbortController();
   controller.abort(new Error("cancelled"));
   const files = spyOn(scopes, "collectLintScope").mockResolvedValue(scope("main.go"));
-  const probe = spyOn(runtime, "lintManagerContext").mockImplementation(async () => {
-    throw controller.signal.reason;
+  const probe = spyOn(runtime, "lintManagerContext").mockImplementation(() => {
+    return suppliedResponse(() => {
+      throw controller.signal.reason;
+    });
   });
   try {
     expect(

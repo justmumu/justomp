@@ -99,7 +99,7 @@ Pure tests cover our metadata selection, target extraction and policy argv.
 Small native tests cover our process launch/deny handoff, cancellation and Linux
 placeholder ownership. The OMP test covers native delegation, mixed-patch
 rejection and the trusted-custom-tool distinction. These tests join the existing
-`bun run check` and `bun run test:integration` gates; upstream language/tool rule
+`bun run check` and `bun run check:integration` gates; upstream language/tool rule
 matrices are not duplicated.
 
 ## Pre-push

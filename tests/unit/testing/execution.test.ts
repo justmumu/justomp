@@ -3,13 +3,13 @@ import { testDeadline } from "../../../src/testing/execution";
 
 test("one monotonic deadline covers every native phase and distinguishes caller cancellation", () => {
   let now = 1000,
-    fire = () => {};
+    fire: () => void = () => undefined;
   const times = spyOn(performance, "now").mockImplementation(() => now);
   const timers = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
     fire = fn;
     return 1;
   }) as typeof setTimeout);
-  const clears = spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+  const clears = spyOn(globalThis, "clearTimeout").mockImplementation(() => undefined);
   try {
     const deadline = testDeadline(2);
     expect(deadline.remainingMs()).toBe(2000);

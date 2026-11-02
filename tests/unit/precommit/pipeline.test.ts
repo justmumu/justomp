@@ -1,25 +1,34 @@
 import { expect, test } from "bun:test";
 import { type GateCheckStage, type GateStage } from "../../../src/precommit/model";
 import { type GatePorts, runGate } from "../../../src/precommit/pipeline";
+import { suppliedResponse } from "../../response";
 
 function successfulPorts(calls: string[]): GatePorts {
   return {
-    run: async (stage, id) => {
-      calls.push(`${stage}:${id}`);
-      return {
-        stage,
-        success: true,
-        complete: true,
-        effects: [],
-        affected_projects: [],
-        details: {},
-      };
+    run: (stage, id) => {
+      return suppliedResponse(() => {
+        calls.push(`${stage}:${id}`);
+        return {
+          stage,
+          success: true,
+          complete: true,
+          effects: [],
+          affected_projects: [],
+          details: {},
+        };
+      });
     },
-    observe: async () => {},
-    verify: async () => {},
-    stage: async () => {
-      calls.push("stage");
-      return [];
+    observe: () => {
+      return Promise.resolve();
+    },
+    verify: () => {
+      return Promise.resolve();
+    },
+    stage: () => {
+      return suppliedResponse(() => {
+        calls.push("stage");
+        return [];
+      });
     },
     whitespace: async () => true,
     dependencyKey: (id) => (id.startsWith("shared") ? "workspace" : id),
@@ -78,27 +87,37 @@ test("fix and format precede checks; completed failure still stages known effect
   const result = await runGate(
     ["api"],
     {
-      run: async (stage, id): Promise<GateStage> => {
-        calls.push(stage);
-        return {
-          stage,
-          project_id: id,
-          success: stage !== "typecheck",
-          complete: true,
-          effects: stage === "format" ? ["api/a.ts"] : [],
-          affected_projects: [],
-          details: {},
-        };
+      run: (stage, id): Promise<GateStage> => {
+        return suppliedResponse(() => {
+          calls.push(stage);
+          return {
+            stage,
+            project_id: id,
+            success: stage !== "typecheck",
+            complete: true,
+            effects: stage === "format" ? ["api/a.ts"] : [],
+            affected_projects: [],
+            details: {},
+          };
+        });
       },
-      observe: async () => {},
-      verify: async () => {},
-      stage: async () => {
-        calls.push("stage");
-        return ["api/a.ts"];
+      observe: () => {
+        return Promise.resolve();
       },
-      whitespace: async () => {
-        calls.push("whitespace");
-        return true;
+      verify: () => {
+        return Promise.resolve();
+      },
+      stage: () => {
+        return suppliedResponse(() => {
+          calls.push("stage");
+          return ["api/a.ts"];
+        });
+      },
+      whitespace: () => {
+        return suppliedResponse(() => {
+          calls.push("whitespace");
+          return true;
+        });
       },
       dependencyKey: (id) => id,
     },
@@ -120,11 +139,17 @@ test("incomplete observation never stages; empty selection only checks whitespac
       affected_projects: [],
       details: {},
     }),
-    observe: async () => {},
-    verify: async () => {},
-    stage: async () => {
-      stages++;
-      return [];
+    observe: () => {
+      return Promise.resolve();
+    },
+    verify: () => {
+      return Promise.resolve();
+    },
+    stage: () => {
+      return suppliedResponse(() => {
+        stages++;
+        return [];
+      });
     },
     whitespace: async () => true,
     dependencyKey: (id: string) => id,

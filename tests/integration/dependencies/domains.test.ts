@@ -112,7 +112,7 @@ test("a default .venv symlink outside the root is rejected before native mutatio
   await writeFile(join(root, "release"), "release");
   const result = await sync(root, "a");
   expect(result.outcome).toBe("rejected");
-  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(result.diagnostics[0]?.code).toBe("outside-root");
   await expect(readFile(join(root, "a-started"))).rejects.toMatchObject({
     code: "ENOENT",
   });

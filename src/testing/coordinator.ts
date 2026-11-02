@@ -19,10 +19,10 @@ host[key] ??= new Map();
 const registry = host[key];
 export class TestCoordinator {
   private controller = new AbortController();
-  private job?: Promise<TestPreparation>;
-  private dirty = false;
+  private job: Promise<TestPreparation> | undefined;
+  private dirty: boolean = false;
   private stopped?: Promise<void>;
-  private closed = false;
+  private closed: boolean = false;
   private unsubscribe?: () => void;
   private releasePackaging?: () => Promise<void>;
   private listeners = new Set<(report: TestPreparation) => void>();
@@ -35,7 +35,7 @@ export class TestCoordinator {
     return this.closed;
   }
   get preparing() {
-    return !!this.job;
+    return this.job !== undefined;
   }
   subscribe(fn: (report: TestPreparation) => void) {
     this.listeners.add(fn);
@@ -70,7 +70,7 @@ export class TestCoordinator {
         if (c.closed) {
           return;
         }
-        if (c.job) {
+        if (c.job !== undefined) {
           c.dirty = true;
         } else {
           void c.reconcile().catch(() => undefined);
@@ -97,7 +97,7 @@ export class TestCoordinator {
     if (this.closed) {
       return Promise.reject(new TestError("closed", "Test preparation is closed"));
     }
-    if (this.job) {
+    if (this.job !== undefined) {
       return this.job;
     }
     const job = (async () => {
@@ -144,7 +144,7 @@ export class TestCoordinator {
     return job;
   }
   shutdown(): Promise<void> {
-    if (this.stopped) {
+    if (this.stopped !== undefined) {
       return this.stopped;
     }
     this.closed = true;
@@ -181,16 +181,12 @@ export async function retainTestCoordinator(
     try {
       coordinator = await selected.promise;
     } catch (error) {
-      if (registry.get(canonical) === selected) {
-        registry.delete(canonical);
-      }
+      removeEntry(canonical, selected);
       throw error;
     }
     if (coordinator.isClosed) {
       await coordinator.shutdown();
-      if (registry.get(canonical) === selected) {
-        registry.delete(canonical);
-      }
+      removeEntry(canonical, selected);
       continue;
     }
     selected.owners++;
@@ -206,9 +202,7 @@ export async function retainTestCoordinator(
           try {
             await coordinator.shutdown();
           } finally {
-            if (registry.get(canonical) === selected) {
-              registry.delete(canonical);
-            }
+            removeEntry(canonical, selected);
           }
         }
       },
@@ -227,4 +221,10 @@ export function waitForTestPreparation(coordinator: TestCoordinator, signal?: Ab
     signal.addEventListener("abort", abort, { once: true });
     void job.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+function removeEntry(canonical: string, selected: Entry): void {
+  if (registry.get(canonical) === selected) {
+    registry.delete(canonical);
+  }
 }

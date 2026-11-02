@@ -6,7 +6,7 @@ import * as environment from "../../../src/lint/go/environment";
 import * as runtime from "../../../src/lint/runtime";
 import { goTestAdapter } from "../../../src/testing/go/adapter";
 import { TestError } from "../../../src/testing/model";
-import { context } from "./fixture";
+import { context, suppliedResponse } from "./fixture";
 
 for (const mode of ["targeted", "continue", "cancel"] as const) {
   test(`Go adapter ${mode} respects selected packages and one interruption signal`, async () => {
@@ -32,6 +32,32 @@ for (const mode of ["targeted", "continue", "cancel"] as const) {
       truncated: false,
       cancelled,
     });
+    const suppliedProcess = (args: string[], options: Parameters<typeof runner.runProcess>[2]) => {
+      commands.push(args);
+      signals.push(options.signal);
+      if (args[0] === "list") {
+        return result(packageListing(args, mode));
+      }
+      if (args[0] === "run") {
+        return result(runnableInventory());
+      }
+      return testProcess(args, options);
+    };
+    const testProcess = (args: string[], options: Parameters<typeof runner.runProcess>[2]) => {
+      const name = args.at(-1)?.replace("./", "");
+      const send = (event: object) =>
+        options.onStdout?.(Buffer.from(JSON.stringify({ Package: `example/app/${name}`, ...event }) + "\n"));
+      send({ Action: "start" });
+      send({ Action: "run", Test: "TestValue" });
+      if (mode === "cancel" && name === "three") {
+        controller.abort(new TestError("timeout", "budget"));
+        return result("", null, true);
+      }
+      const action = mode !== "targeted" && name === "one" ? "fail" : "pass";
+      send({ Action: action, Test: "TestValue" });
+      send({ Action: action });
+      return result("", action === "fail" ? 1 : 0);
+    };
     const mocks = [
       spyOn(fs, "readFile").mockResolvedValue("module example/app\ngo 1.25\n"),
       spyOn(fs, "writeFile").mockResolvedValue(),
@@ -42,46 +68,10 @@ for (const mode of ["targeted", "continue", "cancel"] as const) {
         command: "go",
       } as Awaited<ReturnType<typeof executable.resolveExecutable>>),
       spyOn(environment, "withGoEnvironment").mockImplementation(async (_target, _native, operation) => operation({})),
-      spyOn(runner, "runProcess").mockImplementation(async (_command, args, options) => {
-        commands.push(args);
-        signals.push(options.signal);
-        if (args[0] === "list") {
-          const name = args.at(-1)?.replace("./", "");
-          return result(
-            JSON.stringify({
-              Dir: `/project/${name}`,
-              ImportPath: `example/app/${name}`,
-              Name: name,
-              GoFiles: ["value.go"],
-              TestGoFiles: ["a_test.go"],
-              ...(mode === "targeted" && name !== "one" ? { Error: { Err: "malformed unrelated package" } } : {}),
-            }),
-          );
-        }
-        if (args[0] === "run") {
-          return result(
-            JSON.stringify({
-              constraints: [],
-              runnables: ["one", "two", "three"].map((name) => ({
-                file: `/project/${name}/a_test.go`,
-                name: "TestValue",
-              })),
-            }),
-          );
-        }
-        const name = args.at(-1)?.replace("./", "");
-        const send = (event: object) =>
-          options.onStdout?.(Buffer.from(JSON.stringify({ Package: `example/app/${name}`, ...event }) + "\n"));
-        send({ Action: "start" });
-        send({ Action: "run", Test: "TestValue" });
-        if (mode === "cancel" && name === "three") {
-          controller.abort(new TestError("timeout", "budget"));
-          return result("", null, true);
-        }
-        const action = mode !== "targeted" && name === "one" ? "fail" : "pass";
-        send({ Action: action, Test: "TestValue" });
-        send({ Action: action });
-        return result("", action === "fail" ? 1 : 0);
+      spyOn(runner, "runProcess").mockImplementation((_command, args, options) => {
+        return suppliedResponse(() => {
+          return suppliedProcess(args, options);
+        });
       }),
     ];
     try {
@@ -117,5 +107,23 @@ for (const mode of ["targeted", "continue", "cancel"] as const) {
         mock.mockRestore();
       }
     }
+  });
+}
+
+function packageListing(args: string[], mode: string): string {
+  const name = args.at(-1)?.replace("./", "");
+  return JSON.stringify({
+    Dir: `/project/${name}`,
+    ImportPath: `example/app/${name}`,
+    Name: name,
+    GoFiles: ["value.go"],
+    TestGoFiles: ["a_test.go"],
+    ...(mode === "targeted" && name !== "one" ? { Error: { Err: "malformed unrelated package" } } : {}),
+  });
+}
+function runnableInventory(): string {
+  return JSON.stringify({
+    constraints: [],
+    runnables: ["one", "two", "three"].map((name) => ({ file: `/project/${name}/a_test.go`, name: "TestValue" })),
   });
 }

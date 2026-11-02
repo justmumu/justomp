@@ -5,6 +5,7 @@ import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
 import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
+import { suppliedResponse } from "../../response";
 import { output, target } from "../checks/fixture";
 import { memoryContext } from "../dependencies/memory";
 
@@ -45,8 +46,10 @@ function fixture() {
   };
   const adapter: Adapter = {
     groups: ["dev"],
-    plan: async () => {
-      throw new Error("readonly verification cannot plan mutations");
+    plan: () => {
+      return suppliedResponse(() => {
+        throw new Error("readonly verification cannot plan mutations");
+      });
     },
     inventory: async () => inventory,
   };

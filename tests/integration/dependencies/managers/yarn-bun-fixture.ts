@@ -7,7 +7,14 @@ import { readInventory } from "../../../../src/dependencies/inventory";
 import { type Adapter, type AdapterContext, type DependencyRequest } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
 import { inspectProject } from "../../../../src/inspect/scan";
+import { suppliedResponse } from "../../../response";
 import { registryArchives } from "./registry-archives";
+
+interface FixtureManifest {
+  [key: string]: unknown;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
 
 export type Variant = "classic" | "modern" | "bun";
 export async function fixture(variant: Variant, workspace = false) {
@@ -20,63 +27,13 @@ export async function fixture(variant: Variant, workspace = false) {
     port: 0,
     hostname: "127.0.0.1",
     fetch(request) {
-      const url = new URL(request.url);
-      const filename = url.pathname.split("/").at(-1) ?? "";
-      const archive = packages.get(filename);
-      if (archive) {
-        return new Response(Buffer.from(archive));
-      }
-      const name = decodeURIComponent(url.pathname.slice(1));
-      if (!["u6-dep", "u6-child", "u6-other"].includes(name)) {
-        return new Response("missing", { status: 404 });
-      }
-      const versions = Object.fromEntries(
-        ["1.0.0", "1.1.0", "2.0.0"]
-          .filter((v) => v <= latest)
-          .map((version) => [
-            version,
-            {
-              name,
-              version,
-              ...(name === "u6-dep" ? { dependencies: { "u6-child": "1.0.0" } } : {}),
-              dist: {
-                shasum: createHash("sha1")
-                  .update(packages.get(`${name}-${version}.tgz`) ?? Buffer.alloc(0))
-                  .digest("hex"),
-                tarball: `${url.origin}/${name}/-/${name}-${version}.tgz`,
-              },
-            },
-          ]),
-      );
-      return Response.json({ name, "dist-tags": { latest }, versions });
+      return registryResponse(request, packages, latest);
     },
   });
   const registry = `http://127.0.0.1:${server.port}`;
   const manager = variant === "bun" ? "bun" : "yarn";
-  const version = variant === "classic" ? "1.22.22" : variant === "modern" ? "4.12.0" : "1.4.2";
-  await writeFile(
-    join(root, "package.json"),
-    JSON.stringify(
-      {
-        name: "fixture-root",
-        private: true,
-        version: "1.0.0",
-        packageManager: `${manager}@${version}`,
-        ...(workspace ? { workspaces: ["packages/*"] } : {}),
-      },
-      null,
-      2,
-    ),
-  );
-  if (workspace) {
-    for (const name of ["a", "b"]) {
-      await mkdir(join(root, "packages", name), { recursive: true });
-      await writeFile(
-        join(root, "packages", name, "package.json"),
-        JSON.stringify({ name: `u6-${name}`, version: "1.0.0" }, null, 2),
-      );
-    }
-  }
+  const version = { classic: "1.22.22", modern: "4.12.0", bun: "1.4.2" }[variant];
+  await writeManifests(root, manager, version, workspace);
   await writeFile(join(root, ".npmrc"), `registry=${registry}\ncache=${home}/npm-cache\n`);
   await writeFile(join(root, ".yarnrc"), `registry "${registry}"\ncache-folder "${home}/yarn-cache"\n`);
   await writeFile(
@@ -100,13 +57,7 @@ export async function fixture(variant: Variant, workspace = false) {
     await rm(root, { recursive: true, force: true });
     throw new Error(`Set ${binarySetting} to the installed native Yarn ${version} launcher`);
   }
-  const command =
-    variant === "bun"
-      ? process.execPath
-      : yarnBinary?.endsWith(".js")
-        ? (Bun.which("node") ?? "node")
-        : (yarnBinary as string);
-  const prefix = variant !== "bun" && yarnBinary?.endsWith(".js") ? [yarnBinary] : [];
+  const { command, prefix } = nativeCommand(variant, yarnBinary);
   const detected = await runProcess(command, [...prefix, "--version"], {
     cwd: root,
     env,
@@ -188,7 +139,7 @@ export async function fixture(variant: Variant, workspace = false) {
       latest = version;
     },
     manifest: async (member = workspace ? "packages/a" : ".") =>
-      JSON.parse(await readFile(join(root, member, "package.json"), "utf8")),
+      JSON.parse(await readFile(join(root, member, "package.json"), "utf8")) as FixtureManifest,
     close: async () => {
       server.stop(true);
       await rm(root, { recursive: true, force: true });
@@ -236,8 +187,80 @@ export async function gitSource(root: string) {
   });
   return {
     url: `git+http://127.0.0.1:${server.port}/git-source.git`,
-    close: async () => {
-      server.stop(true);
+    close: () => {
+      return suppliedResponse(() => {
+        server.stop(true);
+      });
     },
   };
+}
+
+function registryResponse(request: Request, packages: ReadonlyMap<string, Uint8Array>, latest: string): Response {
+  const url = new URL(request.url);
+  const filename = url.pathname.split("/").at(-1) ?? "";
+  const archive = packages.get(filename);
+  if (archive) {
+    return new Response(Buffer.from(archive));
+  }
+  const name = decodeURIComponent(url.pathname.slice(1));
+  if (!["u6-dep", "u6-child", "u6-other"].includes(name)) {
+    return new Response("missing", { status: 404 });
+  }
+  const versions = Object.fromEntries(
+    ["1.0.0", "1.1.0", "2.0.0"]
+      .filter((v) => v <= latest)
+      .map((version) => [
+        version,
+        {
+          name,
+          version,
+          ...(name === "u6-dep" ? { dependencies: { "u6-child": "1.0.0" } } : {}),
+          dist: {
+            shasum: createHash("sha1")
+              .update(packages.get(`${name}-${version}.tgz`) ?? Buffer.alloc(0))
+              .digest("hex"),
+            tarball: `${url.origin}/${name}/-/${name}-${version}.tgz`,
+          },
+        },
+      ]),
+  );
+  return Response.json({ name, "dist-tags": { latest }, versions });
+}
+
+function nativeCommand(variant: Variant, yarnBinary: string | null) {
+  const command =
+    variant === "bun"
+      ? process.execPath
+      : yarnBinary?.endsWith(".js")
+        ? (Bun.which("node") ?? "node")
+        : (yarnBinary as string);
+  const prefix = variant !== "bun" && yarnBinary?.endsWith(".js") ? [yarnBinary] : [];
+
+  return { command, prefix };
+}
+
+async function writeManifests(root: string, manager: string, version: string, workspace: boolean) {
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify(
+      {
+        name: "fixture-root",
+        private: true,
+        version: "1.0.0",
+        packageManager: `${manager}@${version}`,
+        ...(workspace ? { workspaces: ["packages/*"] } : {}),
+      },
+      null,
+      2,
+    ),
+  );
+  if (workspace) {
+    for (const name of ["a", "b"]) {
+      await mkdir(join(root, "packages", name), { recursive: true });
+      await writeFile(
+        join(root, "packages", name, "package.json"),
+        JSON.stringify({ name: `u6-${name}`, version: "1.0.0" }, null, 2),
+      );
+    }
+  }
 }

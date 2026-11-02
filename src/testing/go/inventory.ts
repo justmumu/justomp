@@ -44,33 +44,16 @@ export function selectGoTests(
 /** Go emits concatenated JSON objects, not an array. */
 export function parseGoPackages(text: string): GoPackage[] {
   const chunks: string[] = [];
-  let depth = 0,
-    start = 0,
-    quoted = false,
-    escaped = false;
+  const state: { depth: number; start: number; quoted: boolean; escaped: boolean } = {
+    depth: 0,
+    start: 0,
+    quoted: false,
+    escaped: false,
+  };
   for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quoted) {
-      if (escaped) {
-        escaped = false;
-      } else if (c === "\\") {
-        escaped = true;
-      } else if (c === '"') {
-        quoted = false;
-      }
-      continue;
-    }
-    if (c === '"') {
-      quoted = true;
-    } else if (c === "{") {
-      if (depth++ === 0) {
-        start = i;
-      }
-    } else if (c === "}" && --depth === 0) {
-      chunks.push(text.slice(start, i + 1));
-    }
+    collectJsonChunk(text, i, state, chunks);
   }
-  if (depth || quoted || !chunks.length) {
+  if (state.depth || state.quoted || !chunks.length) {
     throw new TestError("invalid-report", "Invalid go list output");
   }
   return chunks.map((c) => {
@@ -80,4 +63,37 @@ export function parseGoPackages(text: string): GoPackage[] {
     }
     return p;
   });
+}
+
+interface JsonScan {
+  depth: number;
+  start: number;
+  quoted: boolean;
+  escaped: boolean;
+}
+function collectJsonChunk(text: string, i: number, state: JsonScan, chunks: string[]): void {
+  const c = text[i];
+  if (state.quoted) {
+    advanceJsonString(c, state);
+    return;
+  }
+  if (c === '"') {
+    state.quoted = true;
+  } else if (c === "{") {
+    if (state.depth++ === 0) {
+      state.start = i;
+    }
+  } else if (c === "}" && --state.depth === 0) {
+    chunks.push(text.slice(state.start, i + 1));
+  }
+}
+
+function advanceJsonString(c: string | undefined, state: JsonScan): void {
+  if (state.escaped) {
+    state.escaped = false;
+  } else if (c === "\\") {
+    state.escaped = true;
+  } else if (c === '"') {
+    state.quoted = false;
+  }
 }

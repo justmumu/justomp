@@ -53,49 +53,9 @@ export async function createLargeTree(options: LargeTreeOptions): Promise<LargeT
     const each = Math.floor(sourceFiles / projects);
     const remainder = sourceFiles % projects;
     for (let index = 0; index < projects; index++) {
-      const name = `project-${String(index).padStart(5, "0")}`;
-      const directory = join(root, name);
-      await mkdir(directory);
-      const manifest = JSON.stringify({
-        name,
-        version: "1.0.0",
-        ...(index % 2 === 0 && index + 1 < projects
-          ? {
-              dependencies: {
-                [`project-${String(index + 1).padStart(5, "0")}`]: `file:../project-${String(index + 1).padStart(5, "0")}`,
-              },
-            }
-          : {}),
-      });
-      await writeFile(join(directory, "package.json"), manifest);
-      manifestBytes += Buffer.byteLength(manifest);
-      const count = each + (index < remainder ? 1 : 0);
-      if (count) {
-        const seed = join(directory, "source-00000.ts");
-        await writeFile(seed, SOURCE);
-        await links(seed, directory, count, 1, "source");
-      }
+      manifestBytes += await createProject(root, index, projects, each + (index < remainder ? 1 : 0));
     }
-    if (excludedEntries) {
-      const dependency = join(root, "node_modules");
-      await mkdir(dependency);
-      excludedDirectories++;
-      let remaining = excludedEntries - 1;
-      let bucket = 0;
-      while (remaining > 0) {
-        const directory = join(dependency, `bucket-${bucket++}`);
-        await mkdir(directory);
-        excludedDirectories++;
-        remaining--;
-        const count = Math.min(1024, remaining);
-        if (count) {
-          const seed = join(directory, "dependency-00000.ts");
-          await writeFile(seed, "");
-          await links(seed, directory, count, 1, "dependency");
-          remaining -= count;
-        }
-      }
-    }
+    excludedDirectories = await createExcludedEntries(root, excludedEntries);
     return {
       root,
       projects,
@@ -114,4 +74,54 @@ export async function createLargeTree(options: LargeTreeOptions): Promise<LargeT
     await rm(root, { recursive: true, force: true, maxRetries: 2 });
     throw error;
   }
+}
+
+async function createExcludedEntries(root: string, excludedEntries: number): Promise<number> {
+  let excludedDirectories = 0;
+  if (excludedEntries) {
+    const dependency = join(root, "node_modules");
+    await mkdir(dependency);
+    excludedDirectories++;
+    let remaining = excludedEntries - 1;
+    let bucket = 0;
+    while (remaining > 0) {
+      const directory = join(dependency, `bucket-${bucket++}`);
+      await mkdir(directory);
+      excludedDirectories++;
+      remaining--;
+      const count = Math.min(1024, remaining);
+      if (count) {
+        const seed = join(directory, "dependency-00000.ts");
+        await writeFile(seed, "");
+        await links(seed, directory, count, 1, "dependency");
+        remaining -= count;
+      }
+    }
+  }
+
+  return excludedDirectories;
+}
+
+async function createProject(root: string, index: number, projects: number, count: number): Promise<number> {
+  const name = `project-${String(index).padStart(5, "0")}`;
+  const directory = join(root, name);
+  await mkdir(directory);
+  const manifest = JSON.stringify({
+    name,
+    version: "1.0.0",
+    ...(index % 2 === 0 && index + 1 < projects
+      ? {
+          dependencies: {
+            [`project-${String(index + 1).padStart(5, "0")}`]: `file:../project-${String(index + 1).padStart(5, "0")}`,
+          },
+        }
+      : {}),
+  });
+  await writeFile(join(directory, "package.json"), manifest);
+  if (count) {
+    const seed = join(directory, "source-00000.ts");
+    await writeFile(seed, SOURCE);
+    await links(seed, directory, count, 1, "source");
+  }
+  return Buffer.byteLength(manifest);
 }

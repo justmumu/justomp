@@ -43,7 +43,7 @@ function acquire(domain: string, signal?: AbortSignal): Promise<() => void> {
   return new Promise((resolve, reject) => {
     const waiter: Waiter = {
       resolve,
-      signal,
+      ...(signal ? { signal } : {}),
       abort: () => {
         const index = state.waiters.indexOf(waiter);
         if (index >= 0) {

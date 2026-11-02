@@ -3,7 +3,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pnpmDirectories } from "../dependencies/executable";
 import { within } from "../dependencies/paths";
 import { LOCK_MANAGERS } from "../inspect/exclusions";
-import { type PackagingStructure } from "../inspect/model";
+import { type PackagingStructure, type Project, type Workspace } from "../inspect/model";
 import { TypecheckStateStore } from "../typecheck/state";
 
 type ProtectionStructure = Pick<PackagingStructure, "root" | "complete" | "projects" | "workspaces">;
@@ -35,16 +35,6 @@ export function collectProtectedPaths(structure: ProtectionStructure): string[] 
   const root = resolve(structure.root);
   const paths = new Set<string>();
   const add = (path: string) => paths.add(metadataPath(root, path));
-  const locks = (owner: string, managers: readonly string[]) => {
-    for (const [name, manager] of Object.entries(LOCK_MANAGERS)) {
-      if (managers.includes(manager)) {
-        add(join(owner, name));
-      }
-    }
-    if (managers.includes("pnpm")) {
-      add(join(owner, "pnpm-workspace.yaml"));
-    }
-  };
   for (const name of [
     "config.json",
     "packaging_structure.json",
@@ -55,41 +45,59 @@ export function collectProtectedPaths(structure: ProtectionStructure): string[] 
     add(join(".justomp", name));
   }
   for (const project of structure.projects) {
-    add(project.manifest);
-    const cwd = metadataPath(root, project.path);
-    const owner = metadataPath(root, project.managerRoot);
-    const managers = [...project.managerCandidates, ...(project.manager ? [project.manager] : [])];
-    if (project.ecosystem === "python") {
-      add(join(owner, "pyproject.toml"));
-      add(join(owner, "uv.lock"));
-      add(join(cwd, "pyright.justomp.json"));
-      locks(owner, managers);
-    } else if (project.ecosystem === "javascript") {
-      add(join(owner, "package.json"));
-      locks(owner, managers);
-      add(join(cwd, "eslint.justomp.config.mjs"));
-      add(join(cwd, "biome.justomp.jsonc"));
-      add(join(cwd, "prettier.justomp.json"));
-    } else {
-      // go.sum belongs to the module, even when a go.work owner is above it.
-      add(join(cwd, "go.sum"));
-      add(join(cwd, "golangci.justomp.yml"));
-    }
+    addProjectPaths(root, add, project);
   }
   for (const workspace of structure.workspaces) {
-    add(workspace.declaration);
-    const owner = metadataPath(root, workspace.path);
-    if (workspace.kind === "go") {
-      add(join(owner, "go.work"));
-      add(join(owner, "go.work.sum"));
-    } else {
-      locks(owner, [workspace.kind]);
-      if (["npm", "pnpm", "yarn", "bun"].includes(workspace.kind)) {
-        add(join(owner, "package.json"));
-      }
-    }
+    addWorkspacePaths(root, add, workspace);
   }
   return [...paths].sort();
+}
+
+function addLocks(add: (path: string) => void, owner: string, managers: readonly string[]): void {
+  for (const [name, manager] of Object.entries(LOCK_MANAGERS)) {
+    if (managers.includes(manager)) {
+      add(join(owner, name));
+    }
+  }
+  if (managers.includes("pnpm")) {
+    add(join(owner, "pnpm-workspace.yaml"));
+  }
+}
+
+function addProjectPaths(root: string, add: (path: string) => void, project: Project): void {
+  add(project.manifest);
+  const cwd = metadataPath(root, project.path);
+  const owner = metadataPath(root, project.managerRoot);
+  const managers = [...project.managerCandidates, ...(project.manager ? [project.manager] : [])];
+  if (project.ecosystem === "python") {
+    add(join(owner, "pyproject.toml"));
+    add(join(owner, "uv.lock"));
+    add(join(cwd, "pyright.justomp.json"));
+    addLocks(add, owner, managers);
+  } else if (project.ecosystem === "javascript") {
+    add(join(owner, "package.json"));
+    addLocks(add, owner, managers);
+    add(join(cwd, "eslint.justomp.config.mjs"));
+    add(join(cwd, "biome.justomp.jsonc"));
+    add(join(cwd, "prettier.justomp.json"));
+  } else {
+    // go.sum belongs to the module, even when a go.work owner is above it.
+    add(join(cwd, "go.sum"));
+    add(join(cwd, "golangci.justomp.yml"));
+  }
+}
+function addWorkspacePaths(root: string, add: (path: string) => void, workspace: Workspace): void {
+  add(workspace.declaration);
+  const owner = metadataPath(root, workspace.path);
+  if (workspace.kind === "go") {
+    add(join(owner, "go.work"));
+    add(join(owner, "go.work.sum"));
+  } else {
+    addLocks(add, owner, [workspace.kind]);
+    if (["npm", "pnpm", "yarn", "bun"].includes(workspace.kind)) {
+      add(join(owner, "package.json"));
+    }
+  }
 }
 
 /** Resolve the existing prefix, including dangling links, without creating placeholders. */
@@ -105,6 +113,9 @@ export async function canonicalProtectionPath(path: string, links = 0): Promise<
       throw error;
     }
   }
+  return resolveExistingPrefix(absolute, links);
+}
+async function resolveExistingPrefix(absolute: string, links: number): Promise<string> {
   let ancestor = absolute;
   const suffix: string[] = [];
   for (;;) {
@@ -116,9 +127,7 @@ export async function canonicalProtectionPath(path: string, links = 0): Promise<
       }
       return resolve(await realpath(ancestor), ...suffix);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
+      requireMissing(error);
       const parent = dirname(ancestor);
       if (parent === ancestor) {
         throw error;
@@ -138,26 +147,19 @@ export function findProtectedPath(target: string, protectedPaths: readonly strin
 /** Caller supplies the current getPackagingStructure() snapshot for every general call. */
 export async function resolveProtectedPaths(structure: ProtectionStructure): Promise<string[]> {
   const paths = new Set(collectProtectedPaths(structure));
+  await addDiscoveredPaths(structure, paths);
+  await addDeclarationPaths(structure, paths);
+  await addCanonicalPaths(paths);
+  return [...paths].sort();
+}
+
+async function addDiscoveredPaths(structure: ProtectionStructure, paths: Set<string>): Promise<void> {
   const pnpmOwners = new Set<string>();
-  const addPnpmLock = async (cwd: string, owner: string) => {
-    const { lockDirectory } = await pnpmDirectories(cwd, owner);
-    paths.add(metadataPath(structure.root, join(lockDirectory, "pnpm-lock.yaml")));
-  };
   for (const project of structure.projects) {
     if (project.ecosystem !== "javascript") {
       continue;
     }
-    const cwd = metadataPath(structure.root, project.path);
-    if (project.manager === "pnpm" || project.managerCandidates.includes("pnpm")) {
-      const owner = metadataPath(structure.root, project.managerRoot);
-      await addPnpmLock(cwd, owner);
-      pnpmOwners.add(owner);
-    }
-    for (const name of await readdir(cwd)) {
-      if (/^tsconfig\.justomp\..+\.json$/.test(name)) {
-        paths.add(join(cwd, name));
-      }
-    }
+    await addJavaScriptPaths(structure, paths, pnpmOwners, project);
   }
   for (const workspace of structure.workspaces) {
     if (workspace.kind !== "pnpm") {
@@ -165,9 +167,11 @@ export async function resolveProtectedPaths(structure: ProtectionStructure): Pro
     }
     const owner = metadataPath(structure.root, workspace.path);
     if (!pnpmOwners.has(owner)) {
-      await addPnpmLock(owner, owner);
+      await addPnpmLock(structure, paths, owner, owner);
     }
   }
+}
+async function addDeclarationPaths(structure: ProtectionStructure, paths: Set<string>): Promise<void> {
   // Declaration configs may live beside a nested native tsconfig. Reuse the
   // existing receipts instead of starting another recursive repository scan.
   const store = await TypecheckStateStore.load(await realpath(structure.root));
@@ -179,6 +183,8 @@ export async function resolveProtectedPaths(structure: ProtectionStructure): Pro
       paths.add(metadataPath(structure.root, path));
     }
   }
+}
+async function addCanonicalPaths(paths: Set<string>): Promise<void> {
   for (const path of [...paths]) {
     const canonical = await canonicalProtectionPath(path);
     paths.add(canonical);
@@ -196,5 +202,38 @@ export async function resolveProtectedPaths(structure: ProtectionStructure): Pro
       }
     }
   }
-  return [...paths].sort();
+}
+
+function requireMissing(error: unknown): void {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    throw error;
+  }
+}
+
+async function addPnpmLock(
+  structure: ProtectionStructure,
+  paths: Set<string>,
+  cwd: string,
+  owner: string,
+): Promise<void> {
+  const { lockDirectory } = await pnpmDirectories(cwd, owner);
+  paths.add(metadataPath(structure.root, join(lockDirectory, "pnpm-lock.yaml")));
+}
+async function addJavaScriptPaths(
+  structure: ProtectionStructure,
+  paths: Set<string>,
+  pnpmOwners: Set<string>,
+  project: Project,
+): Promise<void> {
+  const cwd = metadataPath(structure.root, project.path);
+  if (project.manager === "pnpm" || project.managerCandidates.includes("pnpm")) {
+    const owner = metadataPath(structure.root, project.managerRoot);
+    await addPnpmLock(structure, paths, cwd, owner);
+    pnpmOwners.add(owner);
+  }
+  for (const name of await readdir(cwd)) {
+    if (/^tsconfig\.justomp\..+\.json$/.test(name)) {
+      paths.add(join(cwd, name));
+    }
+  }
 }

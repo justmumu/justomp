@@ -78,6 +78,9 @@ export async function runProtectedBash(options: {
         }
         const bytes = chunk.subarray(0, remaining);
         output = Buffer.concat([output, bytes]);
+        deliver(bytes);
+      };
+      const deliver = (bytes: Buffer) => {
         if (bytes.length && !outputError) {
           try {
             options.onOutput?.(bytes.toString("utf8"));

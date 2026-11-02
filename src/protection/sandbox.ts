@@ -150,30 +150,11 @@ async function acquirePlaceholders(paths: string[], owned: Placeholder[]): Promi
   for (const path of [...new Set(entries)]) {
     let stat = await statOrMissing(path);
     if (stat) {
-      checkTarget(path, stat);
-      const prior = registry.placeholders.get(path);
-      if (prior && unchanged(prior.stat, stat)) {
-        prior.owners++;
-        owned.push(prior);
-      }
+      retainExistingPlaceholder(path, stat, owned);
       continue;
     }
     try {
-      if (!directoryPaths.has(path)) {
-        const file = await open(
-          path,
-          constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
-          0o600,
-        );
-        try {
-          stat = await file.stat();
-        } finally {
-          await file.close();
-        }
-      } else {
-        await mkdir(path, { mode: 0o700 });
-        stat = await lstat(path);
-      }
+      stat = await createPlaceholder(path, directoryPaths.has(path));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
         throw error;
@@ -197,20 +178,9 @@ async function releasePlaceholders(owned: Placeholder[]): Promise<void> {
       registry.placeholders.delete(entry.path);
     }
     try {
-      const current = await statOrMissing(entry.path);
-      // Never remove a replacement, a touched file, or a file with real content.
-      if (!current || !unchanged(entry.stat, current)) {
-        continue;
-      }
-      if (current.isFile() && current.size === 0) {
-        await unlink(entry.path);
-      } else if (current.isDirectory()) {
-        await rmdir(entry.path);
-      }
+      await removePlaceholder(entry);
     } catch (error) {
-      if (!isMissing(error) && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") {
-        failures.push(error);
-      }
+      failures.push(error);
     }
   }
   if (failures.length) {
@@ -291,5 +261,51 @@ export async function createSandboxCommand(request: SandboxRequest): Promise<San
   } catch (error) {
     await cleanup();
     throw error;
+  }
+}
+
+async function createPlaceholder(path: string, directory: boolean): Promise<Stats> {
+  if (!directory) {
+    const file = await open(
+      path,
+      constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      return await file.stat();
+    } finally {
+      await file.close();
+    }
+  } else {
+    await mkdir(path, { mode: 0o700 });
+    return await lstat(path);
+  }
+}
+
+async function removePlaceholder(entry: Placeholder): Promise<void> {
+  try {
+    const current = await statOrMissing(entry.path);
+    // Never remove a replacement, a touched file, or a file with real content.
+    if (!current || !unchanged(entry.stat, current)) {
+      return;
+    }
+    if (current.isFile() && current.size === 0) {
+      await unlink(entry.path);
+    } else if (current.isDirectory()) {
+      await rmdir(entry.path);
+    }
+  } catch (error) {
+    if (!isMissing(error) && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") {
+      throw error;
+    }
+  }
+}
+
+function retainExistingPlaceholder(path: string, stat: Stats, owned: Placeholder[]): void {
+  checkTarget(path, stat);
+  const prior = registry.placeholders.get(path);
+  if (prior && unchanged(prior.stat, stat)) {
+    prior.owners++;
+    owned.push(prior);
   }
 }

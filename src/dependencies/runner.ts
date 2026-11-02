@@ -6,7 +6,7 @@ export function runProcess(
   options: {
     cwd: string;
     env?: Record<string, string | undefined>;
-    signal?: AbortSignal;
+    signal?: AbortSignal | undefined;
     limit?: number;
     /** Authoritative bounded protocol consumer, independent of console capture. */
     onStdout?: (chunk: Buffer) => void;
@@ -56,15 +56,7 @@ export function runProcess(
         return;
       }
       try {
-        if (process.platform === "win32") {
-          // Windows support requires the platform smoke suite; never use a shell.
-          spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-            stdio: "ignore",
-            shell: false,
-          }).on("error", () => child.kill(signal));
-        } else {
-          process.kill(-child.pid, signal);
-        }
+        killProcessTree(child, child.pid, signal);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
           child.kill(signal);
@@ -113,4 +105,16 @@ export function runProcess(
       abort();
     }
   });
+}
+
+function killProcessTree(child: ReturnType<typeof spawn>, pid: number, signal: "SIGTERM" | "SIGKILL") {
+  if (process.platform === "win32") {
+    // Windows support requires the platform smoke suite; never use a shell.
+    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      shell: false,
+    }).on("error", () => child.kill(signal));
+  } else {
+    process.kill(-pid, signal);
+  }
 }

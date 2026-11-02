@@ -9,6 +9,7 @@ import {
   typecheckAdapters,
   typecheckProject,
 } from "../../../src/typecheck/service";
+import { suppliedResponse } from "../../response";
 import { fixture } from "./fixture";
 
 const id = "python:a/pyproject.toml";
@@ -46,9 +47,11 @@ test("service retains a finished check when its caller cancels before freshness 
   await local(async (f) => {
     expect((await prepareProjectTypecheck(f.root, id)).complete).toBe(true);
     const controller = new AbortController();
-    f.adapter.check = async () => {
-      controller.abort(new Error("Caller cancelled"));
-      return [structuredClone(checked)];
+    f.adapter.check = () => {
+      return suppliedResponse(() => {
+        controller.abort(new Error("Caller cancelled"));
+        return [structuredClone(checked)];
+      });
     };
     const result = await checkProjectTypecheck(f.root, id, controller.signal);
     expect(result).toMatchObject({
@@ -65,8 +68,10 @@ test("service keeps aggregate setup errors visible while checking a ready select
     const previous = typecheckAdapters.javascript;
     typecheckAdapters.javascript = {
       ...previous,
-      resolve: async () => {
-        throw new Error("Unrelated JS setup failed");
+      resolve: () => {
+        return suppliedResponse(() => {
+          throw new Error("Unrelated JS setup failed");
+        });
       },
     };
     f.adapter.check = async () => [{ ...checked, status: "passed", exit_code: 0, diagnostics: [] }];
@@ -89,9 +94,11 @@ test("corrupt receipts remain byte-identical on read-only checks and explicit pr
     const path = join(f.root, ".justomp/typecheck_state.json");
     const verify = f.adapter.verifyTools.bind(f.adapter);
     let verifications = 0;
-    f.adapter.verifyTools = async (ctx) => {
-      verifications++;
-      return verify(ctx);
+    f.adapter.verifyTools = (ctx) => {
+      return suppliedResponse(() => {
+        verifications++;
+        return verify(ctx);
+      });
     };
     for (const corrupt of ["{invalid", JSON.stringify({ schema: 99, projects: {}, waves: {} })]) {
       await writeFile(path, corrupt);

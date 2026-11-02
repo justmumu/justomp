@@ -32,7 +32,7 @@ test("OMP typecheck has strict ID-only exec schema; denial and unknown IDs canno
       .getTool("project_typecheck")
       .execute("unknown", { project_id: "python:moved/pyproject.toml" });
     expect(result.isError).toBe(true);
-    expect(json(result).error.code).toBe("project-not-found");
+    expect(json<{ error: { code: string } }>(result).error.code).toBe("project-not-found");
     expect(network).not.toHaveBeenCalled();
     expect(await Bun.file(join(f.root, ".justomp/config.json")).exists()).toBe(false);
   } finally {
@@ -165,8 +165,9 @@ test("startup returns before adapter setup, reports progress, and discovers new 
   const { f, h } = await fixture([], true);
   const network = heldRegistry();
   const messages: string[] = [];
-  const log = spyOn(console, "info").mockImplementation((value) => {
+  const log = spyOn(process.stdout, "write").mockImplementation((value) => {
     messages.push(String(value));
+    return true;
   });
   try {
     const start = performance.now();

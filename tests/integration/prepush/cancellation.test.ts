@@ -114,7 +114,9 @@ test("real CLI forwards SIGTERM to detached native command and reports incomplet
     if (nativePid) {
       try {
         process.kill(nativePid, "SIGKILL");
-      } catch {}
+      } catch {
+        /* The fixture child may already have exited during cleanup. */
+      }
     }
     await rm(root, { recursive: true, force: true });
   }

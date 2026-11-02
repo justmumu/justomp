@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { pythonAdapter } from "../../../src/typecheck/adapters/python";
+import { suppliedResponse } from "../../response";
 import { target } from "../checks/fixture";
 
 const VERSION = "1.1.414";
@@ -22,15 +23,17 @@ test("PyPI resolution uses one latest stable non-yanked exact target for the who
   const original = globalThis.fetch;
   const mocked = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async () => {
-        requests++;
-        return Response.json({
-          releases: {
-            "1.1.413": [{ yanked: false }],
-            [VERSION]: [{ yanked: false }],
-            "1.1.415rc1": [{ yanked: false }],
-            "1.1.416": [{ yanked: true }],
-          },
+      () => {
+        return suppliedResponse(() => {
+          requests++;
+          return Response.json({
+            releases: {
+              "1.1.413": [{ yanked: false }],
+              [VERSION]: [{ yanked: false }],
+              "1.1.415rc1": [{ yanked: false }],
+              "1.1.416": [{ yanked: true }],
+            },
+          });
         });
       },
       { preconnect: original.preconnect },

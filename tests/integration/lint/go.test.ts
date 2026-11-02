@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { goLintAdapter } from "../../../src/lint/adapters/go";
 import { golangciArtifact, golangciPath } from "../../../src/lint/go/install";
 import { artifactTransport, GO_LINT_VERSION, goFixture } from "../../fixtures/lint/go/fixture";
+import { suppliedResponse } from "../../response";
 import { cleanups } from "./go-fixture";
 
 afterEach(async () => {
@@ -27,18 +28,20 @@ test("checksum, interrupted download and archive paths cannot publish an executa
   const artifact = golangciArtifact(GO_LINT_VERSION);
   transport = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async (url: Parameters<typeof fetch>[0]) => {
-        if (String(url).endsWith("checksums.txt")) {
-          return new Response(`${"0".repeat(64)}  ${artifact.archive}\n`);
-        }
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.enqueue(new Uint8Array([1, 2, 3]));
-              controller.error(new Error("interrupted fixture download"));
-            },
-          }),
-        );
+      (url: Parameters<typeof fetch>[0]) => {
+        return suppliedResponse(() => {
+          if (String(url).endsWith("checksums.txt")) {
+            return new Response(`${"0".repeat(64)}  ${artifact.archive}\n`);
+          }
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new Uint8Array([1, 2, 3]));
+                controller.error(new Error("interrupted fixture download"));
+              },
+            }),
+          );
+        });
       },
       { preconnect: original.preconnect },
     ),

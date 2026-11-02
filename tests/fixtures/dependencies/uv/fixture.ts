@@ -6,6 +6,7 @@ import { readInventory } from "../../../../src/dependencies/inventory";
 import { type AdapterContext, type DependencyRequest } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
 import { type Project } from "../../../../src/inspect/model";
+import { suppliedResponse } from "../../../response";
 
 export async function uvFixture(dependencies = '"uv-demo>=1,<2"') {
   const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-uv-")));
@@ -119,8 +120,10 @@ for name,versions,requires in [('uv_demo',['1.0.0','1.5.0','2.0.0'],['uv-child>=
       await uvAdapter.verify?.(context, request, before, after);
       return after;
     },
-    async manifest() {
-      return readFile(join(root, context.project.manifest), "utf8");
+    manifest() {
+      return suppliedResponse(() => {
+        return readFile(join(root, context.project.manifest), "utf8");
+      });
     },
     async dispose() {
       await rm(root, { recursive: true, force: true });

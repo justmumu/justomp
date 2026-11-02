@@ -1,4 +1,5 @@
 import { type AdapterContext, type Dependency, type Inventory } from "../../../../src/dependencies/model";
+import { suppliedResponse } from "../../../response";
 export function context(manager: "npm" | "pnpm"): AdapterContext {
   const project = {
     project_id: "javascript:packages/a/package.json",
@@ -51,8 +52,10 @@ export function context(manager: "npm" | "pnpm"): AdapterContext {
         maxConcurrentIO: 0,
       },
     },
-    run: async () => {
-      throw new Error("Planning must not spawn");
+    run: () => {
+      return suppliedResponse(() => {
+        throw new Error("Planning must not spawn");
+      });
     },
   };
 }

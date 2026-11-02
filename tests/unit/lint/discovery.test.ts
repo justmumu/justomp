@@ -7,6 +7,7 @@ import * as projection from "../../../src/lint/projection";
 import { LintStateStore } from "../../../src/lint/state";
 import * as targets from "../../../src/lint/targets";
 import * as packaging from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
@@ -37,33 +38,38 @@ for (const ecosystem of ["javascript", "go"] as const) {
     } as targets.LintTarget["structure"];
     const store = {
       state: { schema: 2, projects: {}, waves: {} },
-      async save() {
-        persisted = structuredClone(store.state);
+      save() {
+        return suppliedResponse(() => {
+          persisted = structuredClone(store.state);
+        });
       },
     } as unknown as LintStateStore;
     let persisted = structuredClone(store.state);
     let latest = "1.0.0",
       resolves = 0,
-      preflightFailure = false,
-      resolutionFailure = false,
       unresolved = "";
+    const failures = new Map<string, boolean>();
     const installed = new Map<string, ToolVersions>();
     keep(
-      spyOn(packaging, "getPackagingStructure").mockImplementation(async () => {
-        structure.projects = selected.map((t) => t.project);
-        return { structure } as packaging.PackagingResult;
+      spyOn(packaging, "getPackagingStructure").mockImplementation(() => {
+        return suppliedResponse(() => {
+          structure.projects = selected.map((t) => t.project);
+          return { structure } as packaging.PackagingResult;
+        });
       }),
     );
     keep(
-      spyOn(targets, "resolveLintTarget").mockImplementation(async (_s, id) => {
-        if (id === unresolved) {
-          throw new Error("manager unavailable");
-        }
-        const found = selected.find((t) => t.project.project_id === id);
-        if (!found) {
-          throw new Error("missing fixture target");
-        }
-        return found;
+      spyOn(targets, "resolveLintTarget").mockImplementation((_s, id) => {
+        return suppliedResponse(() => {
+          if (id === unresolved) {
+            throw new Error("manager unavailable");
+          }
+          const found = selected.find((t) => t.project.project_id === id);
+          if (!found) {
+            throw new Error("missing fixture target");
+          }
+          return found;
+        });
       }),
     );
     keep(
@@ -81,33 +87,43 @@ for (const ecosystem of ["javascript", "go"] as const) {
       })),
     );
     const adapter: LintAdapter = {
-      async resolve(members, _policy, _signal, existing) {
-        if (existing) {
-          return existing;
-        }
-        resolves++;
-        if (resolutionFailure) {
-          throw new Error("registry unavailable");
-        }
-        return Object.fromEntries(members.map((t) => [t.project.project_id, { tool: latest }]));
+      resolve(members, _policy, _signal, existing) {
+        return suppliedResponse(() => {
+          if (existing) {
+            return existing;
+          }
+          resolves++;
+          if (failures.get("resolution")) {
+            throw new Error("registry unavailable");
+          }
+          return Object.fromEntries(members.map((t) => [t.project.project_id, { tool: latest }]));
+        });
       },
-      async preflight(context) {
-        expect(persisted.waves[ecosystem]?.versions).toEqual(context.versions);
-        expect(persisted.waves[ecosystem]?.complete).toBe(false);
-        if (preflightFailure) {
-          throw new Error("latest incompatible");
-        }
+      preflight(context) {
+        return suppliedResponse(() => {
+          expect(persisted.waves[ecosystem]?.versions).toEqual(context.versions);
+          expect(persisted.waves[ecosystem]?.complete).toBe(false);
+          if (failures.get("preflight")) {
+            throw new Error("latest incompatible");
+          }
+        });
       },
-      async prepareBatch(context) {
-        for (const t of context.targets) {
-          installed.set(t.project.project_id, context.versions[t.project.project_id] ?? {});
-        }
+      prepareBatch(context) {
+        return suppliedResponse(() => {
+          for (const t of context.targets) {
+            installed.set(t.project.project_id, context.versions[t.project.project_id] ?? {});
+          }
+        });
       },
-      async verify(context) {
-        return installed.get(context.target.project.project_id)?.tool === context.versions.tool;
+      verify(context) {
+        return suppliedResponse(() => {
+          return installed.get(context.target.project.project_id)?.tool === context.versions.tool;
+        });
       },
-      async check() {
-        return [];
+      check() {
+        return suppliedResponse(() => {
+          return [];
+        });
       },
     };
     const run = () => prepareLint("/repo", { [ecosystem]: adapter }, new AbortController().signal);
@@ -115,7 +131,7 @@ for (const ecosystem of ["javascript", "go"] as const) {
     expect(resolves).toBe(1);
     add("b");
     latest = "2.0.0";
-    preflightFailure = true;
+    failures.set("preflight", true);
     expect((await run()).complete).toBe(false);
     latest = "3.0.0";
     expect((await run()).complete).toBe(false);
@@ -126,15 +142,15 @@ for (const ecosystem of ["javascript", "go"] as const) {
     add("c");
     expect((await run()).complete).toBe(false);
     expect(resolves).toBe(3);
-    preflightFailure = false;
+    failures.set("preflight", false);
     expect((await run()).complete).toBe(true);
     expect([...installed.values()]).toEqual([{ tool: "3.0.0" }, { tool: "3.0.0" }, { tool: "3.0.0" }]);
     add("d");
-    resolutionFailure = true;
+    failures.set("resolution", true);
     expect((await run()).complete).toBe(false);
     expect(store.state.waves[ecosystem]?.projects).not.toContain(`${ecosystem}:d`);
     latest = "4.0.0";
-    resolutionFailure = false;
+    failures.set("resolution", false);
     expect((await run()).complete).toBe(true);
     expect(resolves).toBe(5);
     add("e");

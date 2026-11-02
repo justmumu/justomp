@@ -4,6 +4,7 @@ import { type LintAdapter, type LintCheckContext } from "../../../src/lint/adapt
 import * as files from "../../../src/lint/files";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import * as scopes from "../../../src/lint/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
@@ -41,9 +42,11 @@ function fixture(ecosystem: "python" | "javascript" | "go" = "python") {
   );
   const selectedFiles = keep(spyOn(scopes, "collectLintScope").mockResolvedValue(scope("module.py")));
   const invoke = {
-    async fix() {
-      after = true;
-      return output({ exit_code: 1 });
+    fix() {
+      return suppliedResponse(() => {
+        after = true;
+        return output({ exit_code: 1 });
+      });
     },
   };
   const fix = keep(spyOn(invoke, "fix"));
@@ -135,7 +138,7 @@ for (const outcome of ["failed", "cancelled", "truncated", "rejected"] as const)
       identity: "1:1",
       mode: 0o644,
     }));
-    f.fix.mockImplementation(async () => {
+    function nativeResult() {
       if (cancelled) {
         f.controller.abort();
       }
@@ -147,7 +150,8 @@ for (const outcome of ["failed", "cancelled", "truncated", "rejected"] as const)
         cancelled,
         truncated: outcome === "truncated",
       });
-    });
+    }
+    f.fix.mockImplementation(() => suppliedResponse(nativeResult));
     await expect(f.run()).rejects.toThrow();
     expect(f.report).toMatchObject({
       status: cancelled ? "cancelled" : "failed",
@@ -164,15 +168,17 @@ test("one failed after-read cannot erase changes to the remaining files", async 
     files: ["bad.py", "module.py"],
   });
   let reads = 0;
-  f.reads.mockImplementation(async (_root, path) => {
-    if (++reads > 2 && path.endsWith("bad.py")) {
-      throw new Error("File disappeared");
-    }
-    return {
-      text: reads > 2 ? "changed" : "old",
-      identity: "1:1",
-      mode: 0o644,
-    };
+  f.reads.mockImplementation((_root, path) => {
+    return suppliedResponse(() => {
+      if (++reads > 2 && path.endsWith("bad.py")) {
+        throw new Error("File disappeared");
+      }
+      return {
+        text: reads > 2 ? "changed" : "old",
+        identity: "1:1",
+        mode: 0o644,
+      };
+    });
   });
   await expect(f.run()).rejects.toThrow("observation");
   expect(f.report).toMatchObject({

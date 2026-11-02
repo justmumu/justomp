@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { closePackagingStructure, getPackagingStructure } from "../../../src/packaging/get-structure";
 import { type TestAdapter } from "../../../src/testing/adapters";
 import { integrationTestProject, testProject } from "../../../src/testing/service";
+import { suppliedResponse } from "../../response";
 
 test("service validates before setup, owns fresh artifacts, and rejects changed sources", async () => {
   const root = await mkdtemp(join(tmpdir(), "justomp-test-service-"));
@@ -13,14 +14,20 @@ test("service validates before setup, owns fresh artifacts, and rejects changed 
     mutate = false;
   const artifacts: string[] = [];
   const adapter: TestAdapter = {
-    resolve: async () => {
-      resolutions++;
-      return { vitest: "1.0.0" };
+    resolve: () => {
+      return suppliedResponse(() => {
+        resolutions++;
+        return { vitest: "1.0.0" };
+      });
     },
-    preflight: async () => {},
+    preflight: () => {
+      return Promise.resolve();
+    },
     verify: async () => true,
-    prepare: async () => {
-      preparations++;
+    prepare: () => {
+      return suppliedResponse(() => {
+        preparations++;
+      });
     },
     run: async (ctx) => {
       artifacts.push(ctx.artifacts);

@@ -44,6 +44,7 @@ test("Go environment preserves native build tags and replaces only owned executi
   );
   expect(testGoFlags("'-gcflags=all=-N -l'")).toBe("'-gcflags=all=-N -l' -mod=readonly");
   expect(() => testGoFlags("-exec=arbitrary")).toThrow("Unsupported");
+  expect(() => testGoFlags("-exec=arbitrary 'unterminated")).toThrow("Unsupported GOFLAGS control: -exec=arbitrary");
 });
 
 test("Go retains same-name internal/external occurrences without inventing file ownership", () => {

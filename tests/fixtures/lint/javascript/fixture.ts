@@ -8,6 +8,7 @@ import { javascriptAdapter } from "../../../../src/lint/adapters/javascript";
 import { type LintOperationContext, type ToolVersions } from "../../../../src/lint/adapters/types";
 import { applyProjection, planProjection } from "../../../../src/lint/projection";
 import { resolveLintTarget } from "../../../../src/lint/targets";
+import { suppliedResponse } from "../../../response";
 import { measureFixture } from "../../cost-timing";
 import versions from "../../dependencies/manager-versions.json";
 
@@ -39,79 +40,11 @@ export async function javascriptFixture(
   }
   const projects: Project[] = [];
   for (const [index, path] of paths.entries()) {
-    await mkdir(join(root, path), { recursive: true });
-    await writeFile(
-      join(root, path, "package.json"),
-      JSON.stringify(
-        {
-          name: `lint-example-${index}`,
-          version: "1.0.0",
-          private: true,
-          type: "module",
-          ...(path === "."
-            ? {
-                packageManager: pin,
-                ...(workspace ? { workspaces: ["packages/*"] } : {}),
-              }
-            : {}),
-          ...(flavor !== "js" ? { devDependencies: { typescript: "7.0.2" } } : {}),
-        },
-        null,
-        2,
-      ),
-    );
-    if (flavor !== "js") {
-      await writeFile(
-        join(root, path, "tsconfig.json"),
-        JSON.stringify({
-          compilerOptions: {
-            strict: true,
-            module: "NodeNext",
-            moduleResolution: "NodeNext",
-            target: "ES2022",
-            jsx: "react-jsx",
-          },
-          include: ["*.ts", "*.tsx"],
-        }),
-      );
-    }
-    await writeFile(join(root, path, flavor === "js" ? "index.js" : "index.ts"), 'console.warn("ready");\n');
-    projects.push({
-      project_id: `javascript:${path}`,
-      path,
-      manifest: join(path, "package.json"),
-      ecosystem: "javascript",
-      name: `lint-example-${index}`,
-      manager: nativeManager,
-      managerRoot: ".",
-      managerCandidates: [nativeManager],
-      frameworks: flavor === "next" ? ["next", "react"] : flavor === "react" ? ["react"] : [],
-      status: "detected",
-      evidence: [],
-      ...(workspace ? { workspace: `${nativeManager}:.` } : {}),
-    });
+    projects.push(await writeProject(root, path, index, pin, workspace, flavor, nativeManager));
   }
   const structure = { root, complete: true, projects } as PackagingStructure;
   const targets = await Promise.all(projects.map((project) => resolveLintTarget(structure, project.project_id)));
-  if (manager.startsWith("yarn")) {
-    const launcher =
-      process.env[manager === "yarn-modern" ? "JUSTOMP_YARN_MODERN_BINARY" : "JUSTOMP_YARN_CLASSIC_BINARY"] ??
-      Bun.which("yarn");
-    if (!launcher) {
-      throw new Error(`Provide an installed native ${manager} launcher`);
-    }
-    const bin = join(root, ".justomp", "fixture-bin");
-    await mkdir(bin, { recursive: true });
-    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    await writeFile(
-      join(bin, "yarn"),
-      `#!/bin/sh\nexec ${launcher.endsWith(".js") ? `${quote(Bun.which("node") ?? "node")} ` : ""}${quote(launcher)} "$@"\n`,
-      { mode: 0o755 },
-    );
-    for (const target of targets) {
-      target.scope.env.PATH = `${bin}:${target.scope.env.PATH}`;
-    }
-  }
+  await setYarnLauncher(root, manager, targets);
   const tools: ToolVersions = { ...TOOLS };
   const policy = resolveLintConfig().policy,
     signal = new AbortController().signal;
@@ -148,40 +81,128 @@ export async function javascriptFixture(
         );
       }
     },
-    async prepare() {
-      return measureFixture("lint.prepare", async () => {
-        await javascriptAdapter.preflight(context);
-        await javascriptAdapter.prepareBatch(context);
-        for (const target of targets) {
-          await applyProjection(
-            await planProjection(target, policy, context.versions[target.project.project_id]),
-            context.changes,
-          );
-        }
+    prepare() {
+      return suppliedResponse(() => {
+        return measureFixture("lint.prepare", async () => {
+          await javascriptAdapter.preflight(context);
+          await javascriptAdapter.prepareBatch(context);
+          for (const target of targets) {
+            await applyProjection(
+              await planProjection(target, policy, context.versions[target.project.project_id]),
+              context.changes,
+            );
+          }
+        });
       });
     },
     async bytes() {
       const result: Record<string, string> = {};
-      async function walk(directory: string) {
-        for (const item of await readdir(join(root, directory), {
-          withFileTypes: true,
-        })) {
-          if (["node_modules", ".yarn", ".justomp", ".git"].includes(item.name)) {
-            continue;
-          }
-          const path = join(directory, item.name);
-          if (item.isDirectory()) {
-            await walk(path);
-          } else if (item.isFile()) {
-            result[path] = createHash("sha256")
-              .update(await readFile(join(root, path)))
-              .digest("hex");
-          }
-        }
-      }
-      await walk("");
+      await walk(root, "", result);
       return result;
     },
     dispose: () => measureFixture("lint.cleanup", () => rm(root, { recursive: true, force: true })),
   };
+}
+
+async function walk(root: string, directory: string, result: Record<string, string>) {
+  for (const item of await readdir(join(root, directory), {
+    withFileTypes: true,
+  })) {
+    if (["node_modules", ".yarn", ".justomp", ".git"].includes(item.name)) {
+      continue;
+    }
+    const path = join(directory, item.name);
+    if (item.isDirectory()) {
+      await walk(root, path, result);
+    } else if (item.isFile()) {
+      result[path] = createHash("sha256")
+        .update(await readFile(join(root, path)))
+        .digest("hex");
+    }
+  }
+}
+
+async function writeProject(
+  root: string,
+  path: string,
+  index: number,
+  pin: string,
+  workspace: boolean,
+  flavor: "js" | "ts" | "react" | "next",
+  nativeManager: string,
+): Promise<Project> {
+  await mkdir(join(root, path), { recursive: true });
+  await writeFile(
+    join(root, path, "package.json"),
+    JSON.stringify(
+      {
+        name: `lint-example-${index}`,
+        version: "1.0.0",
+        private: true,
+        type: "module",
+        ...(path === "."
+          ? {
+              packageManager: pin,
+              ...(workspace ? { workspaces: ["packages/*"] } : {}),
+            }
+          : {}),
+        ...(flavor !== "js" ? { devDependencies: { typescript: "7.0.2" } } : {}),
+      },
+      null,
+      2,
+    ),
+  );
+  if (flavor !== "js") {
+    await writeFile(
+      join(root, path, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          target: "ES2022",
+          jsx: "react-jsx",
+        },
+        include: ["*.ts", "*.tsx"],
+      }),
+    );
+  }
+  await writeFile(join(root, path, flavor === "js" ? "index.js" : "index.ts"), 'console.warn("ready");\n');
+  return {
+    project_id: `javascript:${path}`,
+    path,
+    manifest: join(path, "package.json"),
+    ecosystem: "javascript",
+    name: `lint-example-${index}`,
+    manager: nativeManager,
+    managerRoot: ".",
+    managerCandidates: [nativeManager],
+    frameworks: flavor === "next" ? ["next", "react"] : flavor === "react" ? ["react"] : [],
+    status: "detected",
+    evidence: [],
+    ...(workspace ? { workspace: `${nativeManager}:.` } : {}),
+  };
+}
+
+async function setYarnLauncher(root: string, manager: Manager, targets: LintOperationContext["targets"]) {
+  if (!manager.startsWith("yarn")) {
+    return;
+  }
+  const launcher =
+    process.env[manager === "yarn-modern" ? "JUSTOMP_YARN_MODERN_BINARY" : "JUSTOMP_YARN_CLASSIC_BINARY"] ??
+    Bun.which("yarn");
+  if (!launcher) {
+    throw new Error(`Provide an installed native ${manager} launcher`);
+  }
+  const bin = join(root, ".justomp", "fixture-bin");
+  await mkdir(bin, { recursive: true });
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  await writeFile(
+    join(bin, "yarn"),
+    `#!/bin/sh\nexec ${launcher.endsWith(".js") ? `${quote(Bun.which("node") ?? "node")} ` : ""}${quote(launcher)} "$@"\n`,
+    { mode: 0o755 },
+  );
+  for (const target of targets) {
+    target.scope.env.PATH = `${bin}:${target.scope.env.PATH}`;
+  }
 }

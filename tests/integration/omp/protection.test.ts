@@ -11,6 +11,7 @@ import { cfgEditMode, cfgEditModelVariants } from "@oh-my-pi/pi-coding-agent/edi
 import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import { registerProtection } from "../../../src/omp/protection";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { createHost } from "./host";
 
 test("real OMP delegation gates every patch target, allows source writes and trusted custom updates", async () => {
@@ -79,8 +80,10 @@ test("real OMP delegation gates every patch target, allows source writes and tru
         label: "Fixture",
         description: "Fixture",
         parameters: pi.zod.object({}),
-        async execute() {
-          return { content: [], details: {} };
+        execute() {
+          return suppliedResponse(() => {
+            return { content: [], details: {} };
+          });
         },
       });
       pi.registerTool({

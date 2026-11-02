@@ -12,7 +12,7 @@ import { bunConfig, bunPreload } from "./config";
 
 async function runtime(context: Pick<TestToolContext, "target" | "signal">) {
   const command = Bun.which("bun", {
-    PATH: context.target.scope.env.PATH,
+    ...(context.target.scope.env.PATH !== undefined ? { PATH: context.target.scope.env.PATH } : {}),
     cwd: context.target.scope.cwd,
   });
   if (!command) {
@@ -47,7 +47,9 @@ export const bunTestAdapter: TestAdapter = {
       return false;
     }
   },
-  async prepare() {},
+  prepare() {
+    return Promise.resolve();
+  },
   async run(context) {
     const enabled = coverageEnabled(context),
       preload = enabled ? join(context.artifacts, "coverage-preload.ts") : undefined;

@@ -85,8 +85,7 @@ const empty: Inventory = { dependencies: [], complete: true, diagnostics: [] };
 
 for (const entry of cases) {
   test(`${entry.name} selects native check while keeping normal sync and scope`, async () => {
-    const ecosystem = entry.manager === "uv" ? "python" : entry.manager === "go" ? "go" : "javascript";
-    const manifest = ecosystem === "python" ? "pyproject.toml" : ecosystem === "go" ? "go.mod" : "package.json";
+    const [ecosystem, manifest] = projectMetadata(entry.manager);
     const f = memoryContext({
       manager: entry.manager,
       ecosystem,
@@ -138,4 +137,14 @@ for (const entry of cases) {
       }
     });
   }
+}
+
+function projectMetadata(manager: string): ["python" | "go" | "javascript", string] {
+  if (manager === "uv") {
+    return ["python", "pyproject.toml"];
+  }
+  if (manager === "go") {
+    return ["go", "go.mod"];
+  }
+  return ["javascript", "package.json"];
 }

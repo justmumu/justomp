@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { LintError } from "../../lint/model";
+import { mergeFields } from "../merge";
 import { GO_DEFAULTS } from "./go/defaults";
 import { JAVASCRIPT_DEFAULTS } from "./javascript/defaults";
 import { migrateJavascriptPolicy } from "./javascript/migrate";
@@ -65,6 +66,55 @@ function validateSetting(value: unknown, path: string, levels: Set<unknown>, fix
   }
 }
 
+function validateRules(input: unknown, path: string): void {
+  for (const [group, settings] of Object.entries(object(input, path))) {
+    if (!groups.has(group)) {
+      invalid(`${path}.${group}`, "a native rule group");
+    }
+    for (const [rule, setting] of Object.entries(object(settings, `${path}.${group}`))) {
+      validateSetting(setting, `${path}.${group}.${rule}`, severities, true);
+    }
+  }
+}
+function scalar(input: unknown, fallback: unknown, path: string): unknown {
+  if (typeof input !== typeof fallback || (typeof input === "number" && !Number.isFinite(input))) {
+    invalid(path, `a ${typeof fallback}`);
+  }
+  return input;
+}
+function validateManagedDiscovery(supplied: Record<string, unknown>, path: string): void {
+  for (const key of ["extends", "plugins", "$schema", "root", "files", "overrides", "vcs"]) {
+    if (Object.hasOwn(supplied, key)) {
+      invalid(
+        `${path}.${key}`,
+        "absent from managed policy; configuration discovery and file scope are owned by Justomp",
+      );
+    }
+  }
+}
+function validatePolicyValue(input: unknown, path: string): boolean {
+  if (path === "lint.javascript.biome") {
+    const supplied = object(input, path);
+    validateManagedDiscovery(supplied, path);
+  }
+  if (path === "lint.javascript.biome.organize_imports") {
+    validateSetting(input, path, new Set(["on", "off"]), false);
+    return true;
+  }
+  if (ruleMaps.has(path)) {
+    validateRules(input, path);
+    return true;
+  }
+  if (path === "lint.python.ruff.lint.per-file-ignores") {
+    const patterns = object(input, path);
+    for (const [pattern, rules] of Object.entries(patterns)) {
+      strings(rules, `${path}.${pattern}`);
+    }
+    return true;
+  }
+  return false;
+}
+
 /** Fill structural fields, while treating user-keyed maps and arrays as values. */
 export function resolveLintConfig(value?: unknown): {
   policy: LintPolicy;
@@ -77,56 +127,18 @@ export function resolveLintConfig(value?: unknown): {
       missing = true;
       return structuredClone(fallback);
     }
-    if (path === "lint.javascript.biome") {
-      const supplied = object(input, path);
-      for (const key of ["extends", "plugins", "$schema", "root", "files", "overrides", "vcs"]) {
-        if (Object.hasOwn(supplied, key)) {
-          invalid(
-            `${path}.${key}`,
-            "absent from managed policy; configuration discovery and file scope are owned by Justomp",
-          );
-        }
-      }
-    }
-    if (path === "lint.javascript.biome.organize_imports") {
-      validateSetting(input, path, new Set(["on", "off"]), false);
+    if (validatePolicyValue(input, path)) {
       return structuredClone(input);
-    }
-    if (ruleMaps.has(path)) {
-      const rules = object(input, path);
-      for (const [group, settings] of Object.entries(rules)) {
-        if (!groups.has(group)) {
-          invalid(`${path}.${group}`, "a native rule group");
-        }
-        for (const [rule, setting] of Object.entries(object(settings, `${path}.${group}`))) {
-          validateSetting(setting, `${path}.${group}.${rule}`, severities, true);
-        }
-      }
-      return structuredClone(rules);
-    }
-    if (path === "lint.python.ruff.lint.per-file-ignores") {
-      const patterns = object(input, path);
-      for (const [pattern, rules] of Object.entries(patterns)) {
-        strings(rules, `${path}.${pattern}`);
-      }
-      return structuredClone(patterns);
     }
     if (Array.isArray(fallback)) {
       strings(input, path);
       return structuredClone(input);
     }
     if (fallback && typeof fallback === "object") {
-      const supplied = object(input, path);
-      const result = structuredClone(supplied);
-      for (const [key, defaultValue] of Object.entries(fallback)) {
-        result[key] = merge(Object.hasOwn(supplied, key) ? supplied[key] : undefined, defaultValue, `${path}.${key}`);
-      }
+      const result = mergeFields(object(input, path), fallback, path, merge);
       return result;
     }
-    if (typeof input !== typeof fallback || (typeof input === "number" && !Number.isFinite(input))) {
-      invalid(path, `a ${typeof fallback}`);
-    }
-    return input;
+    return scalar(input, fallback, path);
   }
   const policy = merge(migration.value, defaults, "lint") as LintPolicy;
   return { policy, missing };

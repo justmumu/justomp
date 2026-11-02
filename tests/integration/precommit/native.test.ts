@@ -10,6 +10,7 @@ import { nativeOperations } from "../../../src/precommit/operations";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { VERSION as RUFF } from "../../fixtures/lint/python/fixture";
 import { VERSION as PYRIGHT, pythonFixture } from "../../fixtures/typecheck/python/fixture";
+import { suppliedResponse } from "../../response";
 
 function hookResult(result: ProcessResult): PrecommitResult {
   // Git forwards hook stdout to stderr, alongside the human-readable summary.
@@ -27,13 +28,15 @@ test("installed hook composes native fixes, checks and staging across failure an
   try {
     // Pin only registry selection during setup; the hook runs real installed tools.
     globalThis.fetch = Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
-        const name = String(input).split("/").at(-2);
-        const version = name === "ruff" ? RUFF : name === "pyright" ? PYRIGHT : undefined;
-        if (!version) {
-          throw new Error(`Unexpected registry ${input}`);
-        }
-        return Response.json({ releases: { [version]: [{ yanked: false }] } });
+      (input: Parameters<typeof fetch>[0]) => {
+        return suppliedResponse(() => {
+          const name = String(input).split("/").at(-2);
+          const version = name === "ruff" ? RUFF : name === "pyright" ? PYRIGHT : undefined;
+          if (!version) {
+            throw new Error(`Unexpected registry ${input}`);
+          }
+          return Response.json({ releases: { [version]: [{ yanked: false }] } });
+        });
       },
       { preconnect: original.preconnect },
     );

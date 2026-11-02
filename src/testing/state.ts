@@ -56,30 +56,7 @@ export class TestStateStore {
       ) {
         throw new Error("schema");
       }
-      for (const item of Object.values(state.projects)) {
-        if (
-          !item ||
-          !["pytest", "vitest", "bun", "go"].includes(item.runner) ||
-          !validTools(item.tools) ||
-          typeof item.ready !== "boolean" ||
-          typeof item.policy_hash !== "string"
-        ) {
-          throw new Error("receipt");
-        }
-      }
-      for (const [name, wave] of Object.entries(state.waves)) {
-        if (
-          !["pytest", "vitest", "bun", "go"].includes(name) ||
-          !wave ||
-          !validTools(wave.tools) ||
-          typeof wave.complete !== "boolean" ||
-          !Array.isArray(wave.projects) ||
-          !Array.isArray(wave.pending) ||
-          ![...wave.projects, ...wave.pending].every((v) => typeof v === "string")
-        ) {
-          throw new Error("wave");
-        }
-      }
+      validateReceipts(state);
       return new TestStateStore(root, state, snapshot);
     } catch {
       return new TestStateStore(
@@ -99,6 +76,33 @@ export class TestStateStore {
     this.snapshot = await readProjectionFile(this.root, join(this.root, ".justomp/test_state.json"));
     if (this.snapshot.text !== content) {
       throw new TestError("state-conflict", "Test state changed during publication");
+    }
+  }
+}
+
+function validateReceipts(state: TestState): void {
+  for (const item of Object.values(state.projects)) {
+    if (
+      !item ||
+      !["pytest", "vitest", "bun", "go"].includes(item.runner) ||
+      !validTools(item.tools) ||
+      typeof item.ready !== "boolean" ||
+      typeof item.policy_hash !== "string"
+    ) {
+      throw new Error("receipt");
+    }
+  }
+  for (const [name, wave] of Object.entries(state.waves)) {
+    if (
+      !["pytest", "vitest", "bun", "go"].includes(name) ||
+      !wave ||
+      !validTools(wave.tools) ||
+      typeof wave.complete !== "boolean" ||
+      !Array.isArray(wave.projects) ||
+      !Array.isArray(wave.pending) ||
+      ![...wave.projects, ...wave.pending].every((v) => typeof v === "string")
+    ) {
+      throw new Error("wave");
     }
   }
 }

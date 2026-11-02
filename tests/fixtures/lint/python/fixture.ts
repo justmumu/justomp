@@ -7,6 +7,7 @@ import { pythonAdapter } from "../../../../src/lint/adapters/python";
 import { type LintOperationContext } from "../../../../src/lint/adapters/types";
 import { applyProjection, planProjection } from "../../../../src/lint/projection";
 import { resolveLintTarget } from "../../../../src/lint/targets";
+import { suppliedResponse } from "../../../response";
 
 export const VERSION = "0.17.3";
 export async function pythonFixture(workspace = false, declaration = "") {
@@ -73,10 +74,12 @@ export async function pythonFixture(workspace = false, declaration = "") {
       }
     },
     checkContext,
-    async bytes() {
-      return Promise.all(
-        ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readFile(join(root, p), "utf8")),
-      );
+    bytes() {
+      return suppliedResponse(() => {
+        return Promise.all(
+          ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readFile(join(root, p), "utf8")),
+        );
+      });
     },
     dispose: () => rm(root, { recursive: true, force: true }),
   };

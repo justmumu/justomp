@@ -40,28 +40,8 @@ export async function runPushGate(
   };
   try {
     signal.throwIfAborted();
-    const checked = new Set<string>();
-    for (const id of ids) {
-      const key = ports.dependencyKey(id);
-      if (checked.has(key)) {
-        continue;
-      }
-      signal.throwIfAborted();
-      if (!accept(await ports.run("dependency", id))) {
-        return result;
-      }
-      checked.add(key);
-    }
-    if (ids.length && !accept(await ports.prepare())) {
+    if (ids.length && !(await checkSelected(ids, ports, signal, accept))) {
       return result;
-    }
-    for (const id of ids) {
-      for (const stage of ["format", "lint", "typecheck", "unit"] as const) {
-        signal.throwIfAborted();
-        if (!accept(await ports.run(stage, id))) {
-          return result;
-        }
-      }
     }
     result.complete = true;
     result.success = true;
@@ -75,4 +55,57 @@ export async function runPushGate(
     result.cancelled = signal.aborted;
   }
   return result;
+}
+
+type AcceptStage = (outcome: PushStage) => boolean;
+async function checkDependencies(
+  ids: string[],
+  ports: PushPorts,
+  signal: AbortSignal,
+  accept: AcceptStage,
+): Promise<boolean> {
+  const checked = new Set<string>();
+  for (const id of ids) {
+    const key = ports.dependencyKey(id);
+    if (checked.has(key)) {
+      continue;
+    }
+    signal.throwIfAborted();
+    if (!accept(await ports.run("dependency", id))) {
+      return false;
+    }
+    checked.add(key);
+  }
+  return true;
+}
+async function checkProjects(
+  ids: string[],
+  ports: PushPorts,
+  signal: AbortSignal,
+  accept: AcceptStage,
+): Promise<boolean> {
+  for (const id of ids) {
+    for (const stage of ["format", "lint", "typecheck", "unit"] as const) {
+      signal.throwIfAborted();
+      if (!accept(await ports.run(stage, id))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+async function checkSelected(
+  ids: string[],
+  ports: PushPorts,
+  signal: AbortSignal,
+  accept: AcceptStage,
+): Promise<boolean> {
+  if (!(await checkDependencies(ids, ports, signal, accept))) {
+    return false;
+  }
+  if (!accept(await ports.prepare())) {
+    return false;
+  }
+  return checkProjects(ids, ports, signal, accept);
 }

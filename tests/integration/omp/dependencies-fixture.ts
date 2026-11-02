@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type Dependency } from "../../../src/dependencies/model";
 import { createHost } from "./host";
 export const roots: string[] = [];
 export const hosts: Awaited<ReturnType<typeof createHost>>[] = [];
@@ -28,9 +29,18 @@ export async function host(root: string, deny: string[] = []) {
   hosts.push(h);
   return h;
 }
-export function json(result: { content: { type: string; text?: string }[] }) {
+interface DependencyPayload {
+  outcome: string;
+  diagnostics: { code: string; message: string }[];
+  dependencies?: Dependency[];
+  requested?: { check?: boolean };
+  structure_refresh_error?: unknown;
+  metadata_changes?: unknown[];
+  native_steps?: { exit_code: number | null }[];
+}
+export function json<T = DependencyPayload>(result: { content: { type: string; text?: string }[] }) {
   const text = result.content.findLast((part) => part.type === "text")?.text;
-  return JSON.parse(text ?? "null");
+  return JSON.parse(text ?? "null") as T;
 }
 export async function lockFixture(root: string) {
   const child = Bun.spawn(["npm", "install", "--package-lock-only", "--ignore-scripts"], {

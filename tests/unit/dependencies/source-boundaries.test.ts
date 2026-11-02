@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DependencyError } from "../../../src/dependencies/model";
 import * as paths from "../../../src/dependencies/paths";
 import { validateExistingSources } from "../../../src/dependencies/source-boundaries";
+import { suppliedResponse } from "../../response";
 import { memoryContext } from "./memory";
 
 function fixture(ecosystem: "javascript" | "python" = "javascript") {
@@ -15,12 +16,14 @@ function fixture(ecosystem: "javascript" | "python" = "javascript") {
   const canonical = spyOn(fs, "realpath").mockImplementation((async (path: unknown) =>
     String(path)) as typeof fs.realpath);
   const checked: string[] = [];
-  const safe = spyOn(paths, "safePath").mockImplementation(async (_root, path) => {
-    checked.push(path);
-    if (path === join(f.root, "linked") || path === join(f.root, "escape;segment")) {
-      throw new DependencyError("outside-root", "Supplied canonical destination is outside root");
-    }
-    return path;
+  const safe = spyOn(paths, "safePath").mockImplementation((_root, path) => {
+    return suppliedResponse(() => {
+      checked.push(path);
+      if (path === join(f.root, "linked") || path === join(f.root, "escape;segment")) {
+        throw new DependencyError("outside-root", "Supplied canonical destination is outside root");
+      }
+      return path;
+    });
   });
   return {
     ...f,

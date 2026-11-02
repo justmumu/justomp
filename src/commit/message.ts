@@ -29,7 +29,7 @@ export async function validateMessage(message: string, policy: CommitPolicy) {
     parser: NonNullable<Parameters<typeof lint>[2]>["parserOpts"];
   };
   const result = await lint(message, commitRules(policy), {
-    parserOpts: preset.parser,
+    ...(preset.parser === undefined ? {} : { parserOpts: preset.parser }),
     defaultIgnores: false,
     ignores: [(value) => policy.ignore_prefixes.some((prefix) => value.startsWith(prefix))],
   });

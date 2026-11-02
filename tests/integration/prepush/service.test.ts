@@ -7,6 +7,7 @@ import { runProcess } from "../../../src/dependencies/runner";
 import { gitText } from "../../../src/precommit/git";
 import { type PushOperations } from "../../../src/prepush/operations";
 import { runPrepush } from "../../../src/prepush/service";
+import { suppliedResponse } from "../../response";
 
 test("nested and linked worktree invocations select all projects without Git staging", async () => {
   const root = await mkdtemp(join(tmpdir(), "justomp-push-service-"));
@@ -28,26 +29,30 @@ test("nested and linked worktree invocations select all projects without Git sta
     await gitText(repo, ["worktree", "add", "-q", "-b", "linked", worktree]);
     const roots: string[] = [];
     const operations: PushOperations = {
-      prepare: async (cwd) => {
-        roots.push(cwd);
-        return {
-          stage: "preparation",
-          success: true,
-          complete: true,
-          effects: [],
-          details: {},
-        };
+      prepare: (cwd) => {
+        return suppliedResponse(() => {
+          roots.push(cwd);
+          return {
+            stage: "preparation",
+            success: true,
+            complete: true,
+            effects: [],
+            details: {},
+          };
+        });
       },
-      run: async (stage, cwd, id) => {
-        roots.push(cwd);
-        return {
-          stage,
-          project_id: id,
-          success: true,
-          complete: true,
-          effects: [],
-          details: {},
-        };
+      run: (stage, cwd, id) => {
+        return suppliedResponse(() => {
+          roots.push(cwd);
+          return {
+            stage,
+            project_id: id,
+            success: true,
+            complete: true,
+            effects: [],
+            details: {},
+          };
+        });
       },
     };
     for (const base of [repo, worktree]) {

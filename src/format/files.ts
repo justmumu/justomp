@@ -13,7 +13,7 @@ async function formatFileOperation<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 export async function readFormatFile(root: string, path: string): Promise<FileSnapshot & { text: string }> {
-  return formatFileOperation(() => readSourceFile(root, path));
+  return await formatFileOperation(() => readSourceFile(root, path));
 }
 export async function publishFormatFile(
   root: string,

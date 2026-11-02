@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
-import { loadConfig } from "../config/load";
+import { type LoadedConfig, loadConfig } from "../config/load";
 import { type ProcessResult } from "../dependencies/model";
+import { type LintCheckContext } from "../lint/adapters/types";
 import { withReadyLintTarget } from "../lint/coordinator";
 import { lintAdapters } from "../lint/service";
 import { checkGoFormat } from "./engines/go";
@@ -44,6 +45,30 @@ function nativePassed(result: ProcessResult, engine: "ruff" | "go"): boolean {
   }
   return engine !== "go" || result.stdout.trim() === "";
 }
+async function checkFile(
+  file: FormatCheckFile,
+  context: LintCheckContext,
+  policy: LoadedConfig,
+  result: FormatCheckResult,
+  signal: AbortSignal,
+): Promise<void> {
+  const target = context.target;
+  const formatter = formatterFor(file.path, target.project.ecosystem);
+  if (!formatter) {
+    throw new Error(`Unsupported format file: ${file.path}`);
+  }
+  const before = await readFormatFile(target.root, resolve(target.scope.cwd, file.path));
+  let passed: boolean;
+  if (formatter.engine === "prettier") {
+    passed = await checkPrettier(before.text, formatter.parser, policy.format.prettier);
+  } else {
+    const native = await (formatter.engine === "ruff" ? checkPythonFormat : checkGoFormat)(context, [file.path]);
+    result.cancelled ||= native.cancelled;
+    passed = nativePassed(native, formatter.engine);
+  }
+  signal.throwIfAborted();
+  file.status = passed ? "passed" : "unformatted";
+}
 /** Uses prepared tools and the full formatter scope without installs or file publication. */
 export async function checkProjectFormat(
   root: string,
@@ -79,23 +104,7 @@ export async function checkProjectFormat(
         for (const file of result.files) {
           signal.throwIfAborted();
           try {
-            const formatter = formatterFor(file.path, target.project.ecosystem);
-            if (!formatter) {
-              throw new Error(`Unsupported format file: ${file.path}`);
-            }
-            const before = await readFormatFile(target.root, resolve(target.scope.cwd, file.path));
-            let passed: boolean;
-            if (formatter.engine === "prettier") {
-              passed = await checkPrettier(before.text, formatter.parser, policy.format.prettier);
-            } else {
-              const native = await (formatter.engine === "ruff" ? checkPythonFormat : checkGoFormat)(context, [
-                file.path,
-              ]);
-              result.cancelled ||= native.cancelled;
-              passed = nativePassed(native, formatter.engine);
-            }
-            signal.throwIfAborted();
-            file.status = passed ? "passed" : "unformatted";
+            await checkFile(file, context, policy, result, signal);
           } catch (error) {
             file.status = "error";
             file.error = {

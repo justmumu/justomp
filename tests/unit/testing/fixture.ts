@@ -21,3 +21,8 @@ export function context(mode: "full" | "targeted" = "full"): TestRunContext {
     },
   } as unknown as TestRunContext;
 }
+
+/** Execute supplied collaborators synchronously while preserving async rejection semantics. */
+export function suppliedResponse<T>(read: () => T): Promise<T> {
+  return new Promise((resolve) => resolve(read()));
+}

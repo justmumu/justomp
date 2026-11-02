@@ -63,6 +63,7 @@ async function fixture() {
   await f.write(".justomp/config.json", {
     typecheck: {
       javascript: {
+        exclude: ["src/extra.js", "src/archive/**"],
         compilerOptions: {
           noCheck: true,
           noEmit: false,
@@ -79,6 +80,7 @@ async function fixture() {
     "packages/core/src/index.ts",
     'export const value: string = "ok";\nexport {extra} from "./extra.js";\n',
   );
+  await f.write("packages/core/src/archive/unused.ts", "export const unused: string = 42;\n");
   await f.install();
   const context = await f.ready("javascript:apps/web/package.json");
   return {
@@ -110,6 +112,7 @@ test("native declaration chain emits only required types and preserves earlier e
       ?.outputs,
   ).toContain(join(f.root, "packages/core/types/extra.d.ts"));
   const first = await f.run();
+  expect(first.preparation.errors).toEqual([]);
   expect(first.ready).toBe(true);
   expect(first.value?.[0]?.status).toBe("passed");
   expect(first.preparation.affected_projects).toEqual([
@@ -131,6 +134,7 @@ test("native declaration chain emits only required types and preserves earlier e
     kind: "created",
   });
   expect(await Bun.file(join(f.root, "packages/core/lib/extra.js")).exists()).toBe(false);
+  expect(await Bun.file(join(f.root, "packages/core/types/archive/unused.d.ts")).exists()).toBe(false);
   await unlink(join(f.root, "packages/core/types/index.d.ts"));
   await f.write("packages/ui/src/index.ts", "export const broken: string = 42;\n");
   const failed = await f.run();

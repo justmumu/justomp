@@ -76,7 +76,7 @@ test.each([".npmrc", "pnpm-workspace.yaml"])(
     const listed = await executeDependency(project, "list", { project_id }, { pnpm: pnpmAdapter });
     expect(
       "dependencies" in listed &&
-        listed.dependencies?.find((item) => item.name === "fixture-dep")?.resolutions?.[0]?.version,
+        listed.dependencies.find((item) => item.name === "fixture-dep")?.resolutions?.[0]?.version,
       JSON.stringify(listed),
     ).toBe("1.0.0");
     fixture.publish();
@@ -190,7 +190,7 @@ test.each([
     { pnpm: pnpmAdapter },
   );
   expect(added.outcome, JSON.stringify(added)).toBe("rejected");
-  expect(added.diagnostics?.[0]?.code).toBe(destinationKind === "external" ? "outside-root" : "unsupported-config");
+  expect(added.diagnostics[0]?.code).toBe(destinationKind === "external" ? "outside-root" : "unsupported-config");
   expect("native_steps" in added).toBe(false);
   for (const destination of ["outside-modules", "outside-store", "outside-lock"]) {
     await expect(readdir(join(destinationKind === "external" ? root : project, destination))).rejects.toMatchObject({

@@ -219,7 +219,7 @@ Managed Biome 2.6.3 was verified on macOS arm64 and Linux arm64 through npm, Yar
 bun run check
 bun run test:lint
 # Includes existing inspection/dependency tests and installed-package smoke:
-bun run test:integration
+bun run check:integration
 ```
 
 `test:lint` runs lint integration tests and the real OMP lint tests. Provision the exact managers on `PATH`; `JUSTOMP_YARN_MODERN_BINARY` and `JUSTOMP_YARN_CLASSIC_BINARY` can select their installed launchers. `JUSTOMP_GOLANGCI_ARCHIVE` optionally points to an official 2.15.0 archive. Without it, the Go fixture downloads the exact official platform archive, verifies its checksum and caches it under the OS temporary directory. Missing managers fail tests rather than skipping coverage. Registry-resolution fixtures use fixed metadata; native installs still execute real managers and tools.

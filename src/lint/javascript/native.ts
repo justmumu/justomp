@@ -96,7 +96,7 @@ export async function nodeRun(
       cwd: target.scope.cwd,
     });
   }
-  const node = Bun.which("node", { PATH: target.scope.env.PATH });
+  const node = Bun.which("node", target.scope.env.PATH === undefined ? {} : { PATH: target.scope.env.PATH });
   if (!node) {
     throw new LintError("runtime-unavailable", "Node is not installed; install a compatible runtime explicitly");
   }
@@ -139,7 +139,7 @@ export async function installedPackages(
   );
   assertNative(result, "Read installed package metadata");
   const line = result.stdout.split("\n").find((value) => value.startsWith("{"));
-  return JSON.parse(line ?? "{}");
+  return JSON.parse(line ?? "{}") as Record<string, Record<string, unknown>>;
 }
 export async function localTool(
   target: LintTarget,
@@ -148,7 +148,7 @@ export async function localTool(
   args: string[],
   signal: AbortSignal,
 ) {
-  return nodeRun(
+  return await nodeRun(
     target,
     native,
     [

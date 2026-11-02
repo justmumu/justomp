@@ -11,6 +11,7 @@ import { golangciPath } from "../../../src/lint/go/install";
 import { lintManagerContext } from "../../../src/lint/runtime";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { artifactTransport, GO_LINT_VERSION, goFixture, officialArchive } from "../../fixtures/lint/go/fixture";
+import { suppliedResponse } from "../../response";
 import { createGoProxy } from "../dependencies/managers/go-proxy";
 import { cleanups } from "./go-fixture";
 
@@ -161,9 +162,11 @@ test("workspace checksum completion stays in a transient workspace and preserves
   ).toBe(true);
   expect(await f.bytes()).toEqual(before);
   await expect(
-    withGoEnvironment(target, native, async (env) => {
-      scratch = env.GOWORK ?? "";
-      throw new Error("cancelled fixture operation");
+    withGoEnvironment(target, native, (env) => {
+      return suppliedResponse(() => {
+        scratch = (env as Partial<typeof env>).GOWORK ?? "";
+        throw new Error("cancelled fixture operation");
+      });
     }),
   ).rejects.toThrow("cancelled");
   await expect(access(scratch)).rejects.toThrow();

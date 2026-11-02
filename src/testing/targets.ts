@@ -33,6 +33,26 @@ export async function resolveTestTarget(
   const manifest =
     project.ecosystem === "javascript" ? JSON.parse(text) : project.ecosystem === "python" ? parse(text) : {};
   const runner = detectRunner(project.ecosystem, manifest, await readdir(resolve(root, project.path)));
+  const configFile = await integrationConfigFile(structure, project, root, manifest, runner, suite);
+  await validateExistingSources(root, project, structure);
+  return {
+    root,
+    project,
+    structure,
+    runner,
+    ...(configFile ? { configFile } : {}),
+    scope: await resolveManagerScope(root, project, structure.projects),
+  };
+}
+
+async function integrationConfigFile(
+  structure: PackagingStructure,
+  project: Project,
+  root: string,
+  manifest: Record<string, unknown>,
+  runner: TestRunner,
+  suite: TestSuite,
+): Promise<string | undefined> {
   let configFile: string | undefined;
   if (suite === "integration" && project.ecosystem === "javascript") {
     const selected = integrationRunnerEvidence(manifest, runner);
@@ -43,28 +63,30 @@ export async function resolveTestTarget(
       }
       const resolvedConfig = await realpath(await safePath(root, resolve(cwd, selected)));
       configFile = resolvedConfig;
-      if (
-        !within(cwd, configFile) ||
-        structure.projects.some(
-          (p) =>
-            p.project_id !== id &&
-            p.path !== project.path &&
-            within(cwd, resolve(root, p.path)) &&
-            within(resolve(root, p.path), resolvedConfig),
-        )
-      ) {
-        throw new TestError("invalid-config", "Integration config belongs outside the selected project");
-      }
+      validateConfigOwnership(structure, project, root, cwd, resolvedConfig);
       await readFile(configFile);
     }
   }
-  await validateExistingSources(root, project, structure);
-  return {
-    root,
-    project,
-    structure,
-    runner,
-    ...(configFile ? { configFile } : {}),
-    scope: await resolveManagerScope(root, project, structure.projects),
-  };
+  return configFile;
+}
+
+function validateConfigOwnership(
+  structure: PackagingStructure,
+  project: Project,
+  root: string,
+  cwd: string,
+  resolvedConfig: string,
+): void {
+  if (
+    !within(cwd, resolvedConfig) ||
+    structure.projects.some(
+      (p) =>
+        p.project_id !== project.project_id &&
+        p.path !== project.path &&
+        within(cwd, resolve(root, p.path)) &&
+        within(resolve(root, p.path), resolvedConfig),
+    )
+  ) {
+    throw new TestError("invalid-config", "Integration config belongs outside the selected project");
+  }
 }

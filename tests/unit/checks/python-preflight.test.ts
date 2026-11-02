@@ -7,6 +7,7 @@ import * as runner from "../../../src/dependencies/runner";
 import { pythonAdapter as lint } from "../../../src/lint/adapters/python";
 import * as runtime from "../../../src/lint/runtime";
 import { pythonAdapter as typecheck } from "../../../src/typecheck/adapters/python";
+import { suppliedResponse } from "../../response";
 import { memoryContext } from "../dependencies/memory";
 import { output, target } from "./fixture";
 
@@ -42,21 +43,25 @@ function fixture(tool: "ruff" | "pyright") {
   let existing = false,
     broken = false;
   keep(
-    spyOn(fs, "lstat").mockImplementation((async () => {
-      if (!existing) {
-        throw Object.assign(new Error("missing"), { code: "ENOENT" });
-      }
-      return {} as Stats;
+    spyOn(fs, "lstat").mockImplementation((() => {
+      return suppliedResponse(() => {
+        if (!existing) {
+          throw Object.assign(new Error("missing"), { code: "ENOENT" });
+        }
+        return {} as Stats;
+      });
     }) as unknown as typeof fs.lstat),
   );
   keep(
-    spyOn(fs, "realpath").mockImplementation((async (path: unknown) => {
-      if (broken) {
-        throw Object.assign(new Error("missing interpreter"), {
-          code: "ENOENT",
-        });
-      }
-      return String(path).endsWith(".venv/bin/python") ? "/python/current" : String(path);
+    spyOn(fs, "realpath").mockImplementation(((path: unknown) => {
+      return suppliedResponse(() => {
+        if (broken) {
+          throw Object.assign(new Error("missing interpreter"), {
+            code: "ENOENT",
+          });
+        }
+        return String(path).endsWith(".venv/bin/python") ? "/python/current" : String(path);
+      });
     }) as typeof fs.realpath),
   );
   const node = keep(spyOn(Bun, "which").mockReturnValue("/node"));

@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { pythonFixture, VERSION } from "../../fixtures/lint/python/fixture";
+import { suppliedResponse } from "../../response";
 export const cleanups: (() => Promise<void>)[] = [];
 export async function fixture() {
   const f = await pythonFixture();
@@ -17,11 +18,13 @@ export function registry() {
   const original = globalThis.fetch;
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
-        if (String(input) !== "https://pypi.org/pypi/ruff/json") {
-          throw new Error(`Unexpected registry request: ${input}`);
-        }
-        return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
+      (input: Parameters<typeof fetch>[0]) => {
+        return suppliedResponse(() => {
+          if (String(input) !== "https://pypi.org/pypi/ruff/json") {
+            throw new Error(`Unexpected registry request: ${input}`);
+          }
+          return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
+        });
       },
       { preconnect: original.preconnect },
     ),

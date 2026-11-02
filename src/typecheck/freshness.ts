@@ -36,16 +36,7 @@ export async function snapshotTypecheckFiles(
   const files: FileHashes = {};
   const visited = new Set<string>();
   for (const target of targets) {
-    const dependencyRoots = target.scope.pnpm
-      ? [
-          ...target.scope.pnpm.memberDirectories.map((directory) =>
-            resolve(directory, target.scope.pnpm?.modulesDirectory ?? "node_modules"),
-          ),
-          ...target.scope.pnpm.virtualStoreDirectories,
-        ]
-      : target.scope.manager === "uv"
-        ? [resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv")]
-        : [];
+    const dependencyRoots = snapshotDependencyRoots(target);
     const children = target.structure.projects
       .filter(
         (project) =>
@@ -54,45 +45,7 @@ export async function snapshotTypecheckFiles(
           resolve(target.root, project.path) !== target.scope.cwd,
       )
       .map((project) => resolve(target.root, project.path));
-    const visit = async (path: string, explicit = false): Promise<void> => {
-      if (visited.has(path)) {
-        return;
-      }
-      if (
-        !explicit &&
-        (children.includes(path) ||
-          dependencyRoots.some((root) => within(root, path)) ||
-          excludedRoots.some((root) => within(resolve(target.root, root), path)))
-      ) {
-        return;
-      }
-      let info: import("node:fs").Stats;
-      try {
-        info = await lstat(await safePath(target.root, path));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-          return;
-        }
-        throw error;
-      }
-      if (info.isSymbolicLink()) {
-        return;
-      }
-      visited.add(path);
-      if (info.isFile()) {
-        files[relative(target.root, path).replaceAll("\\", "/")] = contentHash(await readFile(path));
-        return;
-      }
-      if (!info.isDirectory()) {
-        return;
-      }
-      for (const entry of await readdir(path, { withFileTypes: true })) {
-        if (entry.isSymbolicLink() || OMIT.has(entry.name) || /^tsconfig\.justomp\./.test(entry.name)) {
-          continue;
-        }
-        await visit(join(path, entry.name), explicit);
-      }
-    };
+    const visit = snapshotVisitor(target, files, visited, children, dependencyRoots, excludedRoots);
     await visit(target.scope.cwd);
     for (const name of [
       "pyproject.toml",
@@ -167,11 +120,14 @@ export async function fingerprintTypecheckAnalysisSources(
   targets: readonly TypecheckTarget[],
   generated: readonly string[] = [],
   exclude: readonly string[] = [],
+  imported: readonly string[] = [],
 ): Promise<string> {
   const files: FileHashes = {};
   for (const target of targets) {
-    for (const file of (await collectTypecheckScope(target, exclude)).files) {
-      const absolute = resolve(target.scope.cwd, file);
+    const selected = (await collectTypecheckScope(target, exclude)).files.map((file) =>
+      resolve(target.scope.cwd, file),
+    );
+    for (const absolute of new Set([...selected, ...imported.filter((file) => within(target.scope.cwd, file))])) {
       if (generated.some((output) => within(resolve(target.root, output), absolute))) {
         continue;
       }
@@ -179,4 +135,87 @@ export async function fingerprintTypecheckAnalysisSources(
     }
   }
   return contentHash(JSON.stringify(Object.entries(files).sort(([a], [b]) => a.localeCompare(b))));
+}
+
+function snapshotDependencyRoots(target: TypecheckTarget): string[] {
+  return target.scope.pnpm
+    ? [
+        ...target.scope.pnpm.memberDirectories.map((directory) =>
+          resolve(directory, target.scope.pnpm?.modulesDirectory ?? "node_modules"),
+        ),
+        ...target.scope.pnpm.virtualStoreDirectories,
+      ]
+    : target.scope.manager === "uv"
+      ? [resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv")]
+      : [];
+}
+function snapshotVisitor(
+  target: TypecheckTarget,
+  files: FileHashes,
+  visited: Set<string>,
+  children: string[],
+  dependencyRoots: string[],
+  excludedRoots: readonly string[],
+) {
+  const visit = async (path: string, explicit = false): Promise<void> => {
+    if (visited.has(path) || skipSnapshotPath(target, path, explicit, children, dependencyRoots, excludedRoots)) {
+      return;
+    }
+    const info = await snapshotInfo(target.root, path);
+    if (!info || info.isSymbolicLink()) {
+      return;
+    }
+    visited.add(path);
+    if (info.isFile()) {
+      files[relative(target.root, path).replaceAll("\\", "/")] = contentHash(await readFile(path));
+      return;
+    }
+    if (!info.isDirectory()) {
+      return;
+    }
+    await visitSnapshotChildren(path, explicit, visit);
+  };
+  return visit;
+}
+
+async function snapshotInfo(root: string, path: string): Promise<import("node:fs").Stats | undefined> {
+  let info: import("node:fs").Stats;
+  try {
+    info = await lstat(await safePath(root, path));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    throw error;
+  }
+  return info;
+}
+
+async function visitSnapshotChildren(
+  path: string,
+  explicit: boolean,
+  visit: (path: string, explicit: boolean) => Promise<void>,
+): Promise<void> {
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    if (entry.isSymbolicLink() || OMIT.has(entry.name) || /^tsconfig\.justomp\./.test(entry.name)) {
+      continue;
+    }
+    await visit(join(path, entry.name), explicit);
+  }
+}
+
+function skipSnapshotPath(
+  target: TypecheckTarget,
+  path: string,
+  explicit: boolean,
+  children: string[],
+  dependencyRoots: string[],
+  excludedRoots: readonly string[],
+): boolean {
+  return (
+    !explicit &&
+    (children.includes(path) ||
+      dependencyRoots.some((root) => within(root, path)) ||
+      excludedRoots.some((root) => within(resolve(target.root, root), path)))
+  );
 }

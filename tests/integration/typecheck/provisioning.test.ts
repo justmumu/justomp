@@ -3,6 +3,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { withReadyTypecheckTarget } from "../../../src/typecheck/coordinator";
 import { prepareTypecheck } from "../../../src/typecheck/prepare";
+import { suppliedResponse } from "../../response";
 import { fixture } from "./fixture";
 
 test("new discovery supersedes a failed wave and unchanged retries retain its exact target", async () => {
@@ -149,12 +150,18 @@ test("Go preparation refreshes installed runtime receipts after an upgrade", asy
   let installed = "1.25.5";
   const adapter = {
     ...f.adapter,
-    async resolve(targets: Parameters<typeof f.adapter.resolve>[0]) {
-      return Object.fromEntries(targets.map((target) => [target.project.project_id, { go: installed }]));
+    resolve(targets: Parameters<typeof f.adapter.resolve>[0]) {
+      return suppliedResponse(() => {
+        return Object.fromEntries(targets.map((target) => [target.project.project_id, { go: installed }]));
+      });
     },
-    async prepareBatch() {},
-    async verifyTools(context: Parameters<typeof f.adapter.verifyTools>[0]) {
-      return context.versions.go === installed;
+    prepareBatch() {
+      return Promise.resolve();
+    },
+    verifyTools(context: Parameters<typeof f.adapter.verifyTools>[0]) {
+      return suppliedResponse(() => {
+        return context.versions.go === installed;
+      });
     },
   };
   const run = () => prepareTypecheck(f.root, { go: adapter }, new AbortController().signal);

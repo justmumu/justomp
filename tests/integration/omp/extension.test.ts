@@ -91,7 +91,9 @@ test("startup config error is visible and a later tool call can recover without 
   await mkdir(join(root, ".justomp"));
   await writeFile(join(root, ".justomp/config.json"), "{");
   const h = await host(root);
-  const log = spyOn(console, "error").mockImplementation(() => {});
+  const log = spyOn(console, "error").mockImplementation(() => {
+    /* This supplied callback intentionally has no side effects. */
+  });
   try {
     await h.runner.emit({ type: "session_start" });
     expect(log).toHaveBeenCalled();

@@ -20,6 +20,21 @@ export function readonlyGoEnvironment(target: LintTarget): Record<string, string
     GOFLAGS: "-mod=readonly",
   };
 }
+async function rebaseArguments(target: LintTarget, work: string, data: ReturnType<typeof parseGo>): Promise<string[]> {
+  const args = ["work", "edit"];
+  for (const path of data.uses) {
+    args.push(`-dropuse=${path}`, `-use=${await safePath(target.root, resolve(dirname(work), path))}`);
+  }
+  // Native unversioned replacements remove versioned entries; restore specific entries afterward.
+  for (const replacement of [...data.replaces].sort((a, b) => Number(!!a.version) - Number(!!b.version))) {
+    const targetPath = replacement.targetVersion
+      ? `${replacement.target}@${replacement.targetVersion}`
+      : await safePath(target.root, resolve(dirname(work), replacement.target));
+    args.push(`-replace=${replacement.name}${replacement.version ? `@${replacement.version}` : ""}=${targetPath}`);
+  }
+  args.push("-print", work);
+  return args;
+}
 /** Go's readonly mode still writes go.work.sum. A transient native workspace keeps original module scope without publishing those sums. */
 export async function withGoEnvironment<T>(
   target: LintTarget,
@@ -34,18 +49,7 @@ export async function withGoEnvironment<T>(
   await safePath(target.root, work);
   const source = await readFile(work, "utf8"),
     data = parseGo(source, "work");
-  const args = ["work", "edit"];
-  for (const path of data.uses) {
-    args.push(`-dropuse=${path}`, `-use=${await safePath(target.root, resolve(dirname(work), path))}`);
-  }
-  // Native unversioned replacements remove versioned entries; restore specific entries afterward.
-  for (const replacement of [...data.replaces].sort((a, b) => Number(!!a.version) - Number(!!b.version))) {
-    const targetPath = replacement.targetVersion
-      ? `${replacement.target}@${replacement.targetVersion}`
-      : await safePath(target.root, resolve(dirname(work), replacement.target));
-    args.push(`-replace=${replacement.name}${replacement.version ? `@${replacement.version}` : ""}=${targetPath}`);
-  }
-  args.push("-print", work);
+  const args = await rebaseArguments(target, work, data);
   const rebased = await native.run({
     args,
     label: "Read native workspace with absolute member paths",

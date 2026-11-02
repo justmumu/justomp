@@ -9,7 +9,7 @@ import {
   retainPackagingStructure,
   subscribePackagingStructure,
 } from "../packaging/get-structure";
-import { type LintAdapterRegistry, type LintCheckContext } from "./adapters/types";
+import { type LintAdapter, type LintAdapterRegistry, type LintCheckContext } from "./adapters/types";
 import { LintError } from "./model";
 import {
   lintDomains,
@@ -40,9 +40,9 @@ ownerHost[ownersKey] ??= new Map();
 const owners = ownerHost[ownersKey];
 export class LintCoordinator {
   private controller = new AbortController();
-  private job?: Promise<PreparationReport>;
-  private dirty = false;
-  private closed = false;
+  private job: Promise<PreparationReport> | undefined;
+  private dirty: boolean = false;
+  private closed: boolean = false;
   private stopping?: Promise<void>;
   get isClosed(): boolean {
     return this.closed;
@@ -53,13 +53,13 @@ export class LintCoordinator {
   private last?: PreparationReport;
   private listeners = new Set<(report: PreparationReport) => void>();
   private progressListeners = new Set<(progress: PreparationProgress) => void>();
-  private progress?: PreparationProgress;
+  private progress: PreparationProgress | undefined;
   get preparing(): boolean {
     return this.job !== undefined;
   }
   subscribeProgress(listener: (progress: PreparationProgress) => void): () => void {
     this.progressListeners.add(listener);
-    if (this.job && this.progress) {
+    if (this.job !== undefined && this.progress) {
       listener(this.progress);
     }
     return () => {
@@ -151,11 +151,75 @@ export class LintCoordinator {
       throw error;
     }
   }
+  private async preparePass(previousInput: string): Promise<{ input: string; report: PreparationReport }> {
+    let report: PreparationReport;
+    try {
+      previousInput = await this.inputKey();
+      report = await prepareLint(this.root, this.adapters, this.controller.signal, (progress) => {
+        this.reportProgress(progress);
+      });
+    } catch (error) {
+      report = {
+        status: "failed",
+        action: "not-attempted",
+        tools: {},
+        affected_projects: [],
+        changes: [],
+        complete: false,
+        cancelled: this.controller.signal.aborted,
+        errors: [preparationFailure(error)],
+        projects: {},
+      };
+    }
+    return { input: previousInput, report };
+  }
+  private reportProgress(progress: PreparationProgress): void {
+    this.progress = progress;
+    for (const listener of this.progressListeners) {
+      try {
+        listener(progress);
+      } catch {
+        /* Reporting cannot cancel preparation. */
+      }
+    }
+  }
+  private async changedFailedInput(previousInput: string): Promise<boolean> {
+    // Self-writes must not spin a failed native step; genuinely new inputs rerun.
+    try {
+      return (await this.inputKey()) !== previousInput;
+    } catch {
+      return false;
+    }
+  }
+  private publishReport(
+    report: PreparationReport,
+    effects: PreparationReport["changes"],
+    recovery: string | undefined,
+    prepared: boolean,
+  ): void {
+    report.changes = effects;
+    if (recovery) {
+      report.recovery = recovery;
+    }
+    if (prepared) {
+      report.action = "prepared";
+    }
+    for (const [id, project] of Object.entries(report.projects)) {
+      project.changes = effects.filter((change) => change.project_id === id);
+    }
+    for (const listener of this.listeners) {
+      try {
+        listener(report);
+      } catch {
+        /* Reporting cannot cancel preparation. */
+      }
+    }
+  }
   private notify(): void {
     if (this.closed) {
       return;
     }
-    if (this.job) {
+    if (this.job !== undefined) {
       this.dirty = true;
       return;
     }
@@ -166,7 +230,7 @@ export class LintCoordinator {
     if (this.closed) {
       return Promise.reject(new LintError("closed", "Lint preparation is closed"));
     }
-    if (this.job) {
+    if (this.job !== undefined) {
       return this.job;
     }
     this.progress = undefined;
@@ -177,65 +241,20 @@ export class LintCoordinator {
       let recovery: string | undefined;
       for (;;) {
         this.dirty = false;
-        try {
-          previousInput = await this.inputKey();
-          this.last = await prepareLint(this.root, this.adapters, this.controller.signal, (progress) => {
-            this.progress = progress;
-            for (const listener of this.progressListeners) {
-              try {
-                listener(progress);
-              } catch {
-                /* Reporting cannot cancel preparation. */
-              }
-            }
-          });
-        } catch (error) {
-          this.last = {
-            status: "failed",
-            action: "not-attempted",
-            tools: {},
-            affected_projects: [],
-            changes: [],
-            complete: false,
-            cancelled: this.controller.signal.aborted,
-            errors: [preparationFailure(error)],
-            projects: {},
-          };
-        }
+        const pass = await this.preparePass(previousInput);
+        previousInput = pass.input;
+        this.last = pass.report;
         effects.push(...this.last.changes);
         recovery ??= this.last.recovery;
         prepared ||= this.last.action === "prepared";
         if (!this.dirty || this.closed) {
           break;
         }
-        if (!this.last.complete) {
-          // Self-writes must not spin a failed native step; genuinely new inputs rerun.
-          try {
-            if ((await this.inputKey()) === previousInput) {
-              break;
-            }
-          } catch {
-            break;
-          }
+        if (!this.last.complete && !(await this.changedFailedInput(previousInput))) {
+          break;
         }
       }
-      this.last.changes = effects;
-      if (recovery) {
-        this.last.recovery = recovery;
-      }
-      if (prepared) {
-        this.last.action = "prepared";
-      }
-      for (const [id, project] of Object.entries(this.last.projects)) {
-        project.changes = effects.filter((change) => change.project_id === id);
-      }
-      for (const listener of this.listeners) {
-        try {
-          listener(this.last);
-        } catch {
-          /* Reporting cannot cancel preparation. */
-        }
-      }
+      this.publishReport(this.last, effects, recovery, prepared);
       return this.last;
     })();
     this.job = running;
@@ -249,7 +268,7 @@ export class LintCoordinator {
     return running;
   }
   shutdown(): Promise<void> {
-    if (this.stopping) {
+    if (this.stopping !== undefined) {
       return this.stopping;
     }
     this.closed = true;
@@ -337,7 +356,7 @@ export async function retainLintCoordinator(
 }
 /** Host root switches await cancellation/child teardown before starting the next root. */
 export class LintSession {
-  private current?: Awaited<ReturnType<typeof retainLintCoordinator>>;
+  private current: Awaited<ReturnType<typeof retainLintCoordinator>> | undefined;
   constructor(private adapters: LintAdapterRegistry) {}
   async switchRoot(root: string): Promise<LintCoordinator> {
     const canonical = await realpath(root);
@@ -351,6 +370,65 @@ export class LintSession {
   async shutdown(): Promise<void> {
     await this.current?.release();
     this.current = undefined;
+  }
+}
+async function readyContext(
+  target: Awaited<ReturnType<typeof resolveLintTarget>>,
+  adapters: LintAdapterRegistry,
+  signal: AbortSignal,
+): Promise<{ context: LintCheckContext; adapter: LintAdapter; policyHash: string }> {
+  const projectId = target.project.project_id;
+  const policy = await loadConfig(target.root, { signal, flush: false });
+  const store = await LintStateStore.load(target.root);
+  const receipt = store.state.projects[projectId];
+  if (
+    store.recovery ||
+    !receipt?.ready ||
+    receipt.policy_hash !== lintPolicyKey(policy.lint[target.project.ecosystem])
+  ) {
+    throw new LintError("not-ready", "Lint preparation is not ready; prepare this project first");
+  }
+  if (
+    !lintWaveReady(
+      store.state,
+      target.project.ecosystem,
+      target.structure.projects.filter((p) => p.ecosystem === target.project.ecosystem).map((p) => p.project_id),
+    )
+  ) {
+    throw new LintError(`incomplete-${target.project.ecosystem}-wave`, "Lint version alignment wave is incomplete");
+  }
+  const adapter = adapters[target.project.ecosystem];
+  if (!adapter) {
+    throw new LintError("unsupported-ecosystem", `No lint adapter registered for ${target.project.ecosystem}`);
+  }
+  const context: LintCheckContext = {
+    target,
+    versions: receipt.tools,
+    policy: policy.lint,
+    projection: await planProjection(target, policy.lint, receipt.tools),
+    signal,
+  };
+  if (!context.projection.current || !(await adapter.verify(context))) {
+    throw new LintError("not-ready", "Native lint environment is not ready; reconcile preparation first");
+  }
+  return { context, adapter, policyHash: receipt.policy_hash };
+}
+async function verifyAfter(
+  context: LintCheckContext,
+  retained: LintCheckContext,
+  adapter: LintAdapter,
+  policyHash: string,
+): Promise<void> {
+  const { target, signal, policy, versions } = retained;
+  const after = {
+    ...context,
+    projection: await planProjection(target, policy, versions),
+  };
+  if (!after.projection.current || !(await adapter.verify(after))) {
+    throw new LintError("not-ready", "Native lint environment changed during the check; prepare again");
+  }
+  if (lintPolicyKey((await loadConfig(target.root, { signal })).lint[target.project.ecosystem]) !== policyHash) {
+    throw new LintError("policy-changed", "Lint policy changed during the check");
   }
 }
 /** Ready execution lease: validates tooling without installs, policy flush or snapshot writes.
@@ -380,54 +458,11 @@ export async function withReadyLintTarget<T>(
       if (JSON.stringify(lintDomains(target.root, [target])) !== JSON.stringify(domains)) {
         return undefined;
       }
-      const policy = await loadConfig(target.root, { signal, flush: false });
-      const store = await LintStateStore.load(target.root);
-      const receipt = store.state.projects[projectId];
-      if (
-        store.recovery ||
-        !receipt?.ready ||
-        receipt.policy_hash !== lintPolicyKey(policy.lint[target.project.ecosystem])
-      ) {
-        throw new LintError("not-ready", "Lint preparation is not ready; prepare this project first");
-      }
-      if (
-        !lintWaveReady(
-          store.state,
-          target.project.ecosystem,
-          latest.structure.projects.filter((p) => p.ecosystem === target.project.ecosystem).map((p) => p.project_id),
-        )
-      ) {
-        throw new LintError(`incomplete-${target.project.ecosystem}-wave`, "Lint version alignment wave is incomplete");
-      }
-      const adapter = adapters[target.project.ecosystem];
-      if (!adapter) {
-        throw new LintError("unsupported-ecosystem", `No lint adapter registered for ${target.project.ecosystem}`);
-      }
-      const context: LintCheckContext = {
-        target,
-        versions: receipt.tools,
-        policy: policy.lint,
-        projection: await planProjection(target, policy.lint, receipt.tools),
-        signal,
-      };
-      if (!context.projection.current || !(await adapter.verify(context))) {
-        throw new LintError("not-ready", "Native lint environment is not ready; reconcile preparation first");
-      }
+      const { context, adapter, policyHash } = await readyContext(target, adapters, signal);
+      const retained = { ...context };
       const value = await operation(context);
       signal.throwIfAborted();
-      const after = {
-        ...context,
-        projection: await planProjection(target, policy.lint, receipt.tools),
-      };
-      if (!after.projection.current || !(await adapter.verify(after))) {
-        throw new LintError("not-ready", "Native lint environment changed during the check; prepare again");
-      }
-      if (
-        lintPolicyKey((await loadConfig(target.root, { signal })).lint[target.project.ecosystem]) !==
-        receipt.policy_hash
-      ) {
-        throw new LintError("policy-changed", "Lint policy changed during the check");
-      }
+      await verifyAfter(context, retained, adapter, policyHash);
       return { value };
     });
     if (result) {

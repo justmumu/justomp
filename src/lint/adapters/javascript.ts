@@ -1,6 +1,12 @@
 import { join, relative, resolve } from "node:path";
 import { readOptional } from "../../dependencies/executable";
-import { type DependencyRequest, redact } from "../../dependencies/model";
+import {
+  type AdapterContext,
+  type DependencyRequest,
+  type Inventory,
+  type ProcessResult,
+  redact,
+} from "../../dependencies/model";
 import { within } from "../../dependencies/paths";
 import { checkPrettierFile, prettierVersion } from "../../format/engines/prettier";
 import { formatterFor } from "../../format/selection";
@@ -12,60 +18,34 @@ import { BIOME_PACKAGE, BIOME_TOOL, nativeJavascriptTools } from "../javascript/
 import { type LintCheck, LintError } from "../model";
 import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
+import { metadataChangeKind } from "./metadata";
 import { type LintAdapter, type LintCheckContext, type LintOperationContext } from "./types";
 
+async function exactToolPlan(
+  native: AdapterContext,
+  adapter: ReturnType<typeof nativeAdapter>,
+  before: Inventory,
+  request: Exclude<DependencyRequest, { operation: "list" }>,
+) {
+  const plan = await adapter.plan(native, request, before);
+  if (request.operation === "add") {
+    for (const step of plan.steps) {
+      step.args.push(native.manager === "npm" || native.manager === "pnpm" ? "--save-exact" : "--exact");
+    }
+  }
+  return { request, plan };
+}
 async function operations(context: LintOperationContext) {
-  return Promise.all(
+  return await Promise.all(
     context.targets.map(async (target) => {
       const native = await lintManagerContext(target, context.signal);
       const adapter = nativeAdapter(native);
       const before = await adapter.inventory(native, false);
       const tools = nativeJavascriptTools(context.versions[target.project.project_id] ?? {});
-      const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
-      const additions: Extract<DependencyRequest, { operation: "add" }>["packages"] = [];
-      const updates: Extract<DependencyRequest, { operation: "update" }>["packages"] = [];
-      for (const [name, version] of Object.entries(tools)) {
-        const declarations = before.dependencies.filter((value) => value.name === name);
-        if (
-          declarations.some((value) => value.group.kind !== "dev" || value.source.kind !== "registry") ||
-          declarations.length > 1
-        ) {
-          throw new LintError(
-            "conflicting-declaration",
-            `${name} must have one registry dev declaration; reconcile its existing groups/sources explicitly`,
-          );
-        }
-        if (declarations.length) {
-          updates.push({ name, version, group: { kind: "dev" } });
-        } else {
-          additions.push({ name, version, source: { kind: "registry" } });
-        }
-      }
-      if (additions.length) {
-        requests.push({
-          operation: "add",
-          project_id: target.project.project_id,
-          packages: additions,
-          group: { kind: "dev" },
-        });
-      }
-      if (updates.length) {
-        requests.push({
-          operation: "update",
-          project_id: target.project.project_id,
-          packages: updates,
-          mode: "within_constraints",
-        });
-      }
+      const requests = toolRequests(target, before, tools);
       const plans = await Promise.all(
         requests.map(async (request) => {
-          const plan = await adapter.plan(native, request, before);
-          if (request.operation === "add") {
-            for (const step of plan.steps) {
-              step.args.push(native.manager === "npm" || native.manager === "pnpm" ? "--save-exact" : "--exact");
-            }
-          }
-          return { request, plan };
+          return await exactToolPlan(native, adapter, before, request);
         }),
       );
       return { target, native, adapter, before, plans };
@@ -97,6 +77,146 @@ function biomeArgs(context: LintCheckContext, files: readonly string[], write = 
     ...files.map((file) => `./${file}`),
   ];
 }
+function toolRequests(
+  target: LintCheckContext["target"],
+  before: Awaited<ReturnType<ReturnType<typeof nativeAdapter>["inventory"]>>,
+  tools: Record<string, string>,
+) {
+  const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
+  const additions: Extract<DependencyRequest, { operation: "add" }>["packages"] = [];
+  const updates: Extract<DependencyRequest, { operation: "update" }>["packages"] = [];
+  for (const [name, version] of Object.entries(tools)) {
+    const declarations = before.dependencies.filter((value) => value.name === name);
+    if (
+      declarations.some((value) => value.group.kind !== "dev" || value.source.kind !== "registry") ||
+      declarations.length > 1
+    ) {
+      throw new LintError(
+        "conflicting-declaration",
+        `${name} must have one registry dev declaration; reconcile its existing groups/sources explicitly`,
+      );
+    }
+    if (declarations.length) {
+      updates.push({ name, version, group: { kind: "dev" } });
+    } else {
+      additions.push({ name, version, source: { kind: "registry" } });
+    }
+  }
+  if (additions.length) {
+    requests.push({
+      operation: "add",
+      project_id: target.project.project_id,
+      packages: additions,
+      group: { kind: "dev" },
+    });
+  }
+  if (updates.length) {
+    requests.push({
+      operation: "update",
+      project_id: target.project.project_id,
+      packages: updates,
+      mode: "within_constraints",
+    });
+  }
+  return requests;
+}
+function changedMetadata(all: Awaited<ReturnType<typeof operations>>): Map<string, string> {
+  const metadata = new Map<string, string>();
+  for (const { target, plans } of all) {
+    for (const { plan } of plans) {
+      for (const path of plan.metadata) {
+        metadata.set(join(target.root, path), target.project.project_id);
+      }
+    }
+  }
+  return metadata;
+}
+async function observeMetadata(
+  context: LintOperationContext,
+  metadata: Map<string, string>,
+  before: Map<string, string | null>,
+): Promise<void> {
+  for (const [path, project_id] of metadata) {
+    const after = (await readOptional(path)) ?? null,
+      previous = before.get(path);
+    if (after !== previous) {
+      context.changes.push({
+        project_id,
+        path: relative(context.targets[0]?.root ?? "", path).replaceAll("\\", "/"),
+        kind: metadataChangeKind(previous, after),
+      });
+    }
+  }
+}
+async function executePlans(all: Awaited<ReturnType<typeof operations>>): Promise<void> {
+  for (const { native, adapter, plans } of all) {
+    for (const { request, plan } of plans) {
+      const previous = await adapter.inventory(native, false);
+      for (const step of plan.steps) {
+        assertNative(await native.run(step), step.label);
+      }
+      await adapter.verify?.(native, request, previous, await adapter.inventory(native, false));
+    }
+  }
+}
+function applyCheckResult(context: LintCheckContext, files: string[], check: LintCheck, result: ProcessResult): void {
+  const tool = check.tool;
+  check.exit_code = result.exit_code;
+  check.cancelled = result.cancelled;
+  check.truncated = result.truncated;
+  if (!result.cancelled && !result.truncated && (result.exit_code === 0 || result.exit_code === 1)) {
+    check.diagnostics = biomeDiagnostics(context, result, files);
+    check.status = result.exit_code === 0 ? "passed" : "failed";
+  } else {
+    check.reason = redact(result.stderr || `${tool} did not complete (exit ${result.exit_code})`);
+  }
+}
+async function checkSource(context: LintCheckContext, files: string[], check: LintCheck): Promise<void> {
+  const { kind } = check;
+  const start = performance.now();
+  try {
+    context.signal.throwIfAborted();
+    if (kind === "format") {
+      await checkFormatting(context, files, check);
+      check.exit_code = check.diagnostics.length ? 1 : 0;
+      check.status = check.diagnostics.length ? "failed" : "passed";
+      return;
+    }
+    const native = await lintManagerContext(context.target, context.signal);
+    const result = await localTool(context.target, native, BIOME_TOOL, biomeArgs(context, files), context.signal);
+    applyCheckResult(context, files, check, result);
+  } catch (error) {
+    check.reason = redact(error instanceof Error ? error.message : String(error));
+    check.cancelled = context.signal.aborted;
+  } finally {
+    check.duration_ms = performance.now() - start;
+  }
+}
+async function checkFormatting(context: LintCheckContext, files: string[], check: LintCheck): Promise<void> {
+  const kind = check.kind;
+  for (const file of files) {
+    context.signal.throwIfAborted();
+    const formatter = formatterFor(file, "javascript");
+    if (formatter?.engine !== "prettier") {
+      throw new Error(`No bundled formatter for ${file}`);
+    }
+    if (
+      !(await checkPrettierFile(
+        join(context.target.scope.cwd, file),
+        formatter.parser,
+        context.policy.javascript.prettier,
+      ))
+    ) {
+      check.diagnostics.push({
+        kind,
+        severity: "error",
+        message: "File does not match the shared Prettier format",
+        ...diagnosticPath(context, file),
+      });
+    }
+  }
+  context.signal.throwIfAborted();
+}
 export const javascriptAdapter: LintAdapter = {
   resolve: resolveJavascript,
   async preflight(context) {
@@ -119,40 +239,15 @@ export const javascriptAdapter: LintAdapter = {
   },
   async prepareBatch(context) {
     const all = await operations(context);
-    const metadata = new Map<string, string>();
-    for (const { target, plans } of all) {
-      for (const { plan } of plans) {
-        for (const path of plan.metadata) {
-          metadata.set(join(target.root, path), target.project.project_id);
-        }
-      }
-    }
+    const metadata = changedMetadata(all);
     const before = new Map<string, string | null>();
     for (const path of metadata.keys()) {
       before.set(path, (await readOptional(path)) ?? null);
     }
     try {
-      for (const { native, adapter, plans } of all) {
-        for (const { request, plan } of plans) {
-          const previous = await adapter.inventory(native, false);
-          for (const step of plan.steps) {
-            assertNative(await native.run(step), step.label);
-          }
-          await adapter.verify?.(native, request, previous, await adapter.inventory(native, false));
-        }
-      }
+      await executePlans(all);
     } finally {
-      for (const [path, project_id] of metadata) {
-        const after = (await readOptional(path)) ?? null,
-          previous = before.get(path);
-        if (after !== previous) {
-          context.changes.push({
-            project_id,
-            path: relative(context.targets[0]?.root ?? "", path).replaceAll("\\", "/"),
-            kind: after === null ? "removed" : previous === null ? "created" : "updated",
-          });
-        }
-      }
+      await observeMetadata(context, metadata, before);
     }
   },
   async verify(context) {
@@ -215,59 +310,7 @@ export const javascriptAdapter: LintAdapter = {
       if (scope.empty) {
         continue;
       }
-      const start = performance.now();
-      try {
-        context.signal.throwIfAborted();
-        if (kind === "format") {
-          for (const file of scope.files) {
-            context.signal.throwIfAborted();
-            const formatter = formatterFor(file, "javascript");
-            if (formatter?.engine !== "prettier") {
-              throw new Error(`No bundled formatter for ${file}`);
-            }
-            if (
-              !(await checkPrettierFile(
-                join(context.target.scope.cwd, file),
-                formatter.parser,
-                context.policy.javascript.prettier,
-              ))
-            ) {
-              check.diagnostics.push({
-                kind,
-                severity: "error",
-                message: "File does not match the shared Prettier format",
-                ...diagnosticPath(context, file),
-              });
-            }
-          }
-          context.signal.throwIfAborted();
-          check.exit_code = check.diagnostics.length ? 1 : 0;
-          check.status = check.diagnostics.length ? "failed" : "passed";
-          continue;
-        }
-        const native = await lintManagerContext(context.target, context.signal);
-        const result = await localTool(
-          context.target,
-          native,
-          BIOME_TOOL,
-          biomeArgs(context, scope.files),
-          context.signal,
-        );
-        check.exit_code = result.exit_code;
-        check.cancelled = result.cancelled;
-        check.truncated = result.truncated;
-        if (!result.cancelled && !result.truncated && (result.exit_code === 0 || result.exit_code === 1)) {
-          check.diagnostics = biomeDiagnostics(context, result, scope.files);
-          check.status = result.exit_code === 0 ? "passed" : "failed";
-        } else {
-          check.reason = redact(result.stderr || `${tool} did not complete (exit ${result.exit_code})`);
-        }
-      } catch (error) {
-        check.reason = redact(error instanceof Error ? error.message : String(error));
-        check.cancelled = context.signal.aborted;
-      } finally {
-        check.duration_ms = performance.now() - start;
-      }
+      await checkSource(context, scope.files, check);
     }
     return checks;
   },

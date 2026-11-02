@@ -34,64 +34,7 @@ export function registerTypecheckTools(
         return await withRoot(ctx.cwd, signal, async (root, activeSignal) => {
           const target = await inspectTypecheckProject(root, project_id, activeSignal);
           const coordinator = await coordinatorFor(root, ctx);
-          let observed: PreparationReport | undefined;
-          // subscribe replays the last completed job; it is not evidence for this wait.
-          let replay = true;
-          const stopReport = coordinator.subscribe((report) => {
-            if (!replay) {
-              observed = report;
-            }
-          });
-          replay = false;
-          const stopProgress = coordinator.subscribeProgress((progress) => {
-            onUpdate?.(response({ preparation: progress }));
-          });
-          const waited = coordinator.preparing;
-          let report: PreparationReport;
-          try {
-            onUpdate?.(
-              response({
-                preparation: {
-                  status: "preparing",
-                  message:
-                    "Waiting for verified typecheck tools and shared policy. Setup may affect other projects; discovery aligns Pyright/TypeScript within each ecosystem.",
-                },
-              }),
-            );
-            report = await waitForTypecheckPreparation(coordinator, activeSignal);
-            if (waited) {
-              report = { ...report, action: "waited" };
-            }
-          } catch (error) {
-            if (!activeSignal.aborted) {
-              throw error;
-            }
-            report = {
-              ...(observed ?? {
-                tools: {},
-                affected_projects: target.structure.projects.map((p) => p.project_id),
-                changes: [],
-                diagnostics: [],
-                projects: {},
-                errors: [],
-              }),
-              status: "preparing",
-              action: "waited",
-              complete: false,
-              cancelled: true,
-              errors: [
-                ...(observed?.errors ?? []),
-                {
-                  code: "cancelled",
-                  message:
-                    "Preparation wait cancelled. Shared background setup may continue for another active session; consult its setup report for final effects.",
-                },
-              ],
-            };
-          } finally {
-            stopReport();
-            stopProgress();
-          }
+          const report = await preparationForCall(coordinator, activeSignal, onUpdate, target);
           return response(await checkTypecheckTarget(target, activeSignal, report, "prepare"));
         });
       } catch (error) {
@@ -99,4 +42,70 @@ export function registerTypecheckTools(
       }
     },
   });
+}
+
+type ToolUpdate = Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[3];
+async function preparationForCall(
+  coordinator: TypecheckCoordinator,
+  activeSignal: AbortSignal,
+  onUpdate: ToolUpdate,
+  target: Awaited<ReturnType<typeof inspectTypecheckProject>>,
+): Promise<PreparationReport> {
+  let observed: PreparationReport | undefined;
+  // subscribe replays the last completed job; it is not evidence for this wait.
+  let receiveReport: (report: PreparationReport) => void = () => undefined;
+  const stopReport = coordinator.subscribe((report) => receiveReport(report));
+  receiveReport = (report) => {
+    observed = report;
+  };
+  const stopProgress = coordinator.subscribeProgress((progress) => {
+    onUpdate?.(response({ preparation: progress }));
+  });
+  const waited = coordinator.preparing;
+  let report: PreparationReport;
+  try {
+    onUpdate?.(
+      response({
+        preparation: {
+          status: "preparing",
+          message:
+            "Waiting for verified typecheck tools and shared policy. Setup may affect other projects; discovery aligns Pyright/TypeScript within each ecosystem.",
+        },
+      }),
+    );
+    report = await waitForTypecheckPreparation(coordinator, activeSignal);
+    if (waited) {
+      report = { ...report, action: "waited" };
+    }
+  } catch (error) {
+    if (!activeSignal.aborted) {
+      throw error;
+    }
+    report = {
+      ...(observed ?? {
+        tools: {},
+        affected_projects: target.structure.projects.map((p) => p.project_id),
+        changes: [],
+        diagnostics: [],
+        projects: {},
+        errors: [],
+      }),
+      status: "preparing",
+      action: "waited",
+      complete: false,
+      cancelled: true,
+      errors: [
+        ...(observed?.errors ?? []),
+        {
+          code: "cancelled",
+          message:
+            "Preparation wait cancelled. Shared background setup may continue for another active session; consult its setup report for final effects.",
+        },
+      ],
+    };
+  } finally {
+    stopReport();
+    stopProgress();
+  }
+  return report;
 }

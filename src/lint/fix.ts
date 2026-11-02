@@ -1,5 +1,5 @@
 import { relative, resolve } from "node:path";
-import { redact } from "../dependencies/model";
+import { type ProcessResult, redact } from "../dependencies/model";
 import { type LintAdapter, type LintCheckContext } from "./adapters/types";
 import { readSourceFile } from "./files";
 import { biomeDiagnostics } from "./javascript/result";
@@ -18,6 +18,65 @@ export function pendingLintFix(ecosystem?: LintEcosystem): LintFix {
     errors: [],
   };
 }
+function assertSafeBiomeMaps(maps: LintCheckContext["policy"]["javascript"]["biome"]["rules"][]): void {
+  const promoted = maps.some((map) =>
+    Object.values(map).some((group) =>
+      Object.values(group).some((rule) => typeof rule === "object" && rule.fix === "safe"),
+    ),
+  );
+  if (promoted) {
+    throw new LintError(
+      "unsupported-safe-fix-config",
+      "Biome safe-only fixing cannot use rule fix: safe, which can promote unsafe actions. Remove that override to use fix, or run check-only; configuration was not changed.",
+    );
+  }
+}
+function recordFixResult(context: LintCheckContext, result: ProcessResult, scope: LintScope, fix: LintFix): void {
+  fix.exit_code = result.exit_code;
+  fix.cancelled = result.cancelled || context.signal.aborted;
+  fix.truncated = result.truncated;
+  if (fix.cancelled) {
+    fix.status = "cancelled";
+    throw new LintError("cancelled", "Lint fix was cancelled");
+  }
+  if (result.truncated || (result.exit_code !== 0 && result.exit_code !== 1)) {
+    throw new LintError(
+      "fix-failed",
+      redact(
+        result.stderr ||
+          `${fix.tool} fix did not complete (exit ${result.exit_code}${result.truncated ? ", output truncated" : ""})`,
+      ),
+    );
+  }
+  if (context.target.project.ecosystem === "javascript") {
+    biomeDiagnostics(context, result, scope.files);
+  }
+  fix.status = "completed";
+}
+async function observeFix(
+  context: LintCheckContext,
+  fix: LintFix,
+  snapshots: { path: string; before: Awaited<ReturnType<typeof readSourceFile>> }[],
+): Promise<void> {
+  // Do not reuse the operation signal: after process close, account for every path.
+  for (const { path, before } of snapshots) {
+    const relativePath = relative(context.target.root, path).replaceAll("\\", "/");
+    try {
+      const after = await readSourceFile(context.target.scope.cwd, path);
+      if (after.text !== before.text || after.mode !== before.mode) {
+        fix.changed_files.push(relativePath);
+      }
+    } catch (error) {
+      fix.observation_complete = false;
+      fix.errors.push({
+        code: "observation-failed",
+        path: relativePath,
+        message: redact(error instanceof Error ? error.message : String(error)),
+      });
+    }
+  }
+  fix.changed_files = [...new Set(fix.changed_files)].sort();
+}
 function assertSafePolicy(context: LintCheckContext, scope: LintScope): void {
   if (context.target.project.ecosystem === "javascript") {
     const policy = context.policy.javascript.biome;
@@ -32,18 +91,7 @@ function assertSafePolicy(context: LintCheckContext, scope: LintScope): void {
     if (next) {
       maps.push(policy.next_rules);
     }
-    for (const map of maps) {
-      for (const group of Object.values(map)) {
-        for (const rule of Object.values(group)) {
-          if (typeof rule === "object" && rule.fix === "safe") {
-            throw new LintError(
-              "unsupported-safe-fix-config",
-              "Biome safe-only fixing cannot use rule fix: safe, which can promote unsafe actions. Remove that override to use fix, or run check-only; configuration was not changed.",
-            );
-          }
-        }
-      }
-    }
+    assertSafeBiomeMaps(maps);
     return;
   }
   if (context.target.project.ecosystem !== "python") {
@@ -60,6 +108,22 @@ function assertSafePolicy(context: LintCheckContext, scope: LintScope): void {
       "Ruff safe-only fixing cannot use extend or nonempty/malformed extend-safe-fixes. Remove that override to use fix, or run check-only; configuration was not changed.",
     );
   }
+}
+async function snapshotSources(context: LintCheckContext, scope: LintScope) {
+  const snapshots = [];
+  for (const file of scope.files) {
+    context.signal.throwIfAborted();
+    const path = resolve(context.target.scope.cwd, file);
+    snapshots.push({
+      path,
+      before: await readSourceFile(context.target.scope.cwd, path),
+    });
+  }
+  return snapshots;
+}
+function describeFixTool(context: LintCheckContext, fix: LintFix): void {
+  fix.tool = context.target.project.ecosystem === "python" ? "ruff" : "biome";
+  fix.version = context.versions[fix.tool === "biome" ? BIOME_PACKAGE : fix.tool] ?? null;
 }
 /** Caller holds the ready lease; final check diagnostics are collected separately. */
 export async function applyLintFix(context: LintCheckContext, adapter: LintAdapter, fix: LintFix): Promise<void> {
@@ -79,42 +143,14 @@ export async function applyLintFix(context: LintCheckContext, adapter: LintAdapt
   if (!adapter.fix) {
     throw new LintError("unsupported-fix", "No native lint fixer is registered");
   }
-  const snapshots = [];
-  for (const file of scope.files) {
-    context.signal.throwIfAborted();
-    const path = resolve(context.target.scope.cwd, file);
-    snapshots.push({
-      path,
-      before: await readSourceFile(context.target.scope.cwd, path),
-    });
-  }
+  const snapshots = await snapshotSources(context, scope);
   context.signal.throwIfAborted();
-  fix.tool = context.target.project.ecosystem === "python" ? "ruff" : "biome";
-  fix.version = context.versions[fix.tool === "biome" ? BIOME_PACKAGE : fix.tool] ?? null;
+  describeFixTool(context, fix);
   fix.status = "failed";
   const started = performance.now();
   try {
     const result = await adapter.fix(context, scope.files);
-    fix.exit_code = result.exit_code;
-    fix.cancelled = result.cancelled || context.signal.aborted;
-    fix.truncated = result.truncated;
-    if (fix.cancelled) {
-      fix.status = "cancelled";
-      throw new LintError("cancelled", "Lint fix was cancelled");
-    }
-    if (result.truncated || (result.exit_code !== 0 && result.exit_code !== 1)) {
-      throw new LintError(
-        "fix-failed",
-        redact(
-          result.stderr ||
-            `${fix.tool} fix did not complete (exit ${result.exit_code}${result.truncated ? ", output truncated" : ""})`,
-        ),
-      );
-    }
-    if (context.target.project.ecosystem === "javascript") {
-      biomeDiagnostics(context, result, scope.files);
-    }
-    fix.status = "completed";
+    recordFixResult(context, result, scope, fix);
   } catch (error) {
     if (context.signal.aborted) {
       fix.status = "cancelled";
@@ -123,24 +159,7 @@ export async function applyLintFix(context: LintCheckContext, adapter: LintAdapt
     throw error;
   } finally {
     fix.duration_ms = performance.now() - started;
-    // Do not reuse the operation signal: after process close, account for every path.
-    for (const { path, before } of snapshots) {
-      const relativePath = relative(context.target.root, path).replaceAll("\\", "/");
-      try {
-        const after = await readSourceFile(context.target.scope.cwd, path);
-        if (after.text !== before.text || after.mode !== before.mode) {
-          fix.changed_files.push(relativePath);
-        }
-      } catch (error) {
-        fix.observation_complete = false;
-        fix.errors.push({
-          code: "observation-failed",
-          path: relativePath,
-          message: redact(error instanceof Error ? error.message : String(error)),
-        });
-      }
-    }
-    fix.changed_files = [...new Set(fix.changed_files)].sort();
+    await observeFix(context, fix, snapshots);
   }
   if (!fix.observation_complete) {
     throw new LintError("observation-incomplete", "Source observation was incomplete after lint fixing");

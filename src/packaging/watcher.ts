@@ -3,7 +3,7 @@ import { statfs } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { FSWatcher } from "chokidar";
 import { type InspectionRules } from "../config/inspection/model";
-import { createMatcher, isDiscoveryInput } from "../inspect/exclusions";
+import { createMatcher, type InspectionMatcher, isDiscoveryInput } from "../inspect/exclusions";
 export interface WatchStatus {
   ready: boolean;
   healthy: boolean;
@@ -21,10 +21,10 @@ function signature(s: Stats): string {
 }
 export class StructureWatcher {
   revision = 0;
-  ready = false;
+  ready: boolean = false;
   reason: string | undefined;
   private watcher: FSWatcher | undefined;
-  private stopped = false;
+  private stopped: boolean = false;
   private listeners = new Set<() => void>();
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -77,8 +77,8 @@ export class StructureWatcher {
         this.lose(`Unverified filesystem ${fs.type} on ${process.platform}; full inspection required`);
         return;
       }
-    } catch (error) {
-      this.lose(`Cannot establish filesystem coverage: ${String(error)}`);
+    } catch (error: unknown) {
+      this.lose(`Cannot establish filesystem coverage: ${filesystemError(error)}`);
       return;
     }
     signal.throwIfAborted();
@@ -93,53 +93,10 @@ export class StructureWatcher {
       atomic: false,
       awaitWriteFinish: false,
       persistent: false,
-      ignored: (path, stats) => {
-        const p = local(path);
-        if (p === ".") {
-          return false;
-        }
-        if (p === ".." || p.startsWith("../")) {
-          return true;
-        }
-        if (matcher.excludes(p) || stats?.isSymbolicLink()) {
-          return true;
-        }
-        if (stats?.isFile()) {
-          const ignored = !matcher.includes(p) || !isDiscoveryInput(p);
-          if (!ignored && !this.ready) {
-            this.fingerprints.set(p, signature(stats));
-          }
-          return ignored;
-        }
-        return !matcher.mayTraverse(p) && !matcher.includes(p);
-      },
+      ignored: (path, stats) => this.ignored(local(path), stats, matcher),
     });
     this.watcher = watcher;
-    watcher.on("all", (event, path, stats) => {
-      const p = local(path);
-      if (matcher.excludes(p)) {
-        return;
-      }
-      if (event === "unlink") {
-        this.fingerprints.delete(p);
-      }
-      if (stats?.isFile() && isDiscoveryInput(p)) {
-        const next = signature(stats),
-          previous = this.fingerprints.get(p);
-        this.fingerprints.set(p, next);
-        // macOS can report reads as changes; atime alone is not a discovery input.
-        if (event === "change" && previous === next) {
-          return;
-        }
-      }
-      if (
-        event === "addDir" || event === "unlinkDir"
-          ? matcher.mayTraverse(p)
-          : matcher.includes(p) && isDiscoveryInput(p)
-      ) {
-        this.changed();
-      }
-    });
+    watcher.on("all", (event, path, stats) => this.event(event, local(path), stats, matcher));
     watcher.on("error", (error) =>
       this.lose(`Watcher error: ${error instanceof Error ? error.message : String(error)}`),
     );
@@ -179,10 +136,64 @@ export class StructureWatcher {
       await watcher.close();
     }
   }
+  private ignored(p: string, stats: Stats | undefined, matcher: InspectionMatcher): boolean {
+    if (p === ".") {
+      return false;
+    }
+    if (p === ".." || p.startsWith("../")) {
+      return true;
+    }
+    if (matcher.excludes(p) || stats?.isSymbolicLink()) {
+      return true;
+    }
+    if (stats?.isFile()) {
+      return this.ignoredFile(p, stats, matcher);
+    }
+    return !matcher.mayTraverse(p) && !matcher.includes(p);
+  }
+  private ignoredFile(p: string, stats: Stats, matcher: InspectionMatcher): boolean {
+    const ignored = !matcher.includes(p) || !isDiscoveryInput(p);
+    if (!ignored && !this.ready) {
+      this.fingerprints.set(p, signature(stats));
+    }
+    return ignored;
+  }
+  private unchanged(event: string, p: string, stats: Stats | undefined): boolean {
+    if (event === "unlink") {
+      this.fingerprints.delete(p);
+    }
+    if (stats?.isFile() && isDiscoveryInput(p)) {
+      const next = signature(stats),
+        previous = this.fingerprints.get(p);
+      this.fingerprints.set(p, next);
+      // macOS can report reads as changes; atime alone is not a discovery input.
+      if (event === "change" && previous === next) {
+        return true;
+      }
+    }
+    return false;
+  }
+  private event(event: string, p: string, stats: Stats | undefined, matcher: InspectionMatcher): void {
+    if (matcher.excludes(p)) {
+      return;
+    }
+    if (this.unchanged(event, p, stats)) {
+      return;
+    }
+    if (
+      event === "addDir" || event === "unlinkDir" ? matcher.mayTraverse(p) : matcher.includes(p) && isDiscoveryInput(p)
+    ) {
+      this.changed();
+    }
+  }
   async close() {
     this.stopped = true;
     await this.watcher?.close();
     this.fingerprints.clear();
     this.listeners.clear();
   }
+}
+
+function filesystemError(error: unknown): string {
+  return String(error);
 }

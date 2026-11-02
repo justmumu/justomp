@@ -21,6 +21,7 @@ import * as projection from "../../../src/typecheck/projection";
 import * as scopes from "../../../src/typecheck/scope";
 import { type TypecheckState, TypecheckStateStore } from "../../../src/typecheck/state";
 import * as targets from "../../../src/typecheck/targets";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "../checks/fixture";
 
 /** Supplied storage and native responses; no installs, subprocesses or real files. */
@@ -36,10 +37,17 @@ export function generatedUnit(next = true) {
   const documents = new Map<string, string>();
   const graphs = new Map<string, graph.JavascriptConfigGraph>();
   const state: TypecheckState = { schema: 1, projects: {}, waves: {} };
-  const store = { state, save: async () => {} } as TypecheckStateStore;
+  const store = {
+    state,
+    save: () => {
+      return Promise.resolve();
+    },
+  } as TypecheckStateStore;
   const lint = {
     state: { schema: 2, projects: {}, waves: {} },
-    save: async () => {},
+    save: () => {
+      return Promise.resolve();
+    },
   } as unknown as LintStateStore;
   const controller = new AbortController();
   const context: TypecheckCheckContext = {
@@ -85,14 +93,16 @@ export function generatedUnit(next = true) {
   keep(spyOn(paths, "safePath").mockImplementation(async (root, path) => resolve(root, path)));
   keep(spyOn(fs, "realpath").mockImplementation((async (path: unknown) => String(path)) as typeof fs.realpath));
   keep(
-    spyOn(fs, "readFile").mockImplementation((async (path: unknown, encoding?: unknown) => {
-      const text = documents.get(String(path));
-      if (text === undefined) {
-        throw Object.assign(new Error("Missing supplied file"), {
-          code: "ENOENT",
-        });
-      }
-      return encoding === "utf8" ? text : Buffer.from(text);
+    spyOn(fs, "readFile").mockImplementation(((path: unknown, encoding?: unknown) => {
+      return suppliedResponse(() => {
+        const text = documents.get(String(path));
+        if (text === undefined) {
+          throw Object.assign(new Error("Missing supplied file"), {
+            code: "ENOENT",
+          });
+        }
+        return encoding === "utf8" ? text : Buffer.from(text);
+      });
     }) as typeof fs.readFile),
   );
   keep(
@@ -111,11 +121,13 @@ export function generatedUnit(next = true) {
     ),
   );
   keep(
-    spyOn(projection, "applyProjection").mockImplementation(async (plan) => {
-      for (const file of plan.files) {
-        write(file.path, file.content);
-      }
-      return [];
+    spyOn(projection, "applyProjection").mockImplementation((plan) => {
+      return suppliedResponse(() => {
+        for (const file of plan.files) {
+          write(file.path, file.content);
+        }
+        return [];
+      });
     }),
   );
   keep(
@@ -138,12 +150,14 @@ export function generatedUnit(next = true) {
     ),
   );
   keep(
-    spyOn(targets, "resolveTypecheckTarget").mockImplementation(async (_structure, id) => {
-      const member = members.get(id);
-      if (!member) {
-        throw new Error("Unprovided target");
-      }
-      return member;
+    spyOn(targets, "resolveTypecheckTarget").mockImplementation((_structure, id) => {
+      return suppliedResponse(() => {
+        const member = members.get(id);
+        if (!member) {
+          throw new Error("Unprovided target");
+        }
+        return member;
+      });
     }),
   );
   keep(
@@ -170,17 +184,19 @@ export function generatedUnit(next = true) {
     ),
   );
   keep(
-    spyOn(JavascriptConfigRead.prototype, "showConfig").mockImplementation(async (member, args) => {
-      const path = args[args.indexOf("--project") + 1];
-      const node = graphs.get(member.project.project_id)?.nodes.find((node) => node.path === path);
-      if (!node) {
-        throw new Error("Unprovided effective config");
-      }
-      return output({
-        stdout: JSON.stringify({
-          compilerOptions: node.compilerOptions,
-          files: node.files,
-        }),
+    spyOn(JavascriptConfigRead.prototype, "showConfig").mockImplementation((member, args) => {
+      return suppliedResponse(() => {
+        const path = args[args.indexOf("--project") + 1];
+        const node = graphs.get(member.project.project_id)?.nodes.find((node) => node.path === path);
+        if (!node) {
+          throw new Error("Unprovided effective config");
+        }
+        return output({
+          stdout: JSON.stringify({
+            compilerOptions: node.compilerOptions,
+            files: node.files,
+          }),
+        });
       });
     }),
   );
@@ -199,32 +215,38 @@ export function generatedUnit(next = true) {
     } as Awaited<ReturnType<typeof native.installedPackages>>),
   );
   const load = keep(
-    spyOn(native, "nodeRun").mockImplementation(async (_target, _ctx, args) => {
-      if (args[1]?.includes("JUSTOMP_NEXT_INPUTS")) {
+    spyOn(native, "nodeRun").mockImplementation((_target, _ctx, args) => {
+      return suppliedResponse(() => {
+        if (args[1]?.includes("JUSTOMP_NEXT_INPUTS")) {
+          return output({
+            stdout: 'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
+          });
+        }
+        const name = args.at(-1);
+        const found = [...members.values()].find((member) => member.project.name === name);
         return output({
-          stdout: 'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
+          stdout: found ? join(found.root, found.project.manifest) : "",
         });
-      }
-      const name = args.at(-1);
-      const found = [...members.values()].find((member) => member.project.name === name);
-      return output({
-        stdout: found ? join(found.root, found.project.manifest) : "",
       });
     }),
   );
   const generate = keep(
-    spyOn(native, "localTool").mockImplementation(async (member, _ctx, tool, args) => {
-      if (tool.package !== "next" || args.join(" ") !== "typegen") {
-        throw new Error("Unexpected native invocation");
-      }
-      write(join(member.scope.cwd, "generated-next/types/validator.ts"), "generated");
-      write(join(member.scope.cwd, "next-env.d.ts"), "next-env");
-      return output();
+    spyOn(native, "localTool").mockImplementation((member, _ctx, tool, args) => {
+      return suppliedResponse(() => {
+        if (tool.package !== "next" || args.join(" ") !== "typegen") {
+          throw new Error("Unexpected native invocation");
+        }
+        write(join(member.scope.cwd, "generated-next/types/validator.ts"), "generated");
+        write(join(member.scope.cwd, "next-env.d.ts"), "next-env");
+        return output();
+      });
     }),
   );
   const compile = keep(
-    spyOn(compiler, "typescriptRun").mockImplementation(async () => {
-      throw new Error("Unprovided compiler response");
+    spyOn(compiler, "typescriptRun").mockImplementation(() => {
+      return suppliedResponse(() => {
+        throw new Error("Unprovided compiler response");
+      });
     }),
   );
   const add = (name: string, manifest: Record<string, unknown> = { types: "types/index.d.ts" }) => {

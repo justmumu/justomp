@@ -38,8 +38,8 @@ test("npm failed installation retains completed native declaration removal", asy
     }
     expect((await ctx.run(declaration)).exit_code).toBe(0);
     expect((await ctx.run(install)).exit_code).not.toBe(0);
-    expect((await f.manifest()).dependencies["fixture-dep"]).toBeUndefined();
-    expect((await f.manifest()).dependencies["not-in-registry"]).toBe("1.0.0");
+    expect((await f.manifest()).dependencies?.["fixture-dep"]).toBeUndefined();
+    expect((await f.manifest()).dependencies?.["not-in-registry"]).toBe("1.0.0");
   } finally {
     await f.close();
   }

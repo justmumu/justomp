@@ -8,6 +8,7 @@ import {
   nativeResult,
   parseEvidence,
 } from "../../../src/testing/native-tools";
+import { suppliedResponse } from "./fixture";
 
 test("exact readiness requires dev declaration, lock and version agreement", () => {
   const inventory: Inventory = {
@@ -47,8 +48,10 @@ test("native failure keeps process evidence and partial test results after cover
   expect(result.tests.total).toBeNull();
   result.tests = { total: 2, passed: 1, failed: 1, skipped: 0, cases: [] };
   classifyResult(result);
-  await parseEvidence(result, async () => {
-    throw new Error("bad coverage");
+  await parseEvidence(result, () => {
+    return suppliedResponse(() => {
+      throw new Error("bad coverage");
+    });
   });
   expect(result.tests.total).toBe(2);
   expect(result.errors.map((e) => e.code)).toEqual(["test-failed", "test-operation-failed"]);

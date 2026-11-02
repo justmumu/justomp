@@ -7,6 +7,7 @@ import { object } from "../../dependencies/inventory";
 import { type ProcessResult, redact } from "../../dependencies/model";
 import { safePath } from "../../dependencies/paths";
 import { runProcess } from "../../dependencies/runner";
+import { metadataChangeKind } from "../../lint/adapters/metadata";
 import { lintManagerContext } from "../../lint/runtime";
 import { pyrightOutput } from "../diagnostics/python";
 import { type TypecheckCheck, TypecheckError } from "../model";
@@ -109,7 +110,8 @@ node.run = installed
 raise SystemExit(main(["--version"]))`;
 
 async function checker(context: TypecheckToolContext) {
-  const { target, signal, versions } = context;
+  const { target, signal } = context;
+  const versions: Partial<TypecheckToolContext["versions"]> = context.versions;
   const node = await installedNode(target, signal);
   const python = await pythonBinary(target);
   const found = await runProcess(python, ["-I", "-B", "-c", LOCATE], {
@@ -175,54 +177,7 @@ export const pythonAdapter: TypecheckAdapter = {
       if (!target) {
         continue;
       }
-      const environment = resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv");
-      let existing: string | undefined;
-      let environmentExists = false;
-      try {
-        await lstat(environment);
-        environmentExists = true;
-        existing = await realpath(binary(target, "python"));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || environmentExists) {
-          throw new TypecheckError("runtime-unavailable", "Existing Python runtime is damaged; repair it explicitly");
-        }
-      }
-      const data = object(parse(await readFile(join(target.root, target.project.manifest), "utf8")));
-      const requirement = object(data.project)["requires-python"];
-      // Honor native selection first, then evaluate that exact version against
-      // requires-python. uv find otherwise only warns for an incompatible pin.
-      const selected = await native.run({
-        args: ["python", "find"],
-        label: "Find existing Python",
-        env: { UV_PYTHON_DOWNLOADS: "never" },
-      });
-      if (!successful(selected)) {
-        nativeFailure(selected, "No compatible installed Python runtime");
-      }
-      if (existing && (await realpath(selected.stdout.trim())) !== existing) {
-        throw new TypecheckError(
-          "runtime-conflict",
-          "Python runtime would be replaced; reconcile the existing environment and project constraints explicitly",
-        );
-      }
-      if (typeof requirement === "string") {
-        const version = await native.run({
-          args: ["python", "find", "--show-version", selected.stdout.trim()],
-          label: "Inspect selected Python",
-          env: { UV_PYTHON_DOWNLOADS: "never" },
-        });
-        if (!successful(version)) {
-          nativeFailure(version, "Could not inspect selected Python runtime");
-        }
-        const compatible = await native.run({
-          args: ["python", "find", `${requirement},==${version.stdout.trim()}`],
-          label: "Validate selected Python",
-          env: { UV_PYTHON_DOWNLOADS: "never" },
-        });
-        if (!successful(compatible)) {
-          nativeFailure(compatible, "Selected Python runtime does not satisfy project constraints");
-        }
-      }
+      await preflightPython(target, native);
     }
     for (const target of context.targets) {
       await installedNode(target, context.signal);
@@ -251,35 +206,9 @@ export const pythonAdapter: TypecheckAdapter = {
           nativeFailure(result, step.label);
         }
       }
-      for (const target of context.targets) {
-        const version = context.versions[target.project.project_id]?.pyright ?? "";
-        const result = await runProcess(await pythonBinary(target), ["-I", "-B", "-c", BOOTSTRAP], {
-          cwd: target.scope.cwd,
-          env: wrapperEnv(target, version),
-          signal: context.signal,
-        });
-        if (!successful(result) || result.stdout.trim() !== `pyright ${version}`) {
-          nativeFailure(result, "Pyright bootstrap failed");
-        }
-        await checker({
-          target,
-          versions: { pyright: version },
-          policy: context.policy,
-          signal: context.signal,
-        });
-      }
+      await bootstrapBatch(context);
     } finally {
-      for (const [path, target] of metadata) {
-        const after = (await readOptional(path)) ?? null,
-          previous = before.get(path);
-        if (after !== previous) {
-          context.changes.push({
-            project_id: target.project.project_id,
-            path: relative(target.root, path).replaceAll("\\", "/"),
-            kind: after === null ? "removed" : previous === null ? "created" : "updated",
-          });
-        }
-      }
+      await observeMetadata(context, metadata, before);
     }
   },
   async verifyTools(context) {
@@ -379,3 +308,100 @@ export const pythonAdapter: TypecheckAdapter = {
     return [check];
   },
 };
+
+async function preflightPython(
+  target: TypecheckTarget,
+  native: Awaited<ReturnType<typeof lintManagerContext>>,
+): Promise<void> {
+  const environment = resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv");
+  const existing = await existingPython(target, environment);
+  const data = object(parse(await readFile(join(target.root, target.project.manifest), "utf8")));
+  const requirement = object(data.project)["requires-python"];
+  // Honor native selection first, then evaluate that exact version against
+  // requires-python. uv find otherwise only warns for an incompatible pin.
+  const selected = await native.run({
+    args: ["python", "find"],
+    label: "Find existing Python",
+    env: { UV_PYTHON_DOWNLOADS: "never" },
+  });
+  if (!successful(selected)) {
+    nativeFailure(selected, "No compatible installed Python runtime");
+  }
+  if (existing && (await realpath(selected.stdout.trim())) !== existing) {
+    throw new TypecheckError(
+      "runtime-conflict",
+      "Python runtime would be replaced; reconcile the existing environment and project constraints explicitly",
+    );
+  }
+  if (typeof requirement === "string") {
+    const version = await native.run({
+      args: ["python", "find", "--show-version", selected.stdout.trim()],
+      label: "Inspect selected Python",
+      env: { UV_PYTHON_DOWNLOADS: "never" },
+    });
+    if (!successful(version)) {
+      nativeFailure(version, "Could not inspect selected Python runtime");
+    }
+    const compatible = await native.run({
+      args: ["python", "find", `${requirement},==${version.stdout.trim()}`],
+      label: "Validate selected Python",
+      env: { UV_PYTHON_DOWNLOADS: "never" },
+    });
+    if (!successful(compatible)) {
+      nativeFailure(compatible, "Selected Python runtime does not satisfy project constraints");
+    }
+  }
+}
+
+async function existingPython(target: TypecheckTarget, environment: string): Promise<string | undefined> {
+  let existing: string | undefined;
+  let environmentExists = false;
+  try {
+    await lstat(environment);
+    environmentExists = true;
+    existing = await realpath(binary(target, "python"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || environmentExists) {
+      throw new TypecheckError("runtime-unavailable", "Existing Python runtime is damaged; repair it explicitly");
+    }
+  }
+  return existing;
+}
+
+async function bootstrapBatch(context: TypecheckOperationContext): Promise<void> {
+  for (const target of context.targets) {
+    const version = context.versions[target.project.project_id]?.pyright ?? "";
+    const result = await runProcess(await pythonBinary(target), ["-I", "-B", "-c", BOOTSTRAP], {
+      cwd: target.scope.cwd,
+      env: wrapperEnv(target, version),
+      signal: context.signal,
+    });
+    if (!successful(result) || result.stdout.trim() !== `pyright ${version}`) {
+      nativeFailure(result, "Pyright bootstrap failed");
+    }
+    await checker({
+      target,
+      versions: { pyright: version },
+      policy: context.policy,
+      signal: context.signal,
+    });
+  }
+}
+
+async function observeMetadata(
+  context: TypecheckOperationContext,
+  metadata: Map<string, TypecheckTarget>,
+  before: Map<string, string | null>,
+): Promise<void> {
+  for (const [path, target] of metadata) {
+    const after = (await readOptional(path)) ?? null,
+      previous = before.get(path);
+    if (after !== previous) {
+      context.changes.push({
+        project_id: target.project.project_id,
+        path: relative(target.root, path).replaceAll("\\", "/"),
+        kind: metadataChangeKind(previous, after),
+      });
+    }
+  }
+}

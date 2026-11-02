@@ -5,7 +5,7 @@ import { INSPECTION_DEFAULTS } from "../../../src/config/inspection/defaults";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 
-test("published inspection and lint example matches field-completed policy", async () => {
+test("published inspection and lint example matches field-completed policy", () => {
   const example = lintExample;
   expect<unknown>(example).toEqual({
     inspection_rules: INSPECTION_DEFAULTS,
@@ -13,7 +13,7 @@ test("published inspection and lint example matches field-completed policy", asy
   });
 });
 
-test("published typecheck default example matches field-completed policy", async () => {
+test("published typecheck default example matches field-completed policy", () => {
   const example = typecheckExample;
   expect<unknown>(example).toEqual({
     typecheck: resolveTypecheckConfig().policy,

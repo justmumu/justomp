@@ -19,21 +19,21 @@ test("Yarn modern native registry lifecycle respects constraints and exact downg
       operation: "update",
       packages: [{ name: "u6-dep" }],
     });
-    expect((await f.manifest()).dependencies["u6-dep"]).toBe("^1.0.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toBe("^1.0.0");
     expect(await f.installed("u6-dep")).toBe("1.1.0");
     await f.operate(adapter, {
       operation: "update",
       mode: "latest",
       packages: [{ name: "u6-dep" }],
     });
-    expect((await f.manifest()).dependencies["u6-dep"]).toContain("2.0.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toContain("2.0.0");
     expect(await f.installed("u6-dep")).toBe("2.0.0");
     await f.operate(adapter, {
       operation: "update",
       packages: [{ name: "u6-dep", version: "v1.0.0" }],
     });
     expect(await f.installed("u6-dep")).toBe("1.0.0");
-    expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
+    expect((await f.manifest()).dependencies?.["u6-dep"]).toBe("1.0.0");
     await f.operate(adapter, { operation: "sync" });
     await f.operate(adapter, {
       operation: "remove",

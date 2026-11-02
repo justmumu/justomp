@@ -44,18 +44,12 @@ function level(value: unknown, path: string): "off" | "warn" | "error" {
   }
   return fail(path, "unsupported rule severity");
 }
-function setting(rule: string, value: unknown, field: Field, path: string): BiomeRuleSetting {
-  const tuple = Array.isArray(value) ? value : [value];
-  const severity = level(tuple[0], path);
-  if (severity === "off") {
-    return "off";
-  }
-  const shipped = isDeepStrictEqual(value, LEGACY_ESLINT_DEFAULTS[field][rule]);
-  // Known shipped option deltas are intentional policy changes; custom options
-  // require an exact supported translation rather than a best-effort guess.
-  if (rule === "eqeqeq" && (tuple.length === 1 || isDeepStrictEqual(tuple.slice(1), ["always"]))) {
-    return { level: severity, options: { ignoreNull: false } };
-  }
+function consoleOptions(
+  rule: string,
+  tuple: unknown[],
+  severity: "warn" | "error",
+  path: string,
+): BiomeRuleSetting | undefined {
   if (rule === "no-console" && tuple.length === 2) {
     const options = record(tuple[1], path);
     if (
@@ -69,88 +63,102 @@ function setting(rule: string, value: unknown, field: Field, path: string): Biom
       };
     }
   }
+  return undefined;
+}
+function equalityOptions(rule: string, tuple: unknown[], severity: "warn" | "error"): BiomeRuleSetting | undefined {
+  // Known shipped option deltas are intentional policy changes; custom options
+  // require an exact supported translation rather than a best-effort guess.
+  if (rule === "eqeqeq" && (tuple.length === 1 || isDeepStrictEqual(tuple.slice(1), ["always"]))) {
+    return { level: severity, options: { ignoreNull: false } };
+  }
+  return undefined;
+}
+function validateCustomOptions(rule: string, tuple: unknown[], shipped: boolean, path: string): void {
+  if (tuple.length > 1 && !shipped && !(rule === "curly" && isDeepStrictEqual(tuple.slice(1), ["all"]))) {
+    fail(path, "custom options have no verified Biome translation");
+  }
+}
+function setting(rule: string, value: unknown, field: Field, path: string): BiomeRuleSetting {
+  const tuple = Array.isArray(value) ? value : [value];
+  const severity = level(tuple[0], path);
+  if (severity === "off") {
+    return "off";
+  }
+  const shipped = isDeepStrictEqual(value, LEGACY_ESLINT_DEFAULTS[field][rule]);
+  const equality = equalityOptions(rule, tuple, severity);
+  if (equality !== undefined) {
+    return equality;
+  }
+  const consoleSetting = consoleOptions(rule, tuple, severity, path);
+  if (consoleSetting !== undefined) {
+    return consoleSetting;
+  }
   if (rule === "@typescript-eslint/consistent-type-imports" && shipped) {
     return { level: severity, options: { style: "inlineType" } };
   }
   if (rule === "complexity" && shipped) {
     return { level: severity, options: { maxAllowedComplexity: 10 } };
   }
-  if (tuple.length > 1 && !shipped && !(rule === "curly" && isDeepStrictEqual(tuple.slice(1), ["all"]))) {
-    fail(path, "custom options have no verified Biome translation");
-  }
+  validateCustomOptions(rule, tuple, shipped, path);
   return severity;
 }
-function rules(value: unknown, field: Field): { rules: BiomeRuleMap; assist?: "off" | "on" } {
-  const path = `lint.javascript.eslint.${field}`;
-  const input = record(value, path);
-  if (isDeepStrictEqual(input, LEGACY_ESLINT_DEFAULTS[field])) {
-    return {
-      rules: structuredClone(JAVASCRIPT_DEFAULTS.biome[field]),
-      ...(field === "rules" ? { assist: "on" as const } : {}),
-    };
+function publishTarget(
+  target: string,
+  converted: BiomeRuleSetting,
+  field: Field,
+  result: BiomeRuleMap,
+  rulePath: string,
+): "on" | "off" | undefined {
+  if (target === "assist/source/organizeImports") {
+    if (field !== "rules") {
+      fail(rulePath, "scoped import assists cannot be represented by the shared organize_imports setting");
+    }
+    if (converted === "warn") {
+      fail(rulePath, "import assists do not have warning severity");
+    }
+    return converted === "off" ? "off" : "on";
   }
-  const result: BiomeRuleMap = {};
-  const seen = new Map<string, { value: BiomeRuleSetting; rule: string; shipped: boolean }>();
-  let assist: "off" | "on" | undefined = field === "rules" ? "off" : undefined;
-  for (const [rule, value] of Object.entries(input)) {
-    const rulePath = `${path}.${rule}`;
-    const targets = Object.hasOwn(LEGACY_RULES, rule) ? LEGACY_RULES[rule] : undefined;
-    if (!targets) {
-      fail(rulePath, "no verified Biome counterpart");
-    }
-    const converted = setting(rule, value, field, rulePath);
-    const shipped = isDeepStrictEqual(value, LEGACY_ESLINT_DEFAULTS[field][rule]);
-    const replacement = Object.hasOwn(typedReplacements, rule) ? typedReplacements[rule] : undefined;
-    if (field === "typed_rules" && shipped && converted === "off" && replacement && Object.hasOwn(input, replacement)) {
-      continue;
-    }
-    if (targets.length === 0 && !shipped && converted !== "off") {
-      fail(rulePath, "no verified Biome counterpart");
-    }
-    for (const target of targets) {
-      const previous = seen.get(target);
-      if (previous && !isDeepStrictEqual(previous.value, converted) && !(previous.shipped && shipped)) {
-        fail(rulePath, `conflicts with ${path}.${previous.rule} at ${target}`);
-      }
-      seen.set(target, { value: converted, rule, shipped });
-      if (target === "assist/source/organizeImports") {
-        if (field !== "rules") {
-          fail(rulePath, "scoped import assists cannot be represented by the shared organize_imports setting");
-        }
-        if (converted === "warn") {
-          fail(rulePath, "import assists do not have warning severity");
-        }
-        assist = converted === "off" ? "off" : "on";
-      } else {
-        const [group, name] = target.split(".");
-        if (!group || !name) {
-          throw new Error(`Invalid reviewed migration target: ${target}`);
-        }
-        result[group] ??= {};
-        result[group][name] = converted;
-      }
-    }
+  const [group, name] = target.split(".");
+  if (!group || !name) {
+    throw new Error(`Invalid reviewed migration target: ${target}`);
   }
-  return { rules: result, ...(assist === undefined ? {} : { assist }) };
+  result[group] ??= {};
+  result[group][name] = converted;
+  return undefined;
 }
-
-/** Preserve legacy data; add native policy only when none was explicitly supplied. */
-export function migrateJavascriptPolicy(value: unknown): {
-  value: unknown;
-  migrated: boolean;
-} {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { value, migrated: false };
+type ConvertedRule = { value: BiomeRuleSetting; rule: string; shipped: boolean };
+interface RuleField {
+  field: Field;
+  path: string;
+  seen: Map<string, ConvertedRule>;
+  result: BiomeRuleMap;
+}
+function applyTarget(target: string, entry: ConvertedRule, context: RuleField): "on" | "off" | undefined {
+  const { value: converted, rule, shipped } = entry;
+  const { field, path, seen, result } = context;
+  const rulePath = `${path}.${rule}`;
+  const previous = seen.get(target);
+  if (previous && !isDeepStrictEqual(previous.value, converted) && !(previous.shipped && shipped)) {
+    fail(rulePath, `conflicts with ${path}.${previous.rule} at ${target}`);
   }
-  const lint = value as Record<string, unknown>;
-  if (!lint.javascript || typeof lint.javascript !== "object" || Array.isArray(lint.javascript)) {
-    return { value, migrated: false };
+  seen.set(target, { value: converted, rule, shipped });
+  return publishTarget(target, converted, field, result, rulePath);
+}
+function replacedDefault(
+  rule: string,
+  field: Field,
+  shipped: boolean,
+  converted: BiomeRuleSetting,
+  input: Record<string, unknown>,
+): boolean {
+  const replacement = Object.hasOwn(typedReplacements, rule) ? typedReplacements[rule] : undefined;
+  if (field === "typed_rules" && shipped && converted === "off" && replacement && Object.hasOwn(input, replacement)) {
+    return true;
   }
-  const javascript = lint.javascript as Record<string, unknown>;
-  if (Object.hasOwn(javascript, "biome") || !Object.hasOwn(javascript, "eslint")) {
-    return { value, migrated: false };
-  }
-  const legacy = record(javascript.eslint, "lint.javascript.eslint");
+  return false;
+}
+function convertLegacy(value: unknown): Record<string, unknown> {
+  const legacy = record(value, "lint.javascript.eslint");
   const biome: Record<string, unknown> = {};
   for (const key of Object.keys(legacy)) {
     if (key !== "globals" && !fields.includes(key as Field)) {
@@ -179,6 +187,76 @@ export function migrateJavascriptPolicy(value: unknown): {
       return [name];
     });
   }
+  return biome;
+}
+function convertedRule(rule: string, value: unknown, field: Field, path: string, input: Record<string, unknown>) {
+  const rulePath = `${path}.${rule}`;
+  const targets = Object.hasOwn(LEGACY_RULES, rule) ? LEGACY_RULES[rule] : undefined;
+  if (!targets) {
+    fail(rulePath, "no verified Biome counterpart");
+  }
+  const converted = setting(rule, value, field, rulePath);
+  const shipped = isDeepStrictEqual(value, LEGACY_ESLINT_DEFAULTS[field][rule]);
+  if (replacedDefault(rule, field, shipped, converted, input)) {
+    return undefined;
+  }
+  if (targets.length === 0 && !shipped && converted !== "off") {
+    fail(rulePath, "no verified Biome counterpart");
+  }
+  return { targets, converted, shipped };
+}
+function applyRuleTargets(
+  targets: readonly string[],
+  entry: ConvertedRule,
+  context: RuleField,
+): "on" | "off" | undefined {
+  let assist: "on" | "off" | undefined;
+  for (const target of targets) {
+    const convertedAssist = applyTarget(target, entry, context);
+    assist = convertedAssist ?? assist;
+  }
+  return assist;
+}
+function rules(value: unknown, field: Field): { rules: BiomeRuleMap; assist?: "off" | "on" } {
+  const path = `lint.javascript.eslint.${field}`;
+  const input = record(value, path);
+  if (isDeepStrictEqual(input, LEGACY_ESLINT_DEFAULTS[field])) {
+    return {
+      rules: structuredClone(JAVASCRIPT_DEFAULTS.biome[field]),
+      ...(field === "rules" ? { assist: "on" as const } : {}),
+    };
+  }
+  const result: BiomeRuleMap = {};
+  const context: RuleField = { field, path, seen: new Map(), result };
+  let assist: "off" | "on" | undefined = field === "rules" ? "off" : undefined;
+  for (const [rule, value] of Object.entries(input)) {
+    const entry = convertedRule(rule, value, field, path, input);
+    if (entry === undefined) {
+      continue;
+    }
+    const { targets, converted, shipped } = entry;
+    assist = applyRuleTargets(targets, { value: converted, rule, shipped }, context) ?? assist;
+  }
+  return { rules: result, ...(assist === undefined ? {} : { assist }) };
+}
+
+/** Preserve legacy data; add native policy only when none was explicitly supplied. */
+export function migrateJavascriptPolicy(value: unknown): {
+  value: unknown;
+  migrated: boolean;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { value, migrated: false };
+  }
+  const lint = value as Record<string, unknown>;
+  if (!lint.javascript || typeof lint.javascript !== "object" || Array.isArray(lint.javascript)) {
+    return { value, migrated: false };
+  }
+  const javascript = lint.javascript as Record<string, unknown>;
+  if (Object.hasOwn(javascript, "biome") || !Object.hasOwn(javascript, "eslint")) {
+    return { value, migrated: false };
+  }
+  const biome = convertLegacy(javascript.eslint);
   return {
     value: { ...lint, javascript: { ...javascript, biome } },
     migrated: true,

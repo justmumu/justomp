@@ -51,52 +51,7 @@ export function registerTestTools(
           return await withRoot(ctx.cwd, signal, async (root, activeSignal) => {
             const target = await inspectTestProject(root, request, activeSignal, suite),
               coordinator = await coordinatorFor(root, ctx);
-            let observed: TestPreparation | undefined;
-            const stop = coordinator.subscribeProgress((report) => {
-                observed = report;
-                onUpdate?.(response({ preparation: report }));
-              }),
-              stopReport = coordinator.subscribe((report) => {
-                observed = report;
-              });
-            let report: TestPreparation;
-            const waited = coordinator.preparing;
-            try {
-              onUpdate?.(
-                response({
-                  preparation: {
-                    status: "preparing",
-                    message: "Waiting for verified test runner tools and shared policy",
-                  },
-                }),
-              );
-              report = await waitForTestPreparation(coordinator, activeSignal);
-              if (waited) {
-                report = { ...report, action: "waited" };
-              }
-            } catch (error) {
-              if (!activeSignal.aborted) {
-                throw error;
-              }
-              report = {
-                ...(observed ?? preparationReport()),
-                status: "preparing",
-                action: "waited",
-                complete: false,
-                cancelled: true,
-                errors: [
-                  ...(observed?.errors ?? []),
-                  {
-                    code: "cancelled",
-                    message:
-                      "Preparation wait cancelled. Shared setup may continue for another session; its report will contain final effects.",
-                  },
-                ],
-              };
-            } finally {
-              stop();
-              stopReport();
-            }
+            const report = await preparationForCall(coordinator, activeSignal, onUpdate);
             return response(await runTestTarget(target, request, activeSignal, report, undefined, suite));
           });
         } catch (error) {
@@ -105,4 +60,59 @@ export function registerTestTools(
       },
     });
   }
+}
+
+type ToolUpdate = Parameters<Parameters<ExtensionAPI["registerTool"]>[0]["execute"]>[3];
+async function preparationForCall(
+  coordinator: TestCoordinator,
+  activeSignal: AbortSignal,
+  onUpdate: ToolUpdate,
+): Promise<TestPreparation> {
+  let observed: TestPreparation | undefined;
+  const stop = coordinator.subscribeProgress((report) => {
+      observed = report;
+      onUpdate?.(response({ preparation: report }));
+    }),
+    stopReport = coordinator.subscribe((report) => {
+      observed = report;
+    });
+  let report: TestPreparation;
+  const waited = coordinator.preparing;
+  try {
+    onUpdate?.(
+      response({
+        preparation: {
+          status: "preparing",
+          message: "Waiting for verified test runner tools and shared policy",
+        },
+      }),
+    );
+    report = await waitForTestPreparation(coordinator, activeSignal);
+    if (waited) {
+      report = { ...report, action: "waited" };
+    }
+  } catch (error) {
+    if (!activeSignal.aborted) {
+      throw error;
+    }
+    report = {
+      ...(observed ?? preparationReport()),
+      status: "preparing",
+      action: "waited",
+      complete: false,
+      cancelled: true,
+      errors: [
+        ...(observed?.errors ?? []),
+        {
+          code: "cancelled",
+          message:
+            "Preparation wait cancelled. Shared setup may continue for another session; its report will contain final effects.",
+        },
+      ],
+    };
+  } finally {
+    stop();
+    stopReport();
+  }
+  return report;
 }

@@ -15,8 +15,8 @@ function inventory(file: string, text: string) {
     text,
   );
 }
-test("JS group occurrences and source provenance are kept without installation", async () => {
-  const result = await inventory(
+test("JS group occurrences and source provenance are kept without installation", () => {
+  const result = inventory(
     "package.json",
     JSON.stringify({
       name: "app",
@@ -28,8 +28,8 @@ test("JS group occurrences and source provenance are kept without installation",
   expect(result.dependencies.find((d) => d.name === "ui")?.source.kind).toBe("workspace");
   expect(result.dependencies.every((d) => d.resolutions === undefined)).toBe(true);
 });
-test("Python requirements keep extras, markers, groups and native sources", async () => {
-  const result = await inventory(
+test("Python requirements keep extras, markers, groups and native sources", () => {
+  const result = inventory(
     "pyproject.toml",
     '[project]\nname="app"\nversion="1"\ndependencies=["Foo[bar]>=1,<2; python_version < \'3.14\'"]\n[dependency-groups]\ndev=["foo>=2"]\n[tool.uv.sources]\nfoo={git="https://example.test/foo",rev="abc"}\n',
   );
@@ -38,8 +38,8 @@ test("Python requirements keep extras, markers, groups and native sources", asyn
   expect(result.dependencies[0]?.marker).toContain("python_version");
   expect(result.dependencies.every((d) => d.source.kind === "git")).toBe(true);
 });
-test("Go indirect declarations are not presented as direct packages or checksum graphs", async () => {
-  const result = await inventory(
+test("Go indirect declarations are not presented as direct packages or checksum graphs", () => {
+  const result = inventory(
     "go.mod",
     "module example.test/app\ngo 1.25\nrequire (\n example.test/a v1.0.0\n example.test/b v2.0.0 // indirect\n)\nreplace example.test/a => ./local\n",
   );

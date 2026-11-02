@@ -11,10 +11,13 @@ import {
   withReadyTypecheckTarget,
 } from "../../../src/typecheck/coordinator";
 import { resolveTypecheckTarget } from "../../../src/typecheck/targets";
+import { suppliedResponse } from "../../response";
 import { fixture } from "./fixture";
 
 function deferred() {
-  let resolve = () => {};
+  let resolve = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const promise = new Promise<void>((r) => {
     resolve = r;
   });
@@ -64,8 +67,10 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   });
   await locked.promise;
   let ran = false;
-  const waiting = withReadyTypecheckTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => {
-    ran = true;
+  const waiting = withReadyTypecheckTarget(f.root, selected.project.project_id, { python: f.adapter }, () => {
+    return suppliedResponse(() => {
+      ran = true;
+    });
   });
   unlock.resolve();
   await mutation;

@@ -28,11 +28,11 @@ interface Scope {
   controller: AbortController;
   release: () => Promise<void>;
   pending: Set<Promise<unknown>>;
-  lint?: Promise<Awaited<ReturnType<typeof retainLintCoordinator>>>;
+  lint?: Promise<Awaited<ReturnType<typeof retainLintCoordinator>>> | undefined;
   unsubscribeLint?: () => void;
-  typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>>;
+  typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>> | undefined;
   unsubscribeTypecheck?: () => void;
-  testing?: Promise<Awaited<ReturnType<typeof retainTestCoordinator>>>;
+  testing?: Promise<Awaited<ReturnType<typeof retainTestCoordinator>>> | undefined;
   unsubscribeTesting?: () => void;
 }
 function describeError(error: unknown) {
@@ -107,9 +107,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
           reportPreparation(ctx, "lint", { root, preparation: value }, "info"),
         );
         const reports = owned.coordinator.subscribe((value) => {
-          if (!value.complete || value.changes.length) {
-            reportPreparation(ctx, "lint", { root, preparation: value }, value.complete ? "info" : "error");
-          }
+          reportCompletedPreparation(ctx, "lint", root, value);
         });
         active.unsubscribeLint = () => {
           progress();
@@ -141,9 +139,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
         );
         const reports = owned.coordinator.subscribe((value) => {
           const { projects: _projects, ...preparation } = value;
-          if (!value.complete || value.changes.length) {
-            reportPreparation(ctx, "typecheck", { root, preparation }, value.complete ? "info" : "error");
-          }
+          reportCompletedPreparation(ctx, "typecheck", root, preparation);
         });
         active.unsubscribeTypecheck = () => {
           progress();
@@ -174,9 +170,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
           reportPreparation(ctx, "test", { root, preparation: value }, "info"),
         );
         const reports = owned.coordinator.subscribe((value) => {
-          if (!value.complete || value.changes.length) {
-            reportPreparation(ctx, "test", { root, preparation: value }, value.complete ? "info" : "error");
-          }
+          reportCompletedPreparation(ctx, "test", root, value);
         });
         active.unsubscribeTesting = () => {
           progress();
@@ -192,15 +186,16 @@ export default function registerInspection(pi: ExtensionAPI): void {
     }
     return (await active.testing).coordinator;
   }
+  function ensureOpen(): void {
+    if (closed) {
+      throw new StructureError("closed", "Inspection session has shut down");
+    }
+  }
   function selectRoot(root: string): Promise<Scope> {
     const next = transition.then(async () => {
-      if (closed) {
-        throw new StructureError("closed", "Inspection session has shut down");
-      }
+      ensureOpen();
       const canonical = await realpath(root);
-      if (closed) {
-        throw new StructureError("closed", "Inspection session has shut down");
-      }
+      ensureOpen();
       if (scope?.root === canonical) {
         return scope;
       }
@@ -208,9 +203,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
       scope = undefined;
       previous?.controller.abort(new StructureError("root-changed", "Session root changed"));
       await releaseScope(previous);
-      if (closed) {
-        throw new StructureError("closed", "Inspection session has shut down");
-      }
+      ensureOpen();
       const release = await retainPackagingStructure(canonical);
       if (closed) {
         await release();
@@ -293,11 +286,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
     async execute(_callId, params, signal, _onUpdate, ctx) {
       try {
         const result = await track(inspect(ctx.cwd, parameters.parse(params).refresh ?? false, false, signal));
-        const mode = result.fallbackReason
-          ? "full inspection (watcher unavailable)"
-          : result.cacheHit
-            ? "cached watched snapshot"
-            : "refreshed snapshot";
+        const mode = inspectionMode(result);
         return {
           content: [
             {
@@ -401,6 +390,23 @@ function reportPreparation(
   } else if (level === "error") {
     console.error(message);
   } else {
-    console.info(message);
+    process.stdout.write(`${message}\n`);
+  }
+}
+
+function inspectionMode(result: PackagingResult): string {
+  if (result.fallbackReason) {
+    return "full inspection (watcher unavailable)";
+  }
+  return result.cacheHit ? "cached watched snapshot" : "refreshed snapshot";
+}
+function reportCompletedPreparation(
+  ctx: ExtensionContext,
+  kind: "lint" | "typecheck" | "test",
+  root: string,
+  preparation: { complete: boolean; changes: readonly unknown[] },
+): void {
+  if (!preparation.complete || preparation.changes.length) {
+    reportPreparation(ctx, kind, { root, preparation }, preparation.complete ? "info" : "error");
   }
 }

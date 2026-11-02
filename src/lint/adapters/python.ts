@@ -12,6 +12,7 @@ import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
 import { type LintTarget } from "../targets";
 import { fetchVersionJSON, stableVersion } from "../versions";
+import { metadataChangeKind } from "./metadata";
 import { type LintAdapter, type LintCheckContext, type LintOperationContext } from "./types";
 
 export function pythonBinary(target: LintTarget, name = "ruff"): string {
@@ -73,10 +74,7 @@ function diagnostics(context: LintCheckContext, kind: CheckKind, stdout: string)
     return {
       kind,
       ...paths(context.target, item.filename),
-      ...(typeof location.row === "number" ? { line: location.row } : {}),
-      ...(typeof location.column === "number" ? { column: location.column } : {}),
-      ...(typeof end.row === "number" ? { end_line: end.row } : {}),
-      ...(typeof end.column === "number" ? { end_column: end.column } : {}),
+      ...positions(location, end),
       ...(typeof item.code === "string" ? { rule: item.code } : {}),
       severity: "error",
       message: redact(item.message),
@@ -84,6 +82,114 @@ function diagnostics(context: LintCheckContext, kind: CheckKind, stdout: string)
   });
 }
 
+function positions(location: Record<string, unknown>, end: Record<string, unknown>): Partial<LintDiagnostic> {
+  return {
+    ...(typeof location.row === "number" ? { line: location.row } : {}),
+    ...(typeof location.column === "number" ? { column: location.column } : {}),
+    ...(typeof end.row === "number" ? { end_line: end.row } : {}),
+    ...(typeof end.column === "number" ? { end_column: end.column } : {}),
+  };
+}
+async function existingPython(target: LintTarget): Promise<string | undefined> {
+  const environment = resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv");
+  let existing: string | undefined;
+  let environmentExists = false;
+  try {
+    await lstat(environment);
+    environmentExists = true;
+    existing = await realpath(pythonBinary(target, "python"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || environmentExists) {
+      throw new LintError("runtime-unavailable", "Existing Python runtime is damaged; repair it explicitly");
+    }
+  }
+  return existing;
+}
+async function validateRequirement(
+  native: Awaited<ReturnType<typeof lintManagerContext>>,
+  requirement: unknown,
+  selected: ProcessResult,
+): Promise<void> {
+  if (typeof requirement === "string") {
+    const version = await native.run({
+      args: ["python", "find", "--show-version", selected.stdout.trim()],
+      label: "Inspect selected Python",
+      env: { UV_PYTHON_DOWNLOADS: "never" },
+    });
+    if (!successful(version)) {
+      nativeFailure(version, "Could not inspect selected Python runtime");
+    }
+    const compatible = await native.run({
+      args: ["python", "find", `${requirement},==${version.stdout.trim()}`],
+      label: "Validate selected Python",
+      env: { UV_PYTHON_DOWNLOADS: "never" },
+    });
+    if (!successful(compatible)) {
+      nativeFailure(compatible, "Selected Python runtime does not satisfy project constraints");
+    }
+  }
+}
+async function observeMetadata(
+  context: LintOperationContext,
+  metadata: Map<string, LintTarget>,
+  before: Map<string, string | null>,
+): Promise<void> {
+  for (const [path, target] of metadata) {
+    const after = (await readOptional(path)) ?? null,
+      previous = before.get(path);
+    if (after !== previous) {
+      context.changes.push({
+        project_id: target.project.project_id,
+        path: relative(target.root, path).replaceAll("\\", "/"),
+        kind: metadataChangeKind(previous, after),
+      });
+    }
+  }
+}
+function applyCheckResult(context: LintCheckContext, check: LintCheck, result: ProcessResult): void {
+  const kind = check.kind;
+  check.exit_code = result.exit_code;
+  check.truncated = result.truncated;
+  check.cancelled = result.cancelled;
+  if (!result.truncated && !result.cancelled && (result.exit_code === 0 || result.exit_code === 1)) {
+    check.diagnostics = diagnostics(context, kind, result.stdout);
+    check.status = result.exit_code === 0 ? "passed" : "failed";
+  } else {
+    check.reason = redact(result.stderr || result.stdout || "Ruff did not complete");
+  }
+}
+async function checkSource(context: LintCheckContext, files: string[], check: LintCheck): Promise<void> {
+  const kind = check.kind;
+  const start = performance.now();
+  try {
+    const executable = await safePath(context.target.root, pythonBinary(context.target));
+    const result = await runProcess(
+      executable,
+      [
+        kind === "lint" ? "check" : "format",
+        ...(kind === "lint" ? ["--no-fix", "--no-fix-only"] : ["--check"]),
+        "--config",
+        context.projection.configs[kind],
+        "--force-exclude",
+        "--output-format",
+        "json",
+        "--",
+        ...files.map((file) => `./${file}`),
+      ],
+      {
+        cwd: context.target.scope.cwd,
+        env: { ...context.target.scope.env, RUFF_OUTPUT_FILE: undefined },
+        signal: context.signal,
+      },
+    );
+    applyCheckResult(context, check, result);
+  } catch (error) {
+    check.reason = redact(error instanceof Error ? error.message : String(error));
+    check.cancelled = context.signal.aborted;
+  } finally {
+    check.duration_ms = performance.now() - start;
+  }
+}
 export const pythonAdapter: LintAdapter = {
   async resolve(targets, _policy, signal, existing) {
     const retained = Object.values(existing ?? {}).map((tools) => stableVersion(tools.ruff));
@@ -123,18 +229,7 @@ export const pythonAdapter: LintAdapter = {
       if (!target) {
         continue;
       }
-      const environment = resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv");
-      let existing: string | undefined;
-      let environmentExists = false;
-      try {
-        await lstat(environment);
-        environmentExists = true;
-        existing = await realpath(pythonBinary(target, "python"));
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT" || environmentExists) {
-          throw new LintError("runtime-unavailable", "Existing Python runtime is damaged; repair it explicitly");
-        }
-      }
+      const existing = await existingPython(target);
       const data = object(parse(await readFile(join(target.root, target.project.manifest), "utf8")));
       const requirement = object(data.project)["requires-python"];
       // Honor native selection first, then evaluate that exact version against
@@ -153,24 +248,7 @@ export const pythonAdapter: LintAdapter = {
           "Python runtime would be replaced; reconcile the existing environment and project constraints explicitly",
         );
       }
-      if (typeof requirement === "string") {
-        const version = await native.run({
-          args: ["python", "find", "--show-version", selected.stdout.trim()],
-          label: "Inspect selected Python",
-          env: { UV_PYTHON_DOWNLOADS: "never" },
-        });
-        if (!successful(version)) {
-          nativeFailure(version, "Could not inspect selected Python runtime");
-        }
-        const compatible = await native.run({
-          args: ["python", "find", `${requirement},==${version.stdout.trim()}`],
-          label: "Validate selected Python",
-          env: { UV_PYTHON_DOWNLOADS: "never" },
-        });
-        if (!successful(compatible)) {
-          nativeFailure(compatible, "Selected Python runtime does not satisfy project constraints");
-        }
-      }
+      await validateRequirement(native, requirement, selected);
     }
   },
   async prepareBatch(context) {
@@ -197,17 +275,7 @@ export const pythonAdapter: LintAdapter = {
         }
       }
     } finally {
-      for (const [path, target] of metadata) {
-        const after = (await readOptional(path)) ?? null,
-          previous = before.get(path);
-        if (after !== previous) {
-          context.changes.push({
-            project_id: target.project.project_id,
-            path: relative(target.root, path).replaceAll("\\", "/"),
-            kind: after === null ? "removed" : previous === null ? "created" : "updated",
-          });
-        }
-      }
+      await observeMetadata(context, metadata, before);
     }
   },
   async verify(context) {
@@ -288,43 +356,7 @@ export const pythonAdapter: LintAdapter = {
       if (scope.empty) {
         continue;
       }
-      const start = performance.now();
-      try {
-        const executable = await safePath(context.target.root, pythonBinary(context.target));
-        const result = await runProcess(
-          executable,
-          [
-            kind === "lint" ? "check" : "format",
-            ...(kind === "lint" ? ["--no-fix", "--no-fix-only"] : ["--check"]),
-            "--config",
-            context.projection.configs[kind],
-            "--force-exclude",
-            "--output-format",
-            "json",
-            "--",
-            ...scope.files.map((file) => `./${file}`),
-          ],
-          {
-            cwd: context.target.scope.cwd,
-            env: { ...context.target.scope.env, RUFF_OUTPUT_FILE: undefined },
-            signal: context.signal,
-          },
-        );
-        check.exit_code = result.exit_code;
-        check.truncated = result.truncated;
-        check.cancelled = result.cancelled;
-        if (!result.truncated && !result.cancelled && (result.exit_code === 0 || result.exit_code === 1)) {
-          check.diagnostics = diagnostics(context, kind, result.stdout);
-          check.status = result.exit_code === 0 ? "passed" : "failed";
-        } else {
-          check.reason = redact(result.stderr || result.stdout || "Ruff did not complete");
-        }
-      } catch (error) {
-        check.reason = redact(error instanceof Error ? error.message : String(error));
-        check.cancelled = context.signal.aborted;
-      } finally {
-        check.duration_ms = performance.now() - start;
-      }
+      await checkSource(context, scope.files, check);
     }
     return checks;
   },

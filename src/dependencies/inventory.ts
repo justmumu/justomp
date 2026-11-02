@@ -59,106 +59,142 @@ function inventoryFromDocument(
       ...extra,
     });
   if (project.ecosystem === "javascript") {
-    for (const [field, kind] of [
-      ["dependencies", "runtime"],
-      ["devDependencies", "dev"],
-      ["optionalDependencies", "optional"],
-      ["peerDependencies", "peer"],
-    ] as const) {
-      for (const [name, spec] of Object.entries(object(data[field]))) {
-        if (typeof spec !== "string") {
-          throw new DependencyError("invalid-manifest", `${field}.${name} must be text`);
-        }
-        add(name, { kind }, spec, `${field}.${name}`);
-      }
-    }
+    javascriptDeclarations(data, add);
   } else if (project.ecosystem === "python") {
-    const metadata = object(data.project),
-      uv = object(object(data.tool).uv);
-    let inherited: Record<string, unknown> = {};
-    if (ownerText !== undefined) {
-      const owner = object(toml(ownerText));
-      inherited = object(object(object(owner.tool).uv).sources);
-    }
-    const sources = { ...inherited, ...object(uv.sources) };
-    const groups = object(data["dependency-groups"]);
-    const visit = (items: unknown, group: Group, field: string, stack: string[] = []) => {
-      if (!Array.isArray(items)) {
-        return;
-      }
-      for (const item of items) {
-        if (typeof item !== "string") {
-          const included = object(item)["include-group"];
-          if (typeof included === "string") {
-            if (stack.includes(included)) {
-              throw new DependencyError("invalid-manifest", "Cyclic Python dependency group");
-            }
-            // Included entries belong to their original declaration, not a writable copy.
-            continue;
-          }
-          continue;
-        }
-        const match = /^([A-Za-z0-9_.-]+)(?:\[([^\]]+)\])?\s*(.*)$/.exec(item);
-        if (!match?.[1]) {
-          throw new DependencyError("invalid-manifest", "Invalid Python requirement");
-        }
-        const name = normalizePythonName(match[1]);
-        const rest = match[3] ?? "",
-          split = rest.indexOf(";");
-        const spec = (split < 0 ? rest : rest.slice(0, split)).trim();
-        const marker = split < 0 ? undefined : rest.slice(split + 1).trim();
-        const nativeSource = sources[Object.keys(sources).find((k) => normalizePythonName(k) === name) ?? name];
-        const s = object(nativeSource);
-        let source = spec.startsWith("@") ? sourceOf(spec.slice(1).trim()) : sourceOf(spec);
-        if (s.workspace === true) {
-          source = { kind: "workspace" };
-        } else if (typeof s.path === "string") {
-          source = { kind: "path", specifier: s.path };
-        } else if (typeof s.git === "string") {
-          source = { kind: "git", specifier: s.git };
-        } else if (s.url || Array.isArray(nativeSource)) {
-          source = { kind: "unknown" };
-        }
-        add(name, group, spec, field, {
-          source,
-          ...(marker ? { marker } : {}),
-          ...(match[2] ? { extras: match[2].split(",").map((v) => v.trim()) } : {}),
-          ...(Array.isArray(nativeSource) || s.marker || s.extra || s.group ? { ambiguous: true } : {}),
-        });
-      }
-    };
-    visit(metadata.dependencies, { kind: "runtime" }, "project.dependencies");
-    for (const [name, values] of Object.entries(groups)) {
-      visit(values, name === "dev" ? { kind: "dev" } : { kind: "named", name }, `dependency-groups.${name}`, [name]);
-    }
-    for (const [name, values] of Object.entries(object(metadata["optional-dependencies"]))) {
-      visit(values, { kind: "extra", name }, `project.optional-dependencies.${name}`);
-    }
+    pythonDeclarations(data, add, ownerText);
   } else {
-    const doc = parseGo(text, "mod");
-    const indirect = new Set<string>();
-    for (const line of text.split("\n")) {
-      const m = /^\s*(?:require\s+)?([^\s()]+)\s+v[^\s]+\s*\/\/\s*indirect\b/.exec(line);
-      if (m?.[1]) {
-        indirect.add(m[1]);
-      }
-    }
-    for (const requirement of doc.requires) {
-      const replacements = doc.replaces.filter(
-        (r) => r.name === requirement.name && (!r.version || r.version === requirement.version),
-      );
-      const replacement = replacements[0];
-      add(requirement.name, { kind: "runtime" }, requirement.version, "require", {
-        direct: !indirect.has(requirement.name),
-        source: replacement
-          ? {
-              kind: replacement.targetVersion ? "unknown" : "path",
-              specifier: replacement.target,
-            }
-          : { kind: "registry" },
-        ...(replacements.length > 1 ? { ambiguous: true } : {}),
-      });
-    }
+    goDeclarations(text, add);
   }
   return { dependencies, complete: true, diagnostics: [] };
+}
+
+type AddDeclaration = (name: string, group: Group, spec: string, field: string, extra?: Partial<Dependency>) => unknown;
+function javascriptDeclarations(data: Record<string, unknown>, add: AddDeclaration) {
+  for (const [field, kind] of [
+    ["dependencies", "runtime"],
+    ["devDependencies", "dev"],
+    ["optionalDependencies", "optional"],
+    ["peerDependencies", "peer"],
+  ] as const) {
+    for (const [name, spec] of Object.entries(object(data[field]))) {
+      if (typeof spec !== "string") {
+        throw new DependencyError("invalid-manifest", `${field}.${name} must be text`);
+      }
+      add(name, { kind }, spec, `${field}.${name}`);
+    }
+  }
+}
+function goDeclarations(text: string, add: AddDeclaration) {
+  const doc = parseGo(text, "mod");
+  const indirect = indirectModules(text);
+  for (const requirement of doc.requires) {
+    const replacements = doc.replaces.filter(
+      (r) => r.name === requirement.name && (!r.version || r.version === requirement.version),
+    );
+    const replacement = replacements[0];
+    add(requirement.name, { kind: "runtime" }, requirement.version, "require", {
+      direct: !indirect.has(requirement.name),
+      source: replacement
+        ? {
+            kind: replacement.targetVersion ? "unknown" : "path",
+            specifier: replacement.target,
+          }
+        : { kind: "registry" },
+      ...(replacements.length > 1 ? { ambiguous: true } : {}),
+    });
+  }
+}
+function pythonDeclarations(data: Record<string, unknown>, add: AddDeclaration, ownerText?: string) {
+  const metadata = object(data.project),
+    uv = object(object(data.tool).uv);
+  let inherited: Record<string, unknown> = {};
+  if (ownerText !== undefined) {
+    const owner = object(toml(ownerText));
+    inherited = object(object(object(owner.tool).uv).sources);
+  }
+  const sources = { ...inherited, ...object(uv.sources) };
+  const groups = object(data["dependency-groups"]);
+  const visit = (items: unknown, group: Group, field: string, stack: string[] = []) =>
+    pythonRequirements(items, group, field, sources, add, stack);
+  visit(metadata.dependencies, { kind: "runtime" }, "project.dependencies");
+  for (const [name, values] of Object.entries(groups)) {
+    visit(values, name === "dev" ? { kind: "dev" } : { kind: "named", name }, `dependency-groups.${name}`, [name]);
+  }
+  for (const [name, values] of Object.entries(object(metadata["optional-dependencies"]))) {
+    visit(values, { kind: "extra", name }, `project.optional-dependencies.${name}`);
+  }
+}
+function pythonRequirements(
+  items: unknown,
+  group: Group,
+  field: string,
+  sources: Record<string, unknown>,
+  add: AddDeclaration,
+  stack: string[] = [],
+) {
+  if (!Array.isArray(items)) {
+    return;
+  }
+  for (const item of items) {
+    if (typeof item !== "string") {
+      const included = object(item)["include-group"];
+      if (typeof included === "string" && stack.includes(included)) {
+        throw new DependencyError("invalid-manifest", "Cyclic Python dependency group");
+      }
+      // Included entries belong to their original declaration, not a writable copy.
+      continue;
+    }
+    pythonRequirement(item, group, field, sources, add);
+  }
+}
+function pythonRequirement(
+  item: string,
+  group: Group,
+  field: string,
+  sources: Record<string, unknown>,
+  add: AddDeclaration,
+) {
+  const match = /^([A-Za-z0-9_.-]+)(?:\[([^\]]+)\])?\s*(.*)$/.exec(item);
+  if (!match?.[1]) {
+    throw new DependencyError("invalid-manifest", "Invalid Python requirement");
+  }
+  const name = normalizePythonName(match[1]);
+  const rest = match[3] ?? "",
+    split = rest.indexOf(";");
+  const spec = (split < 0 ? rest : rest.slice(0, split)).trim();
+  const marker = split < 0 ? undefined : rest.slice(split + 1).trim();
+  const nativeSource = sources[Object.keys(sources).find((k) => normalizePythonName(k) === name) ?? name];
+  const s = object(nativeSource);
+  const source = pythonSource(spec, nativeSource);
+  add(name, group, spec, field, {
+    source,
+    ...(marker ? { marker } : {}),
+    ...(match[2] ? { extras: match[2].split(",").map((v) => v.trim()) } : {}),
+    ...(Array.isArray(nativeSource) || s.marker || s.extra || s.group ? { ambiguous: true } : {}),
+  });
+}
+function pythonSource(spec: string, nativeSource: unknown): Dependency["source"] {
+  const s = object(nativeSource);
+  let source = spec.startsWith("@") ? sourceOf(spec.slice(1).trim()) : sourceOf(spec);
+  if (s.workspace === true) {
+    source = { kind: "workspace" };
+  } else if (typeof s.path === "string") {
+    source = { kind: "path", specifier: s.path };
+  } else if (typeof s.git === "string") {
+    source = { kind: "git", specifier: s.git };
+  } else if (s.url || Array.isArray(nativeSource)) {
+    source = { kind: "unknown" };
+  }
+  return source;
+}
+
+function indirectModules(text: string): Set<string> {
+  const indirect = new Set<string>();
+  for (const line of text.split("\n")) {
+    const m = /^\s*(?:require\s+)?([^\s()]+)\s+v[^\s]+\s*\/\/\s*indirect\b/.exec(line);
+    if (m?.[1]) {
+      indirect.add(m[1]);
+    }
+  }
+  return indirect;
 }

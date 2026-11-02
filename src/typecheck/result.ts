@@ -66,22 +66,7 @@ export function typecheckResult(
 ): TypecheckResult {
   const { preparation, policyHash, ready, failure } = result;
   let { checks } = result;
-  if (!checks.length) {
-    const tool = { python: "pyright", javascript: "typescript", go: "go" }[project.ecosystem];
-    checks = [
-      {
-        status: "not-run",
-        tool,
-        version: preparation.tools[tool] ?? null,
-        exit_code: null,
-        duration_ms: 0,
-        diagnostics: [],
-        truncated: false,
-        cancelled: aborted,
-        reason: failure ?? "Preparation did not complete",
-      },
-    ];
-  }
+  checks = ensureChecks(project, checks, preparation, aborted, failure);
   const cancelled = aborted || checks.some((c) => c.cancelled),
     truncated = checks.some((c) => c.truncated);
   const complete = ready && !failure && !cancelled && !truncated && checks.every((c) => c.status !== "not-run");
@@ -98,11 +83,7 @@ export function typecheckResult(
     truncated,
     cancelled,
     partial_change: !preparation.complete && preparation.changes.length > 0,
-    incomplete_stages: [
-      ...(!ready && !checks.some((c) => c.status !== "not-run") ? ["preparation"] : []),
-      ...(checks.some((c) => c.status === "not-run" || c.cancelled || c.truncated) ? ["typecheck"] : []),
-      ...(failure && checks.some((c) => c.status !== "not-run") ? ["verification"] : []),
-    ],
+    incomplete_stages: incompleteStages(ready, checks, failure),
     remediation: [
       ...new Set([
         ...(failure ? [failure] : []),
@@ -116,4 +97,38 @@ export function typecheckResult(
       ]),
     ],
   };
+}
+
+function ensureChecks(
+  project: Pick<Project, "ecosystem">,
+  checks: TypecheckCheck[],
+  preparation: TypecheckPreparation,
+  aborted: boolean,
+  failure: string | undefined,
+): TypecheckCheck[] {
+  if (!checks.length) {
+    const tool = { python: "pyright", javascript: "typescript", go: "go" }[project.ecosystem];
+    checks = [
+      {
+        status: "not-run",
+        tool,
+        version: preparation.tools[tool] ?? null,
+        exit_code: null,
+        duration_ms: 0,
+        diagnostics: [],
+        truncated: false,
+        cancelled: aborted,
+        reason: failure ?? "Preparation did not complete",
+      },
+    ];
+  }
+  return checks;
+}
+
+function incompleteStages(ready: boolean, checks: TypecheckCheck[], failure: string | undefined): string[] {
+  return [
+    ...(!ready && !checks.some((c) => c.status !== "not-run") ? ["preparation"] : []),
+    ...(checks.some((c) => c.status === "not-run" || c.cancelled || c.truncated) ? ["typecheck"] : []),
+    ...(failure && checks.some((c) => c.status !== "not-run") ? ["verification"] : []),
+  ];
 }

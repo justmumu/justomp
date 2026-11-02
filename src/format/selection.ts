@@ -36,6 +36,9 @@ const JSONC_BASENAMES = new Set([
   "launch.json",
   "extensions.json",
 ]);
+function usesJsonComments(extension: string, name: string): boolean {
+  return extension === ".json" && (JSONC_BASENAMES.has(name) || /^tsconfig.*\.json$/.test(name));
+}
 export function formatterFor(path: string, ecosystem: LintEcosystem): Formatter | undefined {
   const extension = extname(path).toLowerCase();
   if (ecosystem === "python" && (extension === ".py" || extension === ".pyi")) {
@@ -51,7 +54,7 @@ export function formatterFor(path: string, ecosystem: LintEcosystem): Formatter 
   const name = basename(path).toLowerCase();
   return {
     engine: "prettier",
-    parser: extension === ".json" && (JSONC_BASENAMES.has(name) || /^tsconfig.*\.json$/.test(name)) ? "jsonc" : parser,
+    parser: usesJsonComments(extension, name) ? "jsonc" : parser,
   };
 }
 /** golangci-lint fmt skips dot basenames and strips every ... from CLI paths. */

@@ -3,12 +3,12 @@ import { type GoRunnable } from "./inventory";
 /** Consume the native protocol before bounded console capture can truncate it. */
 export class GoEvents {
   private decoder = new TextDecoder();
-  private pending = "";
+  private pending: string = "";
   private bytes = 0;
-  private terminal = false;
-  private started = false;
-  private packageFailed = false;
-  private buildFailed = false;
+  private terminal: boolean = false;
+  private started: boolean = false;
+  private packageFailed: boolean = false;
+  private buildFailed: boolean = false;
   private cases: TestCase[] = [];
   private running = new Map<string, number>();
   private completed = new Map<string, number>();
@@ -62,48 +62,68 @@ export class GoEvents {
       throw new TestError("invalid-report", "Invalid Go test name");
     }
     if (typeof name === "string") {
-      const top = name.split("/")[0],
-        owners = this.owners.get(top ?? "");
-      if (!owners) {
-        throw new TestError("invalid-report", `Unselected Go test in report: ${name}`);
-      }
-      if (action === "run") {
-        const running = (this.running.get(name) ?? 0) + 1;
-        if (running + (this.completed.get(name) ?? 0) > owners.length) {
-          throw new TestError("invalid-report", `Repeated Go test run: ${name}`);
-        }
-        this.running.set(name, running);
-      }
-      if (["pass", "fail", "skip"].includes(action)) {
-        const completed = (this.completed.get(name) ?? 0) + 1;
-        if (completed > owners.length) {
-          throw new TestError("invalid-report", `Repeated Go test result: ${name}`);
-        }
-        this.completed.set(name, completed);
-        const running = this.running.get(name) ?? 0;
-        if (running > 1) {
-          this.running.set(name, running - 1);
-        } else {
-          this.running.delete(name);
-        }
-        this.cases.push({
-          name,
-          ...(owners.length === 1 ? { file: owners[0]?.file } : {}),
-          package: this.packageName,
-          status: action === "pass" ? "passed" : action === "fail" ? "failed" : "skipped",
-          ...(name.includes("/") ? { parent: top } : {}),
-          ...(typeof value.Elapsed === "number" ? { duration_ms: value.Elapsed * 1000 } : {}),
-        });
-      }
+      this.testEvent(value, action, name);
     } else if (["pass", "fail", "skip"].includes(action)) {
-      if (this.terminal) {
-        throw new TestError("invalid-report", "Repeated Go package result");
-      }
-      this.terminal = true;
-      this.packageFailed = action === "fail";
-      this.buildFailed = typeof value.FailedBuild === "string";
+      this.packageResult(value, action);
     }
   }
+  private testEvent(value: Record<string, unknown>, action: string, name: string): void {
+    const top = name.split("/")[0],
+      owners = this.owners.get(top ?? "");
+    if (!owners) {
+      throw new TestError("invalid-report", `Unselected Go test in report: ${name}`);
+    }
+    if (action === "run") {
+      const running = (this.running.get(name) ?? 0) + 1;
+      if (running + (this.completed.get(name) ?? 0) > owners.length) {
+        throw new TestError("invalid-report", `Repeated Go test run: ${name}`);
+      }
+      this.running.set(name, running);
+    }
+    if (["pass", "fail", "skip"].includes(action)) {
+      this.testResult(value, action, name, top, owners);
+    }
+  }
+  private testResult(
+    value: Record<string, unknown>,
+    action: string,
+    name: string,
+    top: string | undefined,
+    owners: GoRunnable[],
+  ): void {
+    const completed = (this.completed.get(name) ?? 0) + 1;
+    if (completed > owners.length) {
+      throw new TestError("invalid-report", `Repeated Go test result: ${name}`);
+    }
+    this.completed.set(name, completed);
+    this.completeRunning(name);
+    this.cases.push({
+      name,
+      ...(owners.length === 1 && owners[0] ? { file: owners[0].file } : {}),
+      package: this.packageName,
+      status: action === "pass" ? "passed" : action === "fail" ? "failed" : "skipped",
+      ...(name.includes("/") && top !== undefined ? { parent: top } : {}),
+      ...(typeof value.Elapsed === "number" ? { duration_ms: value.Elapsed * 1000 } : {}),
+    });
+  }
+
+  private completeRunning(name: string): void {
+    const running = this.running.get(name) ?? 0;
+    if (running > 1) {
+      this.running.set(name, running - 1);
+    } else {
+      this.running.delete(name);
+    }
+  }
+  private packageResult(value: Record<string, unknown>, action: string): void {
+    if (this.terminal) {
+      throw new TestError("invalid-report", "Repeated Go package result");
+    }
+    this.terminal = true;
+    this.packageFailed = action === "fail";
+    this.buildFailed = typeof value.FailedBuild === "string";
+  }
+
   result(): {
     tests: TestSummary;
     errors: TestIssue[];

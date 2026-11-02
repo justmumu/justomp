@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { installRepositoryHook } from "../git-hooks/install";
 
 export type { HookInstallation } from "../git-hooks/install";
-export async function installPrecommit(
+export function installPrecommit(
   cwd: string,
   signal?: AbortSignal,
   runtime = {

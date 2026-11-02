@@ -6,7 +6,7 @@ import * as runtime from "../../../src/lint/runtime";
 import { vitestTestAdapter } from "../../../src/testing/javascript/vitest";
 import { pythonTestAdapter } from "../../../src/testing/python/adapter";
 import * as reports from "../../../src/testing/python/reports";
-import { context } from "./fixture";
+import { context, suppliedResponse } from "./fixture";
 
 for (const runner of ["pytest", "vitest"] as const) {
   test(`${runner} targeted adapter returns native success without reading coverage`, async () => {
@@ -29,22 +29,24 @@ for (const runner of ["pytest", "vitest"] as const) {
       ),
       spyOn(javascriptNative, "localTool").mockResolvedValue(process),
     ];
-    const evidence = spyOn(reports, "reportText").mockImplementation(async (path) => {
-      if (path.endsWith("junit.xml")) {
-        return '<testsuite tests="1"><testcase name="passes" file="tests/test-a.py"/></testsuite>';
-      }
-      if (path.endsWith("vitest.json")) {
-        return JSON.stringify({
-          numTotalTests: 1,
-          testResults: [
-            {
-              name: "/project/tests/test-a.py",
-              assertionResults: [{ title: "passes", status: "passed" }],
-            },
-          ],
-        });
-      }
-      throw new Error("Targeted run must not read coverage");
+    const evidence = spyOn(reports, "reportText").mockImplementation((path) => {
+      return suppliedResponse(() => {
+        if (path.endsWith("junit.xml")) {
+          return '<testsuite tests="1"><testcase name="passes" file="tests/test-a.py"/></testsuite>';
+        }
+        if (path.endsWith("vitest.json")) {
+          return JSON.stringify({
+            numTotalTests: 1,
+            testResults: [
+              {
+                name: "/project/tests/test-a.py",
+                assertionResults: [{ title: "passes", status: "passed" }],
+              },
+            ],
+          });
+        }
+        throw new Error("Targeted run must not read coverage");
+      });
     });
     try {
       const result = await (runner === "pytest" ? pythonTestAdapter : vitestTestAdapter).run(ctx);

@@ -5,6 +5,7 @@ import { readInventory } from "../../../src/dependencies/inventory";
 import { type Adapter } from "../../../src/dependencies/model";
 import { executeDependency } from "../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { fixture, roots } from "./outcomes-fixture";
 
 afterEach(async () => {
@@ -21,20 +22,22 @@ test("redaction preserves completed mutation evidence with token-like paths and 
   const adapter: Adapter = {
     groups: ["runtime"],
     inventory: (ctx) => readInventory(ctx.root, ctx.project),
-    plan: async (ctx, request) => {
-      if (request.operation !== "add") {
-        throw new Error("fixture add only");
-      }
-      return {
-        metadata: [ctx.project.manifest],
-        affectedProjects: [ctx.project.project_id],
-        steps: [
-          {
-            label: "native declaration",
-            args: ["pkg", "set", `dependencies.foo=${url}`],
-          },
-        ],
-      };
+    plan: (ctx, request) => {
+      return suppliedResponse(() => {
+        if (request.operation !== "add") {
+          throw new Error("fixture add only");
+        }
+        return {
+          metadata: [ctx.project.manifest],
+          affectedProjects: [ctx.project.project_id],
+          steps: [
+            {
+              label: "native declaration",
+              args: ["pkg", "set", `dependencies.foo=${url}`],
+            },
+          ],
+        };
+      });
     },
   };
   const result = await executeDependency(
@@ -48,7 +51,7 @@ test("redaction preserves completed mutation evidence with token-like paths and 
     { npm: adapter },
   );
   expect(result.outcome).toBe("success");
-  expect("native_steps" in result && result.native_steps?.length).toBe(1);
+  expect("native_steps" in result && result.native_steps.length).toBe(1);
   expect("metadata_changes" in result && result.metadata_changes).toEqual([
     { path: `${path}/package.json`, change: "modified" },
   ]);

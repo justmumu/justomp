@@ -9,6 +9,7 @@ const entrypoints = [
   "src/precommit/cli.ts",
   "src/prepush/cli.ts",
   "scripts/test-cost.ts",
+  "scripts/development.ts",
 ];
 
 test("importing executable modules performs no command work", async () => {

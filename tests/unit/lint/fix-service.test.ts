@@ -7,6 +7,7 @@ import * as files from "../../../src/lint/files";
 import { type PreparationReport } from "../../../src/lint/prepare";
 import * as scopes from "../../../src/lint/scope";
 import { checkLintTarget, fixLintTarget, lintAdapters } from "../../../src/lint/service";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
@@ -66,9 +67,11 @@ function fixture() {
     })),
   );
   const fix = keep(
-    spyOn(lintAdapters.python, "fix").mockImplementation(async () => {
-      changed = true;
-      return output({ exit_code: 1 });
+    spyOn(lintAdapters.python, "fix").mockImplementation(() => {
+      return suppliedResponse(() => {
+        changed = true;
+        return output({ exit_code: 1 });
+      });
     }),
   );
   const check = keep(
@@ -99,21 +102,23 @@ function fixture() {
 }
 test("fix and final checks share one ready lease, check-only never calls fixer", async () => {
   const f = fixture();
-  f.check.mockImplementation(async () => {
-    expect(f.fix).toHaveBeenCalledTimes(1);
-    return [
-      {
-        kind: "lint",
-        status: "failed",
-        tool: "ruff",
-        version: "0.17.3",
-        exit_code: 1,
-        duration_ms: 0,
-        diagnostics: [{ kind: "lint", severity: "error", message: "Remaining" }],
-        cancelled: false,
-        truncated: false,
-      },
-    ];
+  f.check.mockImplementation(() => {
+    return suppliedResponse(() => {
+      expect(f.fix).toHaveBeenCalledTimes(1);
+      return [
+        {
+          kind: "lint",
+          status: "failed",
+          tool: "ruff",
+          version: "0.17.3",
+          exit_code: 1,
+          duration_ms: 0,
+          diagnostics: [{ kind: "lint", severity: "error", message: "Remaining" }],
+          cancelled: false,
+          truncated: false,
+        },
+      ];
+    });
   });
   expect(await f.run()).toMatchObject({
     complete: true,

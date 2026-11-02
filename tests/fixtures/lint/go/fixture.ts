@@ -10,6 +10,7 @@ import { golangciArtifact } from "../../../../src/lint/go/install";
 import { applyProjection, planProjection } from "../../../../src/lint/projection";
 import { resolveLintTarget } from "../../../../src/lint/targets";
 import { closePackagingStructure, getPackagingStructure } from "../../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../../response";
 
 export const GO_LINT_VERSION = "2.15.0";
 export async function officialArchive(): Promise<Buffer> {
@@ -47,22 +48,24 @@ export function artifactTransport(bytes: Buffer, checksum = createHash("sha256")
     original = globalThis.fetch;
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
-        const url = String(input);
-        if (url.endsWith("/releases/latest")) {
-          return Response.json({
-            tag_name: `v${GO_LINT_VERSION}`,
-            draft: false,
-            prerelease: false,
-          });
-        }
-        if (url.endsWith("checksums.txt")) {
-          return new Response(`${checksum}  ${artifact.archive}\n`);
-        }
-        if (url.endsWith(artifact.archive)) {
-          return new Response(new Uint8Array(bytes));
-        }
-        throw new Error(`Unexpected network request: ${url}`);
+      (input: Parameters<typeof fetch>[0]) => {
+        return suppliedResponse(() => {
+          const url = String(input);
+          if (url.endsWith("/releases/latest")) {
+            return Response.json({
+              tag_name: `v${GO_LINT_VERSION}`,
+              draft: false,
+              prerelease: false,
+            });
+          }
+          if (url.endsWith("checksums.txt")) {
+            return new Response(`${checksum}  ${artifact.archive}\n`);
+          }
+          if (url.endsWith(artifact.archive)) {
+            return new Response(new Uint8Array(bytes));
+          }
+          throw new Error(`Unexpected network request: ${url}`);
+        });
       },
       { preconnect: original.preconnect },
     ),
@@ -130,24 +133,7 @@ export async function goFixture(workspace = false) {
     },
     async bytes() {
       const result: Record<string, string> = {};
-      async function visit(directory: string) {
-        for (const entry of await readdir(join(root, directory), {
-          withFileTypes: true,
-        })) {
-          if ([".justomp", ".cache"].includes(entry.name)) {
-            continue;
-          }
-          const path = join(directory, entry.name);
-          if (entry.isDirectory()) {
-            await visit(path);
-          } else if (entry.isFile()) {
-            result[path] = createHash("sha256")
-              .update(await readFile(join(root, path)))
-              .digest("hex");
-          }
-        }
-      }
-      await visit("");
+      await visit(root, "", result);
       return result;
     },
     async dispose() {
@@ -164,4 +150,22 @@ export async function goFixture(workspace = false) {
       await rm(root, { recursive: true, force: true });
     },
   };
+}
+
+async function visit(root: string, directory: string, result: Record<string, string>) {
+  for (const entry of await readdir(join(root, directory), {
+    withFileTypes: true,
+  })) {
+    if ([".justomp", ".cache"].includes(entry.name)) {
+      continue;
+    }
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await visit(root, path, result);
+    } else if (entry.isFile()) {
+      result[path] = createHash("sha256")
+        .update(await readFile(join(root, path)))
+        .digest("hex");
+    }
+  }
 }

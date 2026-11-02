@@ -40,7 +40,7 @@ test("OMP lint has strict ID/fix exec schema; denial and unknown IDs cannot prep
   try {
     const result = await h.getTool("project_lint").execute("unknown", { project_id: "python:moved/pyproject.toml" });
     expect(result.isError).toBe(true);
-    expect(json(result).error.code).toBe("project-not-found");
+    expect(json<{ error: { code: string } }>(result).error.code).toBe("project-not-found");
     expect(network).not.toHaveBeenCalled();
     expect(await Bun.file(join(f.root, ".justomp/config.json")).exists()).toBe(false);
   } finally {
@@ -139,8 +139,9 @@ test("startup returns before adapter setup, reports progress, and discovers new 
   const { f, h } = await fixture([], true);
   const network = heldRegistry();
   const messages: string[] = [];
-  const log = spyOn(console, "info").mockImplementation((value) => {
+  const log = spyOn(process.stdout, "write").mockImplementation((value) => {
     messages.push(String(value));
+    return true;
   });
   try {
     const start = performance.now();
@@ -185,8 +186,12 @@ test("startup returns before adapter setup, reports progress, and discovers new 
 test("OMP fix forwards explicit intent and shutdown awaits source effect accounting", async () => {
   const { f, h } = await fixture([], true);
   const network = registry();
-  let enter = () => {},
-    release = () => {};
+  let enter = () => {
+      /* This supplied callback intentionally has no side effects. */
+    },
+    release = () => {
+      /* This supplied callback intentionally has no side effects. */
+    };
   const entered = new Promise<void>((resolve) => {
     enter = resolve;
   });

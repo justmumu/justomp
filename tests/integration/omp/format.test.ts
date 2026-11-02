@@ -68,11 +68,15 @@ test("OMP format has strict ID/files exec schema and trusted manifest writes ret
 test("OMP shutdown waits for active formatting cleanup and prevents a late publish", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "README.md"), "before\n");
-  let enter = () => {};
+  let enter = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const entered = new Promise<void>((resolve) => {
     enter = resolve;
   });
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });

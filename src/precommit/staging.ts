@@ -74,6 +74,19 @@ export class EffectLedger {
       }
     }
   }
+  private async shouldStage(path: string, tracked: Set<string>): Promise<boolean> {
+    if (tracked.has(path)) {
+      return true;
+    }
+    if (this.observed.get(path) === null) {
+      return false;
+    }
+    const ignored = await git(this.context.root, ["check-ignore", "--", path], this.context.signal);
+    if (ignored.cancelled || ignored.truncated || ![0, 1].includes(ignored.exit_code ?? -1)) {
+      throw new Error(`Could not check ignored effect: ${path}`);
+    }
+    return ignored.exit_code !== 0;
+  }
   async stage(): Promise<string[]> {
     await this.verify();
     const tracked = new Set(
@@ -81,17 +94,8 @@ export class EffectLedger {
     );
     const paths: string[] = [];
     for (const path of this.paths) {
-      if (!tracked.has(path)) {
-        if (this.observed.get(path) === null) {
-          continue;
-        }
-        const ignored = await git(this.context.root, ["check-ignore", "--", path], this.context.signal);
-        if (ignored.cancelled || ignored.truncated || ![0, 1].includes(ignored.exit_code ?? -1)) {
-          throw new Error(`Could not check ignored effect: ${path}`);
-        }
-        if (ignored.exit_code === 0) {
-          continue;
-        }
+      if (!(await this.shouldStage(path, tracked))) {
+        continue;
       }
       paths.push(path);
     }

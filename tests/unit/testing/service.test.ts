@@ -14,6 +14,7 @@ import { runTestTarget } from "../../../src/testing/service";
 import { TestStateStore } from "../../../src/testing/state";
 import * as targets from "../../../src/testing/targets";
 import { type TestTarget } from "../../../src/testing/targets";
+import { suppliedResponse } from "./fixture";
 
 test("service preserves native and cleanup errors, rejects changed policy, and reports cancellation without invented counts", async () => {
   const policy = resolveTestConfig().policy,
@@ -46,33 +47,41 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
   };
   const adapter: TestAdapter = {
     resolve: async () => ({ vitest: "4.0.0" }),
-    preflight: async () => {},
-    prepare: async () => {},
+    preflight: () => {
+      return Promise.resolve();
+    },
+    prepare: () => {
+      return Promise.resolve();
+    },
     verify: async () => true,
-    run: async () => {
-      runs++;
-      mutated = changedSuite !== undefined;
-      if (abort) {
-        controller.abort();
-      }
-      return structuredClone(native);
+    run: () => {
+      return suppliedResponse(() => {
+        runs++;
+        mutated = changedSuite !== undefined;
+        if (abort) {
+          controller.abort();
+        }
+        return structuredClone(native);
+      });
     },
   };
   const mocks = [
-    spyOn(configModule, "loadConfig").mockImplementation(async () => {
-      const unit = structuredClone(policy);
-      const integration = structuredClone(integrationPolicy);
-      if (mutated) {
-        const other = changedSuite === "unit" ? unit : integration;
-        other.javascript.include.push("custom/**/*.test.ts");
-      }
-      return {
-        test: unit,
-        integrationTest: integration,
-        testKey: testPolicyKey(unit),
-        integrationTestKey: testPolicyKey(integration),
-        testingKey: testPolicyKey({ unit, integration }),
-      } as Awaited<ReturnType<typeof configModule.loadConfig>>;
+    spyOn(configModule, "loadConfig").mockImplementation(() => {
+      return suppliedResponse(() => {
+        const unit = structuredClone(policy);
+        const integration = structuredClone(integrationPolicy);
+        if (mutated) {
+          const other = changedSuite === "unit" ? unit : integration;
+          other.javascript.include.push("custom/**/*.test.ts");
+        }
+        return {
+          test: unit,
+          integrationTest: integration,
+          testKey: testPolicyKey(unit),
+          integrationTestKey: testPolicyKey(integration),
+          testingKey: testPolicyKey({ unit, integration }),
+        } as Awaited<ReturnType<typeof configModule.loadConfig>>;
+      });
     }),
     spyOn(packaging, "getPackagingStructure").mockResolvedValue({
       structure: target.structure,
@@ -96,10 +105,12 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     }),
     spyOn(artifacts, "testArtifacts").mockResolvedValue({
       path: "/reports/new",
-      cleanup: async () => {
-        if (cleanupFails) {
-          throw new Error("cleanup");
-        }
+      cleanup: () => {
+        return suppliedResponse(() => {
+          if (cleanupFails) {
+            throw new Error("cleanup");
+          }
+        });
       },
     }),
     spyOn(TestStateStore, "load").mockResolvedValue({

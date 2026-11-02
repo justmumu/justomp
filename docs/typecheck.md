@@ -126,7 +126,7 @@ The native evidence below was collected on macOS arm64. It is not certification 
 bun run check
 bun run test:typecheck
 # All integration tests, including installed-package API/bin/docs smoke:
-bun run test:integration
+bun run check:integration
 ```
 
 Provision native managers as described in [dependency test setup](dependencies.md#reproducing-native-tests). `JUSTOMP_TYPECHECK_YARN_MODERN_BINARY` selects the installed Yarn 4.18.1 launcher for typecheck tests; the existing lint fixtures use their own `JUSTOMP_YARN_MODERN_BINARY`. Registry fixtures provide deterministic version metadata while native managers install real packages and compilers perform the checks. Missing prerequisites fail tests instead of skipping them.

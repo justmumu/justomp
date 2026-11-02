@@ -10,6 +10,7 @@ import * as runner from "../../../src/dependencies/runner";
 import { executeDependency } from "../../../src/dependencies/service";
 import * as sources from "../../../src/dependencies/source-boundaries";
 import * as packaging from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { context } from "./adapters/npm-pnpm-fixture";
 
 const restore: { mockRestore(): void }[] = [];
@@ -63,11 +64,13 @@ function fixture(
     }),
     spyOn(sources, "validateExistingSources").mockResolvedValue(undefined),
     spyOn(inventories, "readInventory").mockResolvedValue(inventory),
-    spyOn(observations, "resolutionEvidence").mockImplementation(async () => {
-      if (++resolutionReads === 2 && options.abortDuring === "resolutions") {
-        controller.abort();
-      }
-      return new Map();
+    spyOn(observations, "resolutionEvidence").mockImplementation(() => {
+      return suppliedResponse(() => {
+        if (++resolutionReads === 2 && options.abortDuring === "resolutions") {
+          controller.abort();
+        }
+        return new Map();
+      });
     }),
   );
   const fingerprints = spyOn(observations, "fingerprint").mockResolvedValueOnce(new Map());
@@ -87,11 +90,13 @@ function fixture(
   restore.push(fingerprints, run);
   const adapter: Adapter = {
     groups: ["runtime"],
-    inventory: async () => {
-      if (options.abortDuring === "inventory") {
-        controller.abort();
-      }
-      return inventory;
+    inventory: () => {
+      return suppliedResponse(() => {
+        if (options.abortDuring === "inventory") {
+          controller.abort();
+        }
+        return inventory;
+      });
     },
     plan: async () => ({
       steps: [{ label: "check", args: ["ci", "--dry-run"] }],
@@ -168,6 +173,14 @@ for (const abortDuring of ["inventory", "resolutions"] as const) {
     const result = await fixture({ abortDuring }).execute();
     expect(result.outcome).toBe("partial_change");
     expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "cancelled" }));
-    expect("native_steps" in result && result.native_steps?.[0]?.exit_code).toBe(0);
+    expect("native_steps" in result && result.native_steps[0]?.exit_code).toBe(0);
   });
 }
+
+test("native rejection values are reported without awaiting thrown thenables", async () => {
+  const f = fixture();
+  f.run.mockRejectedValue(Promise.resolve(undefined));
+  const result = await f.execute();
+  expect(result.outcome).toBe("failed");
+  expect(result.diagnostics).toContainEqual({ code: "dependency-error", message: "[object Promise]" });
+});

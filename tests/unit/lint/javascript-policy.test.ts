@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { LEGACY_ESLINT_DEFAULTS } from "../../../src/config/lint/javascript/legacy-defaults";
+import { type BiomeRuleMap } from "../../../src/config/lint/model";
 import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 
 test("JavaScript policy declares native globals and preserves empty globals", () => {
@@ -80,8 +81,10 @@ test("the complete frozen shipped ESLint policy migrates to the explicit native 
   expect(result.policy.javascript.eslint).toEqual(legacy);
   expect(result.policy.javascript.prettier.singleQuote).toBe(true);
   expect(result.policy.future).toEqual({ retained: true });
-  expect(result.policy.javascript.biome.react_rules.nursery?.useControlLabel).toBe("off");
-  expect(result.policy.javascript.biome.typed_rules.correctness?.noUnusedImports).toBe("error");
+  expect((result.policy.javascript.biome.react_rules as Partial<BiomeRuleMap>).nursery?.useControlLabel).toBe("off");
+  expect((result.policy.javascript.biome.typed_rules as Partial<BiomeRuleMap>).correctness?.noUnusedImports).toBe(
+    "error",
+  );
   expect(resolveLintConfig(result.policy).missing).toBe(false);
 });
 
@@ -210,7 +213,7 @@ test("unrelated legacy customization does not make shipped aliases order depende
     }).policy.javascript.biome.typed_rules;
   const forward = convert(Object.entries(typed));
   expect(convert(Object.entries(typed).reverse())).toEqual(forward);
-  expect(forward.correctness?.noUnusedImports).toBe("error");
+  expect((forward as Partial<BiomeRuleMap>).correctness?.noUnusedImports).toBe("error");
 });
 
 test("sparse disabled core rule stays disabled without its typed replacement", () => {

@@ -62,6 +62,6 @@ test("an existing dependency outside the inspected root prevents native mutation
   await writeFile(join(root, "package.json"), manifest);
   const result = await executeDependency(root, "sync", { project_id: "javascript:package.json" }, {});
   expect(result.outcome).toBe("rejected");
-  expect(result.diagnostics?.[0]?.code).toBe("outside-root");
+  expect(result.diagnostics[0]?.code).toBe("outside-root");
   expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest);
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { type TypecheckAdapter } from "../../../src/typecheck/adapters/types";
 import { startTypecheckCoordinator } from "../../../src/typecheck/coordinator";
+import { suppliedResponse } from "../../response";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -34,14 +35,20 @@ export async function fixture(ecosystem: "python" | "javascript" = "python") {
     fail = "",
     latest = "1.0.0";
   const adapter: TypecheckAdapter = {
-    async resolve(targets) {
-      resolves++;
-      return Object.fromEntries(targets.map((t) => [t.project.project_id, { [tool]: latest }]));
+    resolve(targets) {
+      return suppliedResponse(() => {
+        resolves++;
+        return Object.fromEntries(targets.map((t) => [t.project.project_id, { [tool]: latest }]));
+      });
     },
-    async plan(target) {
-      return { target, files: [], current: true, configs: { check: [] } };
+    plan(target) {
+      return suppliedResponse(() => {
+        return { target, files: [], current: true, configs: { check: [] } };
+      });
     },
-    async preflight() {},
+    preflight() {
+      return Promise.resolve();
+    },
     async prepareBatch(context) {
       prepares++;
       for (const target of context.targets) {
@@ -71,8 +78,10 @@ export async function fixture(ecosystem: "python" | "javascript" = "python") {
         return false;
       }
     },
-    async check() {
-      return [];
+    check() {
+      return suppliedResponse(() => {
+        return [];
+      });
     },
   };
   const start = async () => {

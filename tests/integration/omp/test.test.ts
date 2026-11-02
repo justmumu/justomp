@@ -18,7 +18,9 @@ test("OMP project_test validates before setup, reports results and joins executi
   await mkdir(join(root, "tests/integration"));
   await writeFile(join(root, "tests/integration/test_api.py"), "# integration fixture");
   let blocked = false,
-    entered = () => {},
+    entered = () => {
+      /* This supplied callback intentionally has no side effects. */
+    },
     joined = false;
   const mocks = [
     spyOn(pythonTestAdapter, "resolve").mockResolvedValue({

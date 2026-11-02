@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { type BiomeRuleMap } from "../../../src/config/lint/model";
 import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 
 const pythonPolicy = {
@@ -134,16 +135,16 @@ test("policy keys are stable across object order but preserve array order", () =
 
 test("JS and Go defaults contain explicit strict checks and formatter options", () => {
   const { javascript: js, go } = resolveLintConfig().policy;
-  expect(js.biome.rules.suspicious?.noDoubleEquals).toEqual({
+  expect((js.biome.rules as Partial<BiomeRuleMap>).suspicious?.noDoubleEquals).toEqual({
     level: "error",
     options: { ignoreNull: false },
   });
-  expect(js.biome.rules.suspicious?.noConsole).toEqual({
+  expect((js.biome.rules as Partial<BiomeRuleMap>).suspicious?.noConsole).toEqual({
     level: "error",
     options: { allow: ["warn", "error"] },
   });
-  expect(js.biome.typed_rules.nursery?.noFloatingPromises).toBe("error");
-  expect(js.biome.typed_rules.suspicious?.noExplicitAny).toBe("error");
+  expect((js.biome.typed_rules as Partial<BiomeRuleMap>).nursery?.noFloatingPromises).toBe("error");
+  expect((js.biome.typed_rules as Partial<BiomeRuleMap>).suspicious?.noExplicitAny).toBe("error");
   expect(js.biome.test_rules).toEqual({ suspicious: { noConsole: "off" } });
   expect(js.biome.organize_imports).toBe("on");
   expect(js.prettier).toEqual({

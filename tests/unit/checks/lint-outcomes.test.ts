@@ -10,6 +10,7 @@ import { type LintCheckContext } from "../../../src/lint/adapters/types";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
 import * as scopes from "../../../src/lint/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
 const restores: (() => void)[] = [];
@@ -67,9 +68,11 @@ function fixture(language: "python" | "javascript") {
   const formatted = keep(spyOn(prettier, "checkPrettierFile").mockResolvedValue(true));
   const adapter = language === "python" ? pythonAdapter : javascriptAdapter;
   function results(lint: ProcessResult, format = output({ stdout: language === "python" ? "[]" : "" })) {
-    invoke.mockImplementation(async () => {
-      controller.signal.throwIfAborted();
-      return format;
+    invoke.mockImplementation(() => {
+      return suppliedResponse(() => {
+        controller.signal.throwIfAborted();
+        return format;
+      });
     });
     invoke.mockResolvedValueOnce(lint);
   }
@@ -149,9 +152,11 @@ for (const language of ["python", "javascript"] as const) {
   }
   test(`${language} pre-aborted invocation marks both stages cancelled`, async () => {
     const f = fixture(language);
-    f.invoke.mockImplementation(async () => {
-      f.controller.signal.throwIfAborted();
-      return output();
+    f.invoke.mockImplementation(() => {
+      return suppliedResponse(() => {
+        f.controller.signal.throwIfAborted();
+        return output();
+      });
     });
     f.controller.abort(new Error("cancelled"));
     expect((await f.check()).every((c) => c.cancelled && c.status === "not-run")).toBe(true);

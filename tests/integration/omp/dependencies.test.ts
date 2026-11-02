@@ -19,14 +19,22 @@ test("OMP exposes six strict dependency tools with write/exec approval and minim
     expect(h.runner.getRegisteredTool(`dependency_${name}`)?.definition.approval).toBe("exec");
   }
   expect(h.runner.getRegisteredTool("list_projects")?.definition.approval).toBe("write");
-  expect(json(await h.getTool("list_projects").execute("projects", {}))).toEqual({
+  expect(
+    json<{ projects: { project_id: string; relative_path: string }[] }>(
+      await h.getTool("list_projects").execute("projects", {}),
+    ),
+  ).toEqual({
     projects: [
       { project_id: "javascript:package.json", relative_path: "." },
       { project_id: "python:pyproject.toml", relative_path: "." },
     ],
   });
   const empty = await host(await fixture(true));
-  expect(json(await empty.getTool("list_projects").execute("empty", {}))).toEqual({ projects: [] });
+  expect(
+    json<{ projects: { project_id: string; relative_path: string }[] }>(
+      await empty.getTool("list_projects").execute("empty", {}),
+    ),
+  ).toEqual({ projects: [] });
 });
 test("host denial prevents dependency exec and schema failures are model-visible", async () => {
   const root = await fixture();
@@ -80,7 +88,11 @@ for (const transition of ["shutdown", "root change"] as const) {
       const next = await fixture();
       await h.session.moveTo(next, join(next, ".host/sessions"));
       await h.runner.emit({ type: "session_start" });
-      expect(json(await h.getTool("list_projects").execute("new-root", {}))).toEqual({
+      expect(
+        json<{ projects: { project_id: string; relative_path: string }[] }>(
+          await h.getTool("list_projects").execute("new-root", {}),
+        ),
+      ).toEqual({
         projects: [{ project_id: "javascript:package.json", relative_path: "." }],
       });
     }
@@ -112,7 +124,7 @@ test("OMP content distinguishes native partial changes and structure refresh fai
   });
   expect(checked.isError).not.toBe(true);
   expect(json(checked).outcome).toBe("success");
-  expect(json(checked).requested.check).toBe(true);
+  expect(json(checked).requested?.check).toBe(true);
   expect(JSON.parse(await readFile(join(root, "package.json"), "utf8")).name).toBe("partial");
   const result = await h.getTool("dependency_sync").execute("partial", {
     project_id: "javascript:package.json",
@@ -121,9 +133,10 @@ test("OMP content distinguishes native partial changes and structure refresh fai
   expect(result.isError).toBe(true);
   const payload = json(result);
   expect(payload.outcome).toBe("partial_change");
-  expect(payload.requested.check).toBe(false);
+  expect(payload.requested?.check).toBe(false);
   expect(payload.structure_refresh_error).toBeDefined();
-  expect(payload.metadata_changes.length).toBeGreaterThan(0);
-  expect(payload.native_steps[0].exit_code).not.toBe(0);
+  expect(payload.metadata_changes?.length).toBeGreaterThan(0);
+  expect(payload.native_steps?.[0]).toBeDefined();
+  expect(payload.native_steps?.[0]?.exit_code).not.toBe(0);
   expect(await readFile(join(root, "package.json"), "utf8")).toBe("{");
 }, 30_000);

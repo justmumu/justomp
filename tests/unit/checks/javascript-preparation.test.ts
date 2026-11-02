@@ -8,6 +8,7 @@ import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
 import { javascriptAdapter as typecheck } from "../../../src/typecheck/adapters/javascript";
+import { suppliedResponse } from "../../response";
 import { memoryContext } from "../dependencies/memory";
 import { output, target } from "./fixture";
 
@@ -56,36 +57,40 @@ function fixture(
   const adapter: Adapter = {
     groups: ["runtime", "dev"],
     inventory: async () => before,
-    plan: async (_ctx, request) => {
-      requests.push(request);
-      return {
-        steps: [
-          {
-            args: ["fixture-mutation"],
-            cwd: f.context.cwd,
-            label: "Install tools",
-          },
-        ],
-        metadata: ["package.json", "lock"],
-        affectedProjects: [f.context.project.project_id],
-      };
+    plan: (_ctx, request) => {
+      return suppliedResponse(() => {
+        requests.push(request);
+        return {
+          steps: [
+            {
+              args: ["fixture-mutation"],
+              cwd: f.context.cwd,
+              label: "Install tools",
+            },
+          ],
+          metadata: ["package.json", "lock"],
+          affectedProjects: [f.context.project.project_id],
+        };
+      });
     },
   };
   const steps: NativeStep[] = [];
   let result = output();
   f.write("package.json", JSON.stringify({ name: "app", dependencies: { existing: "1.0.0" } }));
-  f.context.run = async (step) => {
-    steps.push(step);
-    f.write(
-      "package.json",
-      JSON.stringify({
-        name: "app",
-        dependencies: { existing: "1.0.0" },
-        devDependencies: tools,
-      }),
-    );
-    f.write("lock", "native lock output");
-    return result;
+  f.context.run = (step) => {
+    return suppliedResponse(() => {
+      steps.push(step);
+      f.write(
+        "package.json",
+        JSON.stringify({
+          name: "app",
+          dependencies: { existing: "1.0.0" },
+          devDependencies: tools,
+        }),
+      );
+      f.write("lock", "native lock output");
+      return result;
+    });
   };
   keep(spyOn(runtime, "lintManagerContext").mockResolvedValue(f.context));
   keep(spyOn(native, "nativeAdapter").mockReturnValue(adapter));
@@ -175,7 +180,7 @@ for (const feature of ["lint", "typecheck"] as const) {
     });
     expect(f.steps).toHaveLength(1);
     expect(f.context.changes.map((change) => change.path)).toEqual(["package.json", "lock"]);
-    expect(f.context.versions[f.f.context.project.project_id ?? ""]).toEqual(f.tools);
+    expect(f.context.versions[f.f.context.project.project_id]).toEqual(f.tools);
     expect(f.f.files.get(`${f.f.root}/lock`)).toBe("native lock output");
   });
 }
@@ -238,8 +243,10 @@ test("Biome readiness verifies exact declaration, lock, installed package and na
     spyOn(native, "nativeAdapter").mockReturnValue({
       inventory: async () => inventory,
       groups: ["dev"],
-      plan: async () => {
-        throw new Error("Readiness must not mutate dependencies");
+      plan: () => {
+        return suppliedResponse(() => {
+          throw new Error("Readiness must not mutate dependencies");
+        });
       },
     }),
   );

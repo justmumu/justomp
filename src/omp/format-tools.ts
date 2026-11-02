@@ -34,7 +34,7 @@ export function registerFormatTools(pi: ExtensionAPI, withRoot: WithSessionRoot)
         return await withRoot(ctx.cwd, signal, async (root, activeSignal) =>
           response(
             await formatProject(root, project_id, {
-              files,
+              ...(files === undefined ? {} : { files }),
               signal: activeSignal,
               onProgress: (progress) => onUpdate?.(response(progress)),
             }),

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { withDomains } from "../../../src/dependencies/queue";
+import { suppliedResponse } from "../../response";
 
 test("cancelled waiter leaves its owner alive and independent domains run", async () => {
   const abort = new AbortController();
@@ -8,8 +9,10 @@ test("cancelled waiter leaves its owner alive and independent domains run", asyn
     release = resolve;
   });
   const owner = withDomains(["queue-a"], undefined, () => held);
-  const waiting = withDomains(["queue-a"], abort.signal, async () => {
-    throw new Error("must not run");
+  const waiting = withDomains(["queue-a"], abort.signal, () => {
+    return suppliedResponse(() => {
+      throw new Error("must not run");
+    });
   });
   abort.abort();
   await expect(waiting).rejects.toThrow();

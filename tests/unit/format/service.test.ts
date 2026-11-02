@@ -15,6 +15,7 @@ import { lintAdapters } from "../../../src/lint/service";
 import { LintStateStore } from "../../../src/lint/state";
 import * as targets from "../../../src/lint/targets";
 import * as packaging from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { output, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
@@ -117,9 +118,11 @@ test("parse failure preserves earlier writes and leaves remaining files not-run"
 test("abort during API formatting prevents publication and preserves prior effects", async () => {
   const f = setup(["a.md", "b.md", "c.md"]);
   const controller = new AbortController();
-  f.format.mockResolvedValueOnce("after").mockImplementationOnce(async () => {
-    controller.abort(new Error("stop"));
-    return "after";
+  f.format.mockResolvedValueOnce("after").mockImplementationOnce(() => {
+    return suppliedResponse(() => {
+      controller.abort(new Error("stop"));
+      return "after";
+    });
   });
   const result = await formatProject("/repo", f.selected.project.project_id, {
     signal: controller.signal,
@@ -278,11 +281,15 @@ test("partial preparation metadata changes refresh inspection and survive refres
 });
 test("format shares dependency domains and rejects ownership changes after waiting", async () => {
   const f = setup(["a.md"]);
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let entered = () => {};
+  let entered = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const held = new Promise<void>((resolve) => {
     entered = resolve;
   });
@@ -291,7 +298,9 @@ test("format shares dependency domains and rejects ownership changes after waiti
     await gate;
   });
   await held;
-  let wait = () => {};
+  let wait = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const waiting = new Promise<void>((resolve) => {
     wait = resolve;
   });
@@ -317,11 +326,15 @@ test("format shares dependency domains and rejects ownership changes after waiti
 });
 test("waiting calls use current policy and cancelled queue waiters never write", async () => {
   const f = setup(["a.md"]);
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let enter = () => {};
+  let enter = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const held = new Promise<void>((resolve) => {
     enter = resolve;
   });
@@ -330,7 +343,9 @@ test("waiting calls use current policy and cancelled queue waiters never write",
     await gate;
   });
   await held;
-  let wait = () => {};
+  let wait = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const waiting = new Promise<void>((resolve) => {
     wait = resolve;
   });

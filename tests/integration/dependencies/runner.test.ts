@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
 import { testDeadline } from "../../../src/testing/execution";
+import { suppliedResponse } from "../../response";
 
 test("runner captures bounded output and process failure independently", async () => {
   const protocol: Buffer[] = [];
@@ -38,8 +39,10 @@ test("test deadline kills the supervised process before releasing a shared domai
     expect((await running).cancelled).toBe(true);
     events.push("terminated");
   });
-  const second = withDomains(["runner-test"], undefined, async () => {
-    events.push("second");
+  const second = withDomains(["runner-test"], undefined, () => {
+    return suppliedResponse(() => {
+      events.push("second");
+    });
   });
   try {
     await Promise.all([first, second]);

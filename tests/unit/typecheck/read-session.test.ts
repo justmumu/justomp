@@ -1,9 +1,11 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs/promises";
 import { type AdapterContext, type ProcessResult } from "../../../src/dependencies/model";
 import * as runtime from "../../../src/lint/runtime";
 import * as native from "../../../src/typecheck/javascript/native";
 import { JavascriptConfigRead } from "../../../src/typecheck/javascript/read-session";
 import { type TypecheckTarget } from "../../../src/typecheck/targets";
+import { suppliedResponse } from "../../response";
 
 const target = {
   root: "/repo",
@@ -92,9 +94,55 @@ test("cancellation rejects a retained manager context and an in-flight config co
   controller.abort(new Error("cancelled"));
   await expect(read.showConfig(target, [])).rejects.toThrow("cancelled");
   const other = new AbortController();
-  run.mockImplementationOnce(async () => {
-    other.abort(new Error("during read"));
-    return success;
+  run.mockImplementationOnce(() => {
+    return suppliedResponse(() => {
+      other.abort(new Error("during read"));
+      return success;
+    });
   });
   await expect(new JavascriptConfigRead(other.signal).showConfig(target, [])).rejects.toThrow("during read");
+});
+
+test("import discovery uses a temporary selected-entry config and cleans it after success or native failure", async () => {
+  const { run } = spies();
+  const directory = spyOn(fs, "mkdtemp").mockResolvedValue("/scratch/declarations");
+  const write = spyOn(fs, "writeFile").mockResolvedValue(undefined);
+  const remove = spyOn(fs, "rm").mockResolvedValue(undefined);
+  restore.push(
+    () => directory.mockRestore(),
+    () => write.mockRestore(),
+    () => remove.mockRestore(),
+  );
+  const read = new JavascriptConfigRead(new AbortController().signal);
+  const args = ["--project", "/repo/app/tsconfig.json", "--rootDir", "/repo/app", "--composite", "false"];
+  run.mockResolvedValue({
+    ...success,
+    stdout: "/repo/app/index.ts\n/repo/app/private/helper.ts\n",
+  });
+  expect(await read.programFiles(target, args, ["/repo/app/index.ts"], ["/repo/lib/tsconfig.json"])).toEqual([
+    "/repo/app/index.ts",
+    "/repo/app/private/helper.ts",
+  ]);
+  expect(JSON.parse(String(write.mock.calls[0]?.[1]))).toEqual({
+    extends: "/repo/app/tsconfig.json",
+    files: ["/repo/app/index.ts"],
+    include: [],
+    exclude: [],
+    references: [{ path: "/repo/lib/tsconfig.json" }],
+  });
+  expect(run.mock.calls[0]?.[1]).toEqual([
+    "--project",
+    "/scratch/declarations/tsconfig.json",
+    "--rootDir",
+    "/repo/app",
+    "--composite",
+    "false",
+    "--listFilesOnly",
+  ]);
+  expect(remove).toHaveBeenCalledTimes(1);
+  run.mockResolvedValue({ ...success, truncated: true });
+  await expect(read.programFiles(target, args, ["/repo/app/index.ts"], [])).rejects.toThrow("truncated");
+  expect(remove).toHaveBeenCalledTimes(2);
+  expect(await read.programFiles(target, args, [], [])).toEqual([]);
+  expect(run).toHaveBeenCalledTimes(2);
 });

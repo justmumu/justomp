@@ -85,8 +85,7 @@ test("protects manifests, shared owner locks and owned projections in mixed repo
 });
 
 test("ambiguous managers protect each known candidate lock without choosing a manager", () => {
-  const app = project("javascript", ".", "npm");
-  delete app.manager;
+  const { manager: _manager, ...app } = project("javascript", ".", "npm");
   app.status = "ambiguous";
   app.managerCandidates = ["npm", "bun", "yarn", "pnpm"];
   const paths = collectProtectedPaths(structure([app]));

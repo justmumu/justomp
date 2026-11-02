@@ -38,14 +38,19 @@
     "extensions": ["./src/index.ts"]
   },
   "scripts": {
-    "check": "tsc --noEmit && biome check . && bun test tests/unit",
-    "test:integration": "bun test tests/integration",
+    "check": "bun scripts/development.ts check",
     "bench:inspect": "bun tests/performance/inspect.bench.ts",
-    "format": "biome check --write .",
-    "test:dependencies": "bun test tests/integration/dependencies tests/integration/omp",
-    "test:lint": "bun test tests/integration/lint tests/integration/omp/lint.test.ts tests/integration/omp/lint.native.test.ts",
-    "test:typecheck": "bun test tests/integration/typecheck tests/integration/omp/typecheck.test.ts tests/integration/omp/typecheck.native.test.ts",
-    "test:cost": "bun scripts/test-cost.ts"
+    "format": "bun scripts/development.ts format",
+    "test:dependencies": "bun scripts/development.ts integration --group dependencies",
+    "test:lint": "bun scripts/development.ts integration --group lint",
+    "test:typecheck": "bun scripts/development.ts integration --group typecheck",
+    "test:cost": "bun scripts/test-cost.ts",
+    "setup": "bun scripts/development.ts setup",
+    "lint": "bun scripts/development.ts lint",
+    "lint-fix": "bun scripts/development.ts lint-fix",
+    "typecheck": "bun scripts/development.ts typecheck",
+    "check:unit": "bun scripts/development.ts test",
+    "check:integration": "bun scripts/development.ts integration"
   },
   "dependencies": {
     "@commitlint/lint": "21.2.4",

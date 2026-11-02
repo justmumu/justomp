@@ -37,68 +37,102 @@ export interface TypecheckState {
 function emptyState(): TypecheckState {
   return { schema: 1, projects: {}, waves: {} };
 }
+function dataObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+function validStringValues(value: unknown): boolean {
+  const data = dataObject(value);
+  return data !== undefined && Object.values(data).every((item) => typeof item === "string");
+}
+function validateReceipt(id: string, value: unknown): void {
+  const receipt = dataObject(value);
+  if (
+    !receipt ||
+    typeof receipt.ecosystem !== "string" ||
+    !["python", "javascript", "go"].includes(receipt.ecosystem) ||
+    !id.startsWith(`${receipt.ecosystem}:`) ||
+    typeof receipt.ready !== "boolean" ||
+    typeof receipt.policy_hash !== "string"
+  ) {
+    throw new Error("Invalid typecheck receipt");
+  }
+  validateToolVersions(receipt.tools);
+}
+function validateWave(ecosystem: string, value: unknown): void {
+  const wave = dataObject(value);
+  if (
+    !["python", "javascript"].includes(ecosystem) ||
+    !wave ||
+    typeof wave.complete !== "boolean" ||
+    !Array.isArray(wave.projects) ||
+    !Array.isArray(wave.pending) ||
+    ![...wave.projects, ...wave.pending].every((id) => typeof id === "string" && id.startsWith(`${ecosystem}:`))
+  ) {
+    throw new Error("Invalid typecheck wave");
+  }
+  validateToolVersions(wave.tools);
+}
+function validNext(value: unknown): boolean {
+  const next = dataObject(value);
+  return (
+    next !== undefined &&
+    Object.values(next).every((item) => {
+      const data = dataObject(item);
+      return data !== undefined && typeof data.config === "string" && typeof data.dist === "string";
+    })
+  );
+}
+function validateGenerated(value: unknown): void {
+  const receipt = dataObject(value);
+  if (
+    !receipt ||
+    typeof receipt.ready !== "boolean" ||
+    typeof receipt.input_hash !== "string" ||
+    !Array.isArray(receipt.project_ids) ||
+    !receipt.project_ids.every((id) => typeof id === "string") ||
+    !validStringValues(receipt.outputs) ||
+    !validNext(receipt.next)
+  ) {
+    throw new Error("Invalid generated type receipt");
+  }
+  if (receipt.declarations !== undefined && !validStringValues(receipt.declarations)) {
+    throw new Error("Invalid generated type receipt");
+  }
+}
+function validateGeneratedMap(value: unknown): void {
+  if (value === undefined) {
+    return;
+  }
+  const generated = dataObject(value);
+  if (!generated || Array.isArray(value)) {
+    throw new Error("Invalid generated type receipts");
+  }
+  for (const receipt of Object.values(generated)) {
+    validateGenerated(receipt);
+  }
+}
 function parseState(text: string): TypecheckState {
-  const state = JSON.parse(text) as TypecheckState;
-  if (state?.schema !== 1 || !state.projects || typeof state.projects !== "object" || Array.isArray(state.projects)) {
+  const parsed: unknown = JSON.parse(text);
+  const state = dataObject(parsed);
+  const projects = dataObject(state?.projects);
+  if (state?.schema !== 1 || !projects || Array.isArray(state.projects)) {
     throw new Error("Invalid typecheck state schema");
   }
-  for (const [id, receipt] of Object.entries(state.projects)) {
-    if (
-      !receipt ||
-      !["python", "javascript", "go"].includes(receipt.ecosystem) ||
-      !id.startsWith(`${receipt.ecosystem}:`) ||
-      typeof receipt.ready !== "boolean" ||
-      typeof receipt.policy_hash !== "string"
-    ) {
-      throw new Error("Invalid typecheck receipt");
-    }
-    validateToolVersions(receipt.tools);
+  for (const [id, receipt] of Object.entries(projects)) {
+    validateReceipt(id, receipt);
   }
-  if (!state.waves || typeof state.waves !== "object" || Array.isArray(state.waves)) {
+  const waves = dataObject(state.waves);
+  if (!waves || Array.isArray(state.waves)) {
     throw new Error("Invalid wave map");
   }
-  for (const [ecosystem, wave] of Object.entries(state.waves)) {
-    if (
-      !["python", "javascript"].includes(ecosystem) ||
-      !wave ||
-      typeof wave.complete !== "boolean" ||
-      !Array.isArray(wave.projects) ||
-      !Array.isArray(wave.pending) ||
-      ![...wave.projects, ...wave.pending].every((id) => typeof id === "string" && id.startsWith(`${ecosystem}:`))
-    ) {
-      throw new Error("Invalid typecheck wave");
-    }
-    validateToolVersions(wave.tools);
+  for (const [ecosystem, wave] of Object.entries(waves)) {
+    validateWave(ecosystem, wave);
   }
-  if (state.generated !== undefined) {
-    if (!state.generated || typeof state.generated !== "object" || Array.isArray(state.generated)) {
-      throw new Error("Invalid generated type receipts");
-    }
-    for (const receipt of Object.values(state.generated)) {
-      if (
-        !receipt ||
-        typeof receipt.ready !== "boolean" ||
-        typeof receipt.input_hash !== "string" ||
-        !Array.isArray(receipt.project_ids) ||
-        !receipt.project_ids.every((id) => typeof id === "string") ||
-        !receipt.outputs ||
-        typeof receipt.outputs !== "object" ||
-        !Object.values(receipt.outputs).every((hash) => typeof hash === "string") ||
-        (receipt.declarations !== undefined &&
-          (!receipt.declarations ||
-            typeof receipt.declarations !== "object" ||
-            !Object.values(receipt.declarations).every((path) => typeof path === "string"))) ||
-        !receipt.next ||
-        typeof receipt.next !== "object" ||
-        !Object.values(receipt.next).every(
-          (value) => value && typeof value.config === "string" && typeof value.dist === "string",
-        )
-      ) {
-        throw new Error("Invalid generated type receipt");
-      }
-    }
-  }
-  return state;
+  validateGeneratedMap(state.generated);
+  return parsed as TypecheckState;
+}
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 /** Durable receipts and resolved targets; never a persisted lock or busy marker. */
 export class TypecheckStateStore {
@@ -132,7 +166,7 @@ export class TypecheckStateStore {
     try {
       await publishProjectionFile(this.root, join(this.root, ".justomp/typecheck_state.json"), this.snapshot, content);
     } catch (error) {
-      throw new TypecheckError("state-conflict", error instanceof Error ? error.message : String(error));
+      throw new TypecheckError("state-conflict", errorMessage(error));
     }
     this.snapshot = await readProjectionFile(this.root, join(this.root, ".justomp/typecheck_state.json"));
     if (this.snapshot.text !== content) {

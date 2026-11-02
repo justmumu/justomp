@@ -22,31 +22,7 @@ export function workspaceIncludesGitlink(
     if (declaration.kind === "go" || !pattern.includes("*")) {
       return !excluded(pattern) && (pattern === member || pattern.startsWith(`${member}/`));
     }
-    const parts = pattern.split("/");
-    const dirs = member === "." ? [] : member.split("/");
-    const memo = new Map<string, boolean>();
-    const match = (i: number, j: number): boolean => {
-      if (j === dirs.length) {
-        return true;
-      }
-      if (i === parts.length) {
-        return false;
-      }
-      const key = `${i}:${j}`;
-      const cached = memo.get(key);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const part = parts[i] as string;
-      const dir = dirs[j] as string;
-      const result =
-        part === "**"
-          ? match(i + 1, j) || ((dot || !dir.startsWith(".")) && match(i, j + 1))
-          : picomatch(part, { dot })(dir) && match(i + 1, j + 1);
-      memo.set(key, result);
-      return result;
-    };
-    return match(0, 0);
+    return patternContainsMember(pattern, member, dot);
   });
 }
 
@@ -65,13 +41,50 @@ export async function assertWorkspaceBoundary(
     if (!declaration) {
       continue;
     }
-    for (const path of excluded) {
-      const member = relative(resolve(root, declaration.path), resolve(root, path));
-      if (member && !member.startsWith("..") && workspaceIncludesGitlink(declaration, member)) {
-        throw new Error(
-          `Workspace ${workspace.declaration} includes submodule ${path}; native setup cannot exclude it safely`,
-        );
-      }
+    assertExcludedMembers(root, declaration, workspace.declaration, excluded);
+  }
+}
+
+function patternContainsMember(pattern: string, member: string, dot: boolean): boolean {
+  const parts = pattern.split("/");
+  const dirs = member === "." ? [] : member.split("/");
+  const memo = new Map<string, boolean>();
+  const match = (i: number, j: number): boolean => {
+    if (j === dirs.length) {
+      return true;
+    }
+    if (i === parts.length) {
+      return false;
+    }
+    const key = `${i}:${j}`;
+    const cached = memo.get(key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const part = parts[i] as string;
+    const dir = dirs[j] as string;
+    const result = segmentMatches(part, dir, i, j);
+    memo.set(key, result);
+    return result;
+  };
+  function segmentMatches(part: string, dir: string, i: number, j: number): boolean {
+    return part === "**"
+      ? match(i + 1, j) || ((dot || !dir.startsWith(".")) && match(i, j + 1))
+      : picomatch(part, { dot })(dir) && match(i + 1, j + 1);
+  }
+  return match(0, 0);
+}
+
+function assertExcludedMembers(
+  root: string,
+  declaration: WorkspaceDeclaration,
+  declarationFile: string,
+  excluded: string[],
+): void {
+  for (const path of excluded) {
+    const member = relative(resolve(root, declaration.path), resolve(root, path));
+    if (member && !member.startsWith("..") && workspaceIncludesGitlink(declaration, member)) {
+      throw new Error(`Workspace ${declarationFile} includes submodule ${path}; native setup cannot exclude it safely`);
     }
   }
 }

@@ -23,7 +23,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         operation: "update",
         packages: [{ name: "fixture-dep" }],
       });
-      expect((await f.manifest()).dependencies["fixture-dep"]).toMatch(/1\./);
+      expect((await f.manifest()).dependencies?.["fixture-dep"]).toMatch(/1\./);
       expect(JSON.parse(await readFile(join(f.project, "node_modules/fixture-dep/package.json"), "utf8")).version).toBe(
         "1.1.0",
       );
@@ -39,7 +39,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         operation: "update",
         packages: [{ name: "fixture-dep", version: "v1.0.0" }],
       });
-      expect((await f.manifest()).dependencies["fixture-dep"]).toBe("1.0.0");
+      expect((await f.manifest()).dependencies?.["fixture-dep"]).toBe("1.0.0");
       await rm(join(f.project, "node_modules"), {
         recursive: true,
         force: true,
@@ -92,7 +92,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         group: { kind: "dev" },
         packages: [{ name: "fixture-dep" }],
       });
-      expect((await f.manifest()).dependencies["fixture-dep"]).toBe("1.0.0");
+      expect((await f.manifest()).dependencies?.["fixture-dep"]).toBe("1.0.0");
       expect((await f.manifest()).devDependencies?.["fixture-dep"]).toBeUndefined();
     } finally {
       await f.close();
@@ -114,12 +114,12 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         ],
       });
       const manifest = await f.manifest();
-      manifest.dependencies["fixture-dep"] = "2.0.0";
+      (manifest.dependencies as Record<string, string>)["fixture-dep"] = "2.0.0";
       await writeFile(join(f.project, "package.json"), JSON.stringify(manifest));
       f.publish();
       await expect(f.operate(adapter, { operation: "sync", check: true })).rejects.toThrow();
       await expect(f.operate(adapter, { operation: "sync" })).rejects.toThrow();
-      expect((await f.manifest()).dependencies["fixture-dep"]).toBe("2.0.0");
+      expect((await f.manifest()).dependencies?.["fixture-dep"]).toBe("2.0.0");
     } finally {
       await f.close();
     }
@@ -158,7 +158,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         },
         "packages/a",
       );
-      expect((await f.manifest("packages/a")).dependencies["local-b"]).toMatch(
+      expect((await f.manifest("packages/a")).dependencies?.["local-b"]).toMatch(
         manager === "pnpm" ? /^workspace:/ : /^file:/,
       );
       expect(await readFile(join(f.project, "packages/b/package.json"), "utf8")).toBe(sibling);
@@ -180,7 +180,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         },
         "packages/a",
       );
-      expect((await f.manifest("packages/a")).dependencies["local-b"]).toMatch(/^file:/);
+      expect((await f.manifest("packages/a")).dependencies?.["local-b"]).toMatch(/^file:/);
     } finally {
       await f.close();
     }
@@ -222,7 +222,7 @@ export function gitCases(manager: "npm" | "pnpm", adapter: Adapter) {
           },
         ],
       });
-      const spec = (await f.manifest()).dependencies["fixture-git"];
+      const spec = ((await f.manifest()).dependencies as Record<string, string>)["fixture-git"];
       await writeFile(join(source, "package.json"), JSON.stringify({ name: "fixture-git", version: "1.1.0" }));
       await git(["add", "package.json"]);
       await git(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "update fixture"]);
@@ -230,7 +230,7 @@ export function gitCases(manager: "npm" | "pnpm", adapter: Adapter) {
         operation: "update",
         packages: [{ name: "fixture-git" }],
       });
-      expect((await f.manifest()).dependencies["fixture-git"]).toBe(spec);
+      expect(((await f.manifest()).dependencies as Record<string, string>)["fixture-git"]).toBe(spec);
       expect(JSON.parse(await readFile(join(f.project, "node_modules/fixture-git/package.json"), "utf8")).version).toBe(
         "1.1.0",
       );

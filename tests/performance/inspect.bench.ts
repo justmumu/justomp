@@ -162,27 +162,7 @@ async function measure(fixture: LargeTreeFixture) {
     const resourcesAfterRefreshes = await resources();
     await closePackagingStructure(fixture.root);
     console.error(`[bench] ${SAMPLES} explicit full-inspection fallbacks`);
-    const oldPolling = process.env.CHOKIDAR_USEPOLLING;
-    const fallback: Sample[] = [];
-    try {
-      process.env.CHOKIDAR_USEPOLLING = "true";
-      for (let i = 0; i < SAMPLES; i++) {
-        started = performance.now();
-        const result = await getPackagingStructure(fixture.root);
-        if (result.cacheHit || !result.fallbackReason || result.watcher.watchedPaths.length) {
-          throw new Error("Expected full inspection without polling or subscriptions");
-        }
-        fallback.push(sample(result, performance.now() - started));
-        capture();
-      }
-    } finally {
-      if (oldPolling === undefined) {
-        delete process.env.CHOKIDAR_USEPOLLING;
-      } else {
-        process.env.CHOKIDAR_USEPOLLING = oldPolling;
-      }
-      await closePackagingStructure(fixture.root);
-    }
+    const fallback = await measureFallback(fixture, capture);
     const usageAfter = process.resourceUsage();
     const resourcesAfterClose = await resources();
     return {
@@ -209,6 +189,32 @@ async function measure(fixture: LargeTreeFixture) {
     await closePackagingStructure(fixture.root);
   }
 }
+async function measureFallback(fixture: LargeTreeFixture, capture: () => void): Promise<Sample[]> {
+  const oldPolling = process.env.CHOKIDAR_USEPOLLING;
+  const fallback: Sample[] = [];
+  try {
+    process.env.CHOKIDAR_USEPOLLING = "true";
+    for (let i = 0; i < SAMPLES; i++) {
+      const started = performance.now();
+      const result = await getPackagingStructure(fixture.root);
+      if (result.cacheHit || !result.fallbackReason || result.watcher.watchedPaths.length) {
+        throw new Error("Expected full inspection without polling or subscriptions");
+      }
+      fallback.push(sample(result, performance.now() - started));
+      capture();
+    }
+  } finally {
+    if (oldPolling === undefined) {
+      delete process.env.CHOKIDAR_USEPOLLING;
+    } else {
+      process.env.CHOKIDAR_USEPOLLING = oldPolling;
+    }
+    await closePackagingStructure(fixture.root);
+  }
+
+  return fallback;
+}
+
 function argumentsForRun(): { excludedEntries: number; smoke: boolean } {
   const args = process.argv.slice(2);
   let excludedEntries = 1_000_000;
@@ -272,7 +278,7 @@ async function main() {
       console.error("[bench] fixture cleanup finished");
     }
   }
-  console.log(
+  process.stdout.write(
     JSON.stringify(
       {
         schemaVersion: 1,
@@ -305,7 +311,7 @@ async function main() {
       },
       null,
       2,
-    ),
+    ) + "\n",
   );
 }
 await main().catch((error) => {

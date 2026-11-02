@@ -4,6 +4,7 @@ import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
 import { type TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
 import * as native from "../../../src/typecheck/javascript/native";
 import * as scopes from "../../../src/typecheck/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
 const restores: (() => void)[] = [];
@@ -101,9 +102,11 @@ for (const [name, result] of [
 test("TypeScript pre-aborted compiler invocation reports cancellation", async () => {
   const f = fixture();
   f.controller.abort(new Error("cancelled"));
-  f.run.mockImplementation(async () => {
-    f.controller.signal.throwIfAborted();
-    return output();
+  f.run.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.controller.signal.throwIfAborted();
+      return output();
+    });
   });
   expect((await f.check())[0]).toMatchObject({
     status: "not-run",

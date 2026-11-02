@@ -12,7 +12,7 @@ export async function typecheckNative<T>(run: () => Promise<T>): Promise<T> {
       throw error;
     }
     throw new TypecheckError(
-      typeof (error as { code?: unknown })?.code === "string"
+      typeof (error as { code?: unknown } | null | undefined)?.code === "string"
         ? (error as { code: string }).code
         : "native-preparation-failed",
       redact(error instanceof Error ? error.message : String(error)),
@@ -29,12 +29,7 @@ export function assertTypecheckNative(result: ProcessResult, label: string): voi
     );
   }
 }
-export async function typescriptRun(
-  target: TypecheckTarget,
-  args: string[],
-  signal: AbortSignal,
-  native?: AdapterContext,
-) {
+export function typescriptRun(target: TypecheckTarget, args: string[], signal: AbortSignal, native?: AdapterContext) {
   return typecheckNative(async () =>
     localTool(
       target,

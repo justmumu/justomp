@@ -53,97 +53,135 @@ function validateSelection(value: unknown, unpreparedJavascript: boolean): void 
   }
   validateToolVersions(value);
 }
-function parseState(text: string): LintState {
-  const state = JSON.parse(text) as LintState | LegacyLintState | (Omit<LintState, "schema"> & { schema: 2 });
+function stateRecord(value: unknown, message: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(message);
+  }
+  return value as Record<string, unknown>;
+}
+function ecosystemName(value: unknown): value is LintEcosystem {
+  return value === "python" || value === "javascript" || value === "go";
+}
+function parseReceipt(value: unknown, id: string, schema: number): ProjectReceipt {
+  const receipt = stateRecord(value, "Invalid lint receipt");
   if (
-    (state?.schema !== 1 && state?.schema !== 2 && state?.schema !== 3) ||
-    !state.projects ||
-    typeof state.projects !== "object" ||
-    Array.isArray(state.projects)
+    !ecosystemName(receipt.ecosystem) ||
+    !id.startsWith(`${receipt.ecosystem}:`) ||
+    typeof receipt.ready !== "boolean" ||
+    typeof receipt.policy_hash !== "string"
   ) {
+    throw new Error("Invalid lint receipt");
+  }
+  validateSelection(receipt.tools, receipt.ecosystem === "javascript" && !receipt.ready);
+  const tools = receipt.tools as ToolVersions;
+  const parsed = {
+    ...receipt,
+    ecosystem: receipt.ecosystem,
+    ready: receipt.ready,
+    policy_hash: receipt.policy_hash,
+    tools,
+  };
+  if (parsed.ecosystem === "javascript") {
+    parsed.tools = nativeJavascriptTools(tools);
+    if (schema !== 3 || !Object.keys(parsed.tools).length) {
+      parsed.ready = false;
+    }
+  }
+  return parsed;
+}
+function waveProjects(value: unknown, ecosystem: string, message: string): string[] {
+  if (!Array.isArray(value) || !value.every((id) => typeof id === "string" && id.startsWith(`${ecosystem}:`))) {
+    throw new Error(message);
+  }
+  return value as string[];
+}
+function legacyPython(value: unknown): LegacyLintState["python"] {
+  if (!value) {
+    return undefined;
+  }
+  const wave = stateRecord(value, "Invalid Python wave");
+  const projects = waveProjects(wave.projects, "python", "Invalid Python wave");
+  if (typeof wave.complete !== "boolean") {
+    throw new Error("Invalid Python wave");
+  }
+  const tools = validateToolVersions(wave.tools);
+  return { projects, tools, complete: wave.complete };
+}
+function migrateLegacy(projects: Record<string, ProjectReceipt>, python: LegacyLintState["python"]): LintState {
+  const migrated: LintState = { schema: 3, projects, waves: {} };
+  for (const ecosystem of ["python", "javascript", "go"] as const) {
+    const members = Object.keys(projects)
+      .filter((id) => projects[id]?.ecosystem === ecosystem)
+      .sort();
+    const legacy = ecosystem === "python" ? python : undefined;
+    if (!members.length && !legacy) {
+      continue;
+    }
+    const ids = legacy?.projects ?? members;
+    migrated.waves[ecosystem] = {
+      projects: ids,
+      versions: Object.fromEntries(ids.map((id) => [id, { ...(legacy?.tools ?? projects[id]?.tools ?? {}) }])),
+      complete: legacy?.complete ?? members.every((id) => projects[id]?.ready),
+    };
+  }
+  if (migrated.waves.javascript) {
+    migrated.waves.javascript.complete = false;
+  }
+  return migrated;
+}
+function normalizeWaveVersions(
+  projects: string[],
+  versions: Record<string, ToolVersions>,
+  rawVersions: Record<string, unknown>,
+  ecosystem: string,
+  schema: number,
+  complete: boolean,
+): boolean {
+  for (const id of projects) {
+    validateSelection(rawVersions[id], ecosystem === "javascript" && !complete);
+    if (ecosystem === "javascript") {
+      versions[id] = nativeJavascriptTools(versions[id] ?? {});
+      if (schema !== 3 || !Object.keys(versions[id]).length) {
+        complete = false;
+      }
+    }
+  }
+  return complete;
+}
+function parseWave(value: unknown, ecosystem: string, schema: number): LintWave {
+  const wave = stateRecord(value, "Invalid lint wave");
+  if (!ecosystemName(ecosystem) || typeof wave.complete !== "boolean") {
+    throw new Error("Invalid lint wave");
+  }
+  const projects = waveProjects(wave.projects, ecosystem, "Invalid lint wave");
+  const rawVersions = stateRecord(wave.versions, "Invalid lint wave");
+  const versions = { ...rawVersions } as Record<string, ToolVersions>;
+  let complete = wave.complete;
+  complete = normalizeWaveVersions(projects, versions, rawVersions, ecosystem, schema, complete);
+  return { ...wave, projects, versions, complete };
+}
+function parseState(text: string): LintState {
+  const state = stateRecord(JSON.parse(text), "Invalid lint state schema");
+  if (state.schema !== 1 && state.schema !== 2 && state.schema !== 3) {
     throw new Error("Invalid lint state schema");
   }
-  for (const [id, receipt] of Object.entries(state.projects)) {
-    if (
-      !receipt ||
-      !["python", "javascript", "go"].includes(receipt.ecosystem) ||
-      !id.startsWith(`${receipt.ecosystem}:`) ||
-      typeof receipt.ready !== "boolean" ||
-      typeof receipt.policy_hash !== "string"
-    ) {
-      throw new Error("Invalid lint receipt");
-    }
-    validateSelection(receipt.tools, receipt.ecosystem === "javascript" && !receipt.ready);
-    if (receipt.ecosystem === "javascript") {
-      receipt.tools = nativeJavascriptTools(receipt.tools);
-      if (state.schema !== 3 || !Object.keys(receipt.tools).length) {
-        receipt.ready = false;
-      }
-    }
+  const schema = state.schema;
+  const projects = Object.fromEntries(
+    Object.entries(stateRecord(state.projects, "Invalid lint state schema")).map(([id, receipt]) => [
+      id,
+      parseReceipt(receipt, id, schema),
+    ]),
+  );
+  if (schema === 1) {
+    return migrateLegacy(projects, legacyPython(state.python));
   }
-  if (state.schema === 1 && state.python) {
-    if (
-      !Array.isArray(state.python.projects) ||
-      !state.python.projects.every((id) => typeof id === "string" && id.startsWith("python:")) ||
-      typeof state.python.complete !== "boolean"
-    ) {
-      throw new Error("Invalid Python wave");
-    }
-    validateToolVersions(state.python.tools);
-  }
-  if (state.schema === 1) {
-    const migrated: LintState = {
-      schema: 3,
-      projects: state.projects,
-      waves: {},
-    };
-    for (const ecosystem of ["python", "javascript", "go"] as const) {
-      const projects = Object.keys(state.projects)
-        .filter((id) => state.projects[id]?.ecosystem === ecosystem)
-        .sort();
-      const legacy = ecosystem === "python" ? state.python : undefined;
-      if (!projects.length && !legacy) {
-        continue;
-      }
-      const ids = legacy?.projects ?? projects;
-      migrated.waves[ecosystem] = {
-        projects: ids,
-        versions: Object.fromEntries(ids.map((id) => [id, { ...(legacy?.tools ?? state.projects[id]?.tools ?? {}) }])),
-        complete: legacy?.complete ?? projects.every((id) => state.projects[id]?.ready),
-      };
-    }
-    if (migrated.waves.javascript) {
-      migrated.waves.javascript.complete = false;
-    }
-    return migrated;
-  }
-  if (!state.waves || typeof state.waves !== "object" || Array.isArray(state.waves)) {
-    throw new Error("Invalid lint waves");
-  }
-  for (const [ecosystem, wave] of Object.entries(state.waves)) {
-    if (
-      !["python", "javascript", "go"].includes(ecosystem) ||
-      !wave ||
-      !Array.isArray(wave.projects) ||
-      !wave.projects.every((id) => typeof id === "string" && id.startsWith(`${ecosystem}:`)) ||
-      typeof wave.complete !== "boolean" ||
-      !wave.versions ||
-      typeof wave.versions !== "object" ||
-      Array.isArray(wave.versions)
-    ) {
-      throw new Error("Invalid lint wave");
-    }
-    for (const id of wave.projects) {
-      validateSelection(wave.versions[id], ecosystem === "javascript" && !wave.complete);
-      if (ecosystem === "javascript") {
-        wave.versions[id] = nativeJavascriptTools(wave.versions[id] ?? {});
-        if (state.schema !== 3 || !Object.keys(wave.versions[id]).length) {
-          wave.complete = false;
-        }
-      }
-    }
-  }
-  return { ...state, schema: 3 };
+  const waves = Object.fromEntries(
+    Object.entries(stateRecord(state.waves, "Invalid lint waves")).map(([ecosystem, wave]) => [
+      ecosystem,
+      parseWave(wave, ecosystem, schema),
+    ]),
+  );
+  return { ...state, schema: 3, projects, waves };
 }
 /** Durable receipts and resolved targets; never a persisted lock or busy marker. */
 export class LintStateStore {
@@ -176,8 +214,8 @@ export class LintStateStore {
     }
     try {
       await publishProjectionFile(this.root, join(this.root, ".justomp/lint_state.json"), this.snapshot, content);
-    } catch (error) {
-      throw new LintError("state-conflict", error instanceof Error ? error.message : String(error));
+    } catch (error: unknown) {
+      throw new LintError("state-conflict", String(error instanceof Error ? error.message : error));
     }
     this.snapshot = await readProjectionFile(this.root, join(this.root, ".justomp/lint_state.json"));
     if (this.snapshot.text !== content) {

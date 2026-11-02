@@ -63,24 +63,7 @@ export async function assertNotSymlink(path: string): Promise<void> {
     }
   }
 }
-async function read(root: string): Promise<{
-  text: string | null;
-  object: Record<string, unknown>;
-  rules: InspectionRules;
-  lint: LintPolicy;
-  typecheck: TypecheckPolicy;
-  test: TestPolicy;
-  integrationTest: TestPolicy;
-  format: FormatPolicy;
-  storedLint: LintPolicy;
-  commit: CommitPolicy;
-  missing: boolean;
-  identity: string | null;
-}> {
-  const directory = join(root, ".justomp"),
-    path = join(directory, "config.json");
-  await assertNotSymlink(directory);
-  await assertNotSymlink(path);
+async function readFile(path: string): Promise<{ text: string | null; identity: string | null }> {
   let text: string | null = null,
     identity: string | null = null;
   try {
@@ -100,17 +83,9 @@ async function read(root: string): Promise<{
       throw error;
     }
   }
-  let object: Record<string, unknown>;
-  try {
-    object = text === null ? {} : record(JSON.parse(text), "config");
-  } catch (error) {
-    throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  const raw = Object.hasOwn(object, "inspection_rules") ? record(object.inspection_rules, "inspection_rules") : {};
-  const include = Object.hasOwn(raw, "include") ? raw.include : INSPECTION_DEFAULTS.include;
-  const exclude = Object.hasOwn(raw, "exclude") ? raw.exclude : INSPECTION_DEFAULTS.exclude;
-  const rules = { include, exclude };
-  validateRules(rules);
+  return { text, identity };
+}
+function resolvePolicies(object: Record<string, unknown>) {
   let format: ReturnType<typeof resolveFormatConfig>;
   let commit: ReturnType<typeof resolveCommitConfig>;
   let lint: ReturnType<typeof resolveLintConfig>;
@@ -129,6 +104,53 @@ async function read(root: string): Promise<{
   } catch (error) {
     throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
   }
+  return { format, commit, lint, typecheck, test, integrationTest };
+}
+async function publish(temporary: string, path: string, create: boolean): Promise<void> {
+  if (create) {
+    try {
+      await link(temporary, path);
+    } catch (error) {
+      if (errno(error, "EEXIST")) {
+        throw new ConfigError("config-conflict: configuration created during startup; retry startup");
+      }
+      throw error;
+    }
+  } else {
+    await rename(temporary, path);
+  }
+}
+async function read(root: string): Promise<{
+  text: string | null;
+  object: Record<string, unknown>;
+  rules: InspectionRules;
+  lint: LintPolicy;
+  typecheck: TypecheckPolicy;
+  test: TestPolicy;
+  integrationTest: TestPolicy;
+  format: FormatPolicy;
+  storedLint: LintPolicy;
+  commit: CommitPolicy;
+  missing: boolean;
+  identity: string | null;
+}> {
+  const directory = join(root, ".justomp"),
+    path = join(directory, "config.json");
+  await assertNotSymlink(directory);
+  await assertNotSymlink(path);
+  const { text, identity } = await readFile(path);
+  let object: Record<string, unknown>;
+  try {
+    object = text === null ? {} : record(JSON.parse(text), "config");
+  } catch (error) {
+    throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const raw = Object.hasOwn(object, "inspection_rules") ? record(object.inspection_rules, "inspection_rules") : {};
+  const include = Object.hasOwn(raw, "include") ? raw.include : INSPECTION_DEFAULTS.include;
+  const exclude = Object.hasOwn(raw, "exclude") ? raw.exclude : INSPECTION_DEFAULTS.exclude;
+  const rules = { include, exclude };
+  validateRules(rules);
+  const { format, commit, lint, typecheck, test, integrationTest } = resolvePolicies(object);
   return {
     text,
     object,
@@ -218,18 +240,7 @@ async function execute(root: string, flush: boolean, signal?: AbortSignal): Prom
     await assertNotSymlink(directory);
     await assertNotSymlink(path);
     signal?.throwIfAborted();
-    if (initial.text === null) {
-      try {
-        await link(temporary, path);
-      } catch (error) {
-        if (errno(error, "EEXIST")) {
-          throw new ConfigError("config-conflict: configuration created during startup; retry startup");
-        }
-        throw error;
-      }
-    } else {
-      await rename(temporary, path);
-    }
+    await publish(temporary, path, initial.text === null);
     return { ...result, wrote: true };
   } finally {
     await unlink(temporary).catch((error) => {

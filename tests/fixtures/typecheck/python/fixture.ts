@@ -7,6 +7,7 @@ import { pythonAdapter } from "../../../../src/typecheck/adapters/python";
 import { type TypecheckOperationContext } from "../../../../src/typecheck/adapters/types";
 import { applyProjection } from "../../../../src/typecheck/projection";
 import { resolveTypecheckTarget } from "../../../../src/typecheck/targets";
+import { suppliedResponse } from "../../../response";
 
 export const VERSION = "1.1.414";
 export async function pythonFixture(workspace = false, declaration = "") {
@@ -74,12 +75,14 @@ export async function pythonFixture(workspace = false, declaration = "") {
       }
     },
     checkContext,
-    async bytes() {
-      return Promise.all(
-        ["pyproject.toml", "uv.lock", "module.py", "pyright.justomp.json", ".venv/pyvenv.cfg"].map((p) =>
-          readFile(join(root, p), "utf8"),
-        ),
-      );
+    bytes() {
+      return suppliedResponse(() => {
+        return Promise.all(
+          ["pyproject.toml", "uv.lock", "module.py", "pyright.justomp.json", ".venv/pyvenv.cfg"].map((p) =>
+            readFile(join(root, p), "utf8"),
+          ),
+        );
+      });
     },
     dispose: () => rm(root, { recursive: true, force: true }),
   };

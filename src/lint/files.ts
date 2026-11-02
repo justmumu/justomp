@@ -1,3 +1,22 @@
+async function publishProjection(temporary: string, path: string, create: boolean): Promise<void> {
+  if (create) {
+    try {
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+      }
+      throw error;
+    }
+  } else {
+    const stat = await lstat(path);
+    if (stat.isSymbolicLink()) {
+      throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+    }
+    await rename(temporary, path);
+  }
+}
+
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
@@ -65,22 +84,7 @@ export async function publishProjectionFile(
       await file.close();
     }
     await verify();
-    if (before.identity === null) {
-      try {
-        await link(temporary, path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-          throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
-        }
-        throw error;
-      }
-    } else {
-      const stat = await lstat(path);
-      if (stat.isSymbolicLink()) {
-        throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
-      }
-      await rename(temporary, path);
-    }
+    await publishProjection(temporary, path, before.identity === null);
   } finally {
     await unlink(temporary).catch((error) => {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {

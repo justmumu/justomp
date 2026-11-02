@@ -66,7 +66,7 @@ test("Go native local add, list, sync and remove preserve module semantics", asy
   expect(await readFile(join(root, "go.mod"), "utf8")).toContain("example.test/lib v0.0.0");
   const list = await executeDependency(root, "list", { project_id: "go:go.mod", include_transitive: true }, registry);
   expect(list.outcome).toBe("success");
-  expect("dependencies" in list && list.dependencies?.some((d) => d.name === "example.test/lib")).toBe(true);
+  expect("dependencies" in list && list.dependencies.some((d) => d.name === "example.test/lib")).toBe(true);
   expect((await executeDependency(root, "sync", { project_id: "go:go.mod" }, registry)).outcome).toBe("success");
   // The add/download fixture is intentionally not tidy. Prepare a known tidy
   // baseline explicitly; the production check must never perform this repair.
@@ -82,7 +82,7 @@ test("Go native local add, list, sync and remove preserve module semantics", asy
   const stale = await executeDependency(root, "sync", { project_id: "go:go.mod", check: true }, registry);
   expect(stale.outcome, JSON.stringify(stale)).toBe("failed");
   expect(await readFile(join(root, "go.mod"), "utf8")).toBe(beforeCheck);
-  expect("native_steps" in stale && stale.native_steps?.[0]?.stdout).toContain("diff");
+  expect("native_steps" in stale && stale.native_steps[0]?.stdout).toContain("diff");
   expect(
     (await executeDependency(root, "remove", { ...input, packages: [{ name: "example.test/lib" }] }, registry)).outcome,
   ).toBe("success");
@@ -144,7 +144,7 @@ test("Go registry graph, targeted upgrades and downgrade use selected native ver
   const list = await executeDependency(root, "list", { project_id, include_transitive: true }, registry);
   expect(list.outcome, JSON.stringify(list)).toBe("success");
   expect("complete" in list && list.complete).toBe(true);
-  expect("dependencies" in list && list.dependencies?.some((d) => d.name === "example.test/transitive")).toBe(true);
+  expect("dependencies" in list && list.dependencies.some((d) => d.name === "example.test/transitive")).toBe(true);
   expect(await readFile(join(root, "go.mod"), "utf8")).toBe(beforeList);
   for (const input of [
     {
@@ -267,7 +267,7 @@ test("Go remove retains replacement and registry re-add rejects it", async () =>
     registry,
   );
   expect(result.outcome, JSON.stringify(result)).toBe("rejected");
-  expect(result.diagnostics?.[0]?.code).toBe("unsupported-source-operation");
+  expect(result.diagnostics[0]?.code).toBe("unsupported-source-operation");
   expect(await readFile(join(root, "go.mod"), "utf8")).toBe(before);
 });
 
@@ -289,6 +289,6 @@ test("Go verifies effective local add source under a go.work replacement", async
     registry,
   );
   expect(result.outcome, JSON.stringify(result)).toBe("partial_change");
-  expect(result.diagnostics?.[0]?.code).toBe("postcondition-failed");
+  expect(result.diagnostics[0]?.code).toBe("postcondition-failed");
   expect(await readFile(join(root, "go.work"), "utf8")).toBe(before);
 });

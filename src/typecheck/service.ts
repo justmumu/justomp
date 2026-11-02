@@ -31,7 +31,7 @@ export async function inspectTypecheckProject(
   return resolveTypecheckTarget(
     (
       await getPackagingStructure(root, {
-        signal,
+        ...(signal ? { signal } : {}),
         refresh: true,
         publish: false,
       })
@@ -50,21 +50,7 @@ export function typecheckFailure(error: unknown, signal?: AbortSignal) {
 /** Source closure is freshness evidence only; dependencies are never extra check targets. */
 async function sourceTargets(target: TypecheckTarget): Promise<TypecheckTarget[]> {
   const ids = new Set([target.project.project_id]);
-  if (target.project.ecosystem !== "javascript") {
-    for (const project of target.structure.projects) {
-      if (
-        project.ecosystem !== target.project.ecosystem ||
-        project.manager !== target.project.manager ||
-        project.managerRoot !== target.project.managerRoot
-      ) {
-        continue;
-      }
-      const member = await resolveTypecheckTarget(target.structure, project.project_id);
-      if (member.scope.owner === target.scope.owner) {
-        ids.add(project.project_id);
-      }
-    }
-  }
+  await includeManagerMembers(target, ids);
   for (const id of ids) {
     for (const edge of target.structure.localDependencies) {
       if (edge.from === id) {
@@ -106,12 +92,7 @@ async function runTarget(
       const before = await fingerprintTypecheckSources(sources);
       checks = await typecheckAdapters[context.target.project.ecosystem].check(context);
       signal.throwIfAborted();
-      if (before !== (await fingerprintTypecheckSources(sources))) {
-        throw new TypecheckError(
-          "sources-changed",
-          "Project or required dependency sources/metadata changed during the check; rerun typecheck",
-        );
-      }
+      await verifySources(sources, before);
     };
     if (target.project.ecosystem === "javascript") {
       const generated = await withJavascriptTypes(target.root, id, typecheckAdapters, mode, operation, signal);
@@ -134,19 +115,11 @@ async function runTarget(
       }
     }
   } catch (error) {
-    const issue = preparationFailure(error, id);
-    preparation.errors.push(issue);
-    failure = issue.message;
-    if (!report) {
-      preparation = {
-        ...preparation,
-        status: "failed",
-        complete: false,
-        cancelled: signal.aborted,
-      };
-    }
+    const failed = failedPreparation(preparation, error, id, signal, !!report);
+    preparation = failed.preparation;
+    failure = failed.failure;
   }
-  return { preparation, checks, policyHash, ready, failure };
+  return { preparation, checks, policyHash, ready, ...(failure !== undefined ? { failure } : {}) };
 }
 /** Internal host entry: retain selected identity and known setup effects after cancellation. */
 export async function checkTypecheckTarget(
@@ -196,4 +169,52 @@ export async function typecheckProject(
 ): Promise<TypecheckResult> {
   const target = await inspectTypecheckProject(root, projectId, signal);
   return checkTypecheckTarget(target, signal, await setup(target, signal), "prepare");
+}
+
+async function includeManagerMembers(target: TypecheckTarget, ids: Set<string>): Promise<void> {
+  if (target.project.ecosystem !== "javascript") {
+    for (const project of target.structure.projects) {
+      if (
+        project.ecosystem !== target.project.ecosystem ||
+        project.manager !== target.project.manager ||
+        project.managerRoot !== target.project.managerRoot
+      ) {
+        continue;
+      }
+      const member = await resolveTypecheckTarget(target.structure, project.project_id);
+      if (member.scope.owner === target.scope.owner) {
+        ids.add(project.project_id);
+      }
+    }
+  }
+}
+
+async function verifySources(sources: TypecheckTarget[], before: string): Promise<void> {
+  if (before !== (await fingerprintTypecheckSources(sources))) {
+    throw new TypecheckError(
+      "sources-changed",
+      "Project or required dependency sources/metadata changed during the check; rerun typecheck",
+    );
+  }
+}
+
+function failedPreparation(
+  preparation: TypecheckPreparation,
+  error: unknown,
+  id: string,
+  signal: AbortSignal,
+  hadReport: boolean,
+) {
+  const issue = preparationFailure(error, id);
+  preparation.errors.push(issue);
+  const failure = issue.message;
+  if (!hadReport) {
+    preparation = {
+      ...preparation,
+      status: "failed",
+      complete: false,
+      cancelled: signal.aborted,
+    };
+  }
+  return { preparation, failure };
 }

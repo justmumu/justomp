@@ -96,7 +96,16 @@ export function addResolution(dependency: Dependency, version: unknown, evidence
 export function normalizeJsVersion(version: string): string {
   return version.replace(/^v/, "");
 }
-export const verifyJs: NonNullable<import("../model").Adapter["verify"]> = async (_ctx, request, before, after) => {
+export const verifyJs: NonNullable<import("../model").Adapter["verify"]> = (_ctx, request, before, after) =>
+  new Promise<void>((resolve) => {
+    verifyDeclarations(request, before, after);
+    resolve();
+  });
+function verifyDeclarations(
+  request: Exclude<import("../model").DependencyRequest, { operation: "list" }>,
+  before: Inventory,
+  after: Inventory,
+) {
   const targeted = (d: Dependency) => {
     if (request.operation === "sync") {
       return false;
@@ -118,23 +127,31 @@ export const verifyJs: NonNullable<import("../model").Adapter["verify"]> = async
   }
   if (request.operation === "update") {
     for (const p of request.packages) {
-      const previous = selectDependency(before, p.name, p.group),
-        current = selectDependency(after, p.name, previous.group);
-      const expected = p.version ? normalizeJsVersion(p.version) : undefined;
-      if (
-        expected &&
-        (normalizeJsVersion(current.declared_specifier) !== expected ||
-          !current.resolutions?.length ||
-          !current.resolutions.every((r) => normalizeJsVersion(r.version) === expected))
-      ) {
-        throw new DependencyError(
-          "postcondition-failed",
-          `${p.name} was not saved and resolved as the requested exact version`,
-        );
-      }
-      if (previous.source.kind !== "registry" && current.declared_specifier !== previous.declared_specifier) {
-        throw new DependencyError("postcondition-failed", `${p.name} changed its source selector`);
-      }
+      verifyUpdatedDeclaration(p, before, after);
     }
   }
-};
+}
+
+function verifyUpdatedDeclaration(
+  p: Extract<import("../model").DependencyRequest, { operation: "update" }>["packages"][number],
+  before: Inventory,
+  after: Inventory,
+) {
+  const previous = selectDependency(before, p.name, p.group),
+    current = selectDependency(after, p.name, previous.group);
+  const expected = p.version ? normalizeJsVersion(p.version) : undefined;
+  if (
+    expected &&
+    (normalizeJsVersion(current.declared_specifier) !== expected ||
+      !current.resolutions?.length ||
+      !current.resolutions.every((r) => normalizeJsVersion(r.version) === expected))
+  ) {
+    throw new DependencyError(
+      "postcondition-failed",
+      `${p.name} was not saved and resolved as the requested exact version`,
+    );
+  }
+  if (previous.source.kind !== "registry" && current.declared_specifier !== previous.declared_specifier) {
+    throw new DependencyError("postcondition-failed", `${p.name} changed its source selector`);
+  }
+}

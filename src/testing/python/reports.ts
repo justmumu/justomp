@@ -24,7 +24,7 @@ export function summarize(cases: TestCase[]): TestSummary {
 }
 interface Xml {
   name: string;
-  attrs: Record<string, string>;
+  attrs: Partial<Record<string, string>>;
   children: Xml[];
   text: string;
 }
@@ -70,46 +70,7 @@ function xmlDocument(text: string): Xml {
     if (!current) {
       invalidReport("Malformed XML");
     }
-    if (value.startsWith("<!--") || value.startsWith("<?xml")) {
-      continue;
-    }
-    if (value.startsWith("<![CDATA[")) {
-      current.text += value.slice(9, -3);
-      continue;
-    }
-    if (value.startsWith("</")) {
-      if (value !== `</${current.name}>` || stack.length === 1) {
-        invalidReport("Unbalanced XML");
-      }
-      stack.pop();
-      continue;
-    }
-    if (value.startsWith("<")) {
-      const start = /^<([\w:-]+)([\s\S]*?)(\/?)>$/.exec(value);
-      if (!start) {
-        invalidReport("Malformed XML element");
-      }
-      const attrs: Record<string, string> = {};
-      let rest = start[2] ?? "";
-      while (rest.trim()) {
-        const attr = /^\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(rest);
-        if (!attr || attrs[attr[1] ?? ""] !== undefined) {
-          invalidReport("Malformed XML attribute");
-        }
-        attrs[attr[1] ?? ""] = decode(attr[2] ?? attr[3] ?? "");
-        rest = rest.slice(attr[0].length);
-      }
-      const node: Xml = { name: start[1] ?? "", attrs, children: [], text: "" };
-      current.children.push(node);
-      if (!start[3]) {
-        stack.push(node);
-      }
-      if (stack.length > 64) {
-        invalidReport("XML report nesting exceeds limit");
-      }
-    } else {
-      current.text += decode(value);
-    }
+    consumeXml(value, current, stack);
   }
   if (offset !== text.length || stack.length !== 1 || root.children.length !== 1 || root.text.trim()) {
     invalidReport("Incomplete XML");
@@ -123,49 +84,13 @@ export function junitReport(text: string, cwd: string, selected: string[]) {
   }
   const cases: TestCase[] = [],
     files = new Set<string>();
-  let collectionError = false;
-  const visit = (node: Xml, inherited?: string): void => {
-    if (node.name === "testcase") {
-      const raw = node.attrs.file ?? inherited;
-      if (!raw) {
-        invalidReport("JUnit testcase has no file");
-      }
-      const file = reportPath(cwd, raw);
-      if (!selected.includes(file)) {
-        invalidReport(`Foreign test report path: ${raw}`);
-      }
-      files.add(file);
-      const failure = node.children.find((c) => c.name === "failure" || c.name === "error");
-      collectionError ||= node.children.some((c) => c.name === "error");
-      cases.push({
-        name: node.attrs.name ?? "",
-        file,
-        status: failure ? "failed" : node.children.some((c) => c.name === "skipped") ? "skipped" : "passed",
-        ...(failure ? { message: failure.attrs.message ?? failure.text } : {}),
-        ...(node.attrs.time ? { duration_ms: Number(node.attrs.time) * 1000 } : {}),
-      });
-      return;
-    }
-    if (!["testsuites", "testsuite"].includes(node.name)) {
-      return;
-    }
-    collectionError ||= Number(node.attrs.errors ?? 0) > 0;
-    const before = cases.length;
-    for (const child of node.children) {
-      visit(child, node.attrs.file ?? inherited);
-    }
-    if (
-      node.attrs.tests !== undefined &&
-      (!/^\d+$/.test(node.attrs.tests) || Number(node.attrs.tests) !== cases.length - before)
-    ) {
-      invalidReport("JUnit test count does not match cases");
-    }
-  };
-  visit(root);
+  const collectionError = false;
+  const state: JunitState = { cases, files, collectionError };
+  visitJunit(root, cwd, selected, state);
   return {
     tests: summarize(cases),
     executed_files: [...files],
-    collectionError,
+    collectionError: state.collectionError,
   };
 }
 export function completeCoverage(entries: Map<string, CoverageTotals>, sources: string[]): CoverageTotals {
@@ -207,48 +132,161 @@ export function pythonCoverage(text: string, cwd: string, sources: string[]): Co
   }
   return completeCoverage(entries, sources);
 }
+interface LcovState {
+  file: string | undefined;
+  lines: Map<number, number>;
+  found: number | undefined;
+  hit: number | undefined;
+}
 export function lcovReport(text: string, cwd: string, sources: string[]): CoverageTotals {
   const entries = new Map<string, CoverageTotals>();
-  let file: string | undefined,
-    lines = new Map<number, number>();
-  let found: number | undefined, hit: number | undefined;
+  const state: LcovState = { file: undefined, lines: new Map(), found: undefined, hit: undefined };
   for (const line of text.split(/\r?\n/)) {
-    if (line.startsWith("SF:")) {
-      if (file) {
-        invalidReport("Unfinished LCOV record");
-      }
-      file = reportPath(cwd, line.slice(3));
-      lines = new Map();
-      found = undefined;
-      hit = undefined;
-    } else if (line.startsWith("DA:")) {
-      const m = /^DA:(\d+),(\d+)(?:,.*)?$/.exec(line);
-      if (!file || !m) {
-        invalidReport("Invalid LCOV line");
-      }
-      const n = Number(m[1]);
-      if (n < 1 || lines.has(n)) {
-        invalidReport("Duplicate LCOV line");
-      }
-      lines.set(n, Number(m[2]));
-    } else if (line.startsWith("LF:")) {
-      found = Number(line.slice(3));
-    } else if (line.startsWith("LH:")) {
-      hit = Number(line.slice(3));
-    } else if (line === "end_of_record") {
-      if (!file || entries.has(file)) {
-        invalidReport("Invalid LCOV record");
-      }
-      const covered = [...lines.values()].filter((n) => n > 0).length;
-      if (found !== lines.size || hit !== covered) {
-        invalidReport("Incomplete LCOV counts");
-      }
-      entries.set(file, { total: lines.size, covered });
-      file = undefined;
-    }
+    consumeLcov(line, cwd, state, entries);
   }
-  if (file) {
+  if (state.file) {
     invalidReport("Truncated LCOV report");
   }
   return completeCoverage(entries, sources);
+}
+function consumeLcov(line: string, cwd: string, state: LcovState, entries: Map<string, CoverageTotals>): void {
+  if (line.startsWith("SF:")) {
+    if (state.file) {
+      invalidReport("Unfinished LCOV record");
+    }
+    state.file = reportPath(cwd, line.slice(3));
+    state.lines = new Map();
+    state.found = undefined;
+    state.hit = undefined;
+  } else if (line.startsWith("DA:")) {
+    addLcovLine(line, state);
+  } else if (line.startsWith("LF:")) {
+    state.found = Number(line.slice(3));
+  } else if (line.startsWith("LH:")) {
+    state.hit = Number(line.slice(3));
+  } else if (line === "end_of_record") {
+    finishLcovRecord(state, entries);
+  }
+}
+function addLcovLine(line: string, state: LcovState): void {
+  const m = /^DA:(\d+),(\d+)(?:,.*)?$/.exec(line);
+  if (!state.file || !m) {
+    invalidReport("Invalid LCOV line");
+  }
+  const n = Number(m[1]);
+  if (n < 1 || state.lines.has(n)) {
+    invalidReport("Duplicate LCOV line");
+  }
+  state.lines.set(n, Number(m[2]));
+}
+function finishLcovRecord(state: LcovState, entries: Map<string, CoverageTotals>): void {
+  if (!state.file || entries.has(state.file)) {
+    invalidReport("Invalid LCOV record");
+  }
+  const covered = [...state.lines.values()].filter((n) => n > 0).length;
+  if (state.found !== state.lines.size || state.hit !== covered) {
+    invalidReport("Incomplete LCOV counts");
+  }
+  entries.set(state.file, { total: state.lines.size, covered });
+  state.file = undefined;
+}
+
+function consumeXml(value: string, current: Xml, stack: Xml[]): void {
+  if (value.startsWith("<!--") || value.startsWith("<?xml")) {
+    return;
+  }
+  if (value.startsWith("<![CDATA[")) {
+    current.text += value.slice(9, -3);
+    return;
+  }
+  if (value.startsWith("</")) {
+    if (value !== `</${current.name}>` || stack.length === 1) {
+      invalidReport("Unbalanced XML");
+    }
+    stack.pop();
+    return;
+  }
+  if (value.startsWith("<")) {
+    appendXmlElement(value, current, stack);
+  } else {
+    current.text += decode(value);
+  }
+}
+
+function xmlElement(value: string): { node: Xml; closed: boolean } {
+  const start = /^<([\w:-]+)([\s\S]*?)(\/?)>$/.exec(value);
+  if (!start) {
+    invalidReport("Malformed XML element");
+  }
+  const attrs: Record<string, string> = {};
+  let rest = start[2] ?? "";
+  while (rest.trim()) {
+    const attr = /^\s+([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(rest);
+    if (!attr || attrs[attr[1] ?? ""] !== undefined) {
+      invalidReport("Malformed XML attribute");
+    }
+    attrs[attr[1] ?? ""] = decode(attr[2] ?? attr[3] ?? "");
+    rest = rest.slice(attr[0].length);
+  }
+  const node: Xml = { name: start[1] ?? "", attrs, children: [], text: "" };
+  return { node, closed: !!start[3] };
+}
+
+interface JunitState {
+  cases: TestCase[];
+  files: Set<string>;
+  collectionError: boolean;
+}
+function visitJunit(node: Xml, cwd: string, selected: string[], state: JunitState, inherited?: string): void {
+  if (node.name === "testcase") {
+    addJunitCase(node, cwd, selected, state, inherited);
+    return;
+  }
+  if (!["testsuites", "testsuite"].includes(node.name)) {
+    return;
+  }
+  state.collectionError ||= Number(node.attrs.errors ?? 0) > 0;
+  const before = state.cases.length;
+  for (const child of node.children) {
+    visitJunit(child, cwd, selected, state, node.attrs.file ?? inherited);
+  }
+  if (
+    node.attrs.tests !== undefined &&
+    (!/^\d+$/.test(node.attrs.tests) || Number(node.attrs.tests) !== state.cases.length - before)
+  ) {
+    invalidReport("JUnit test count does not match cases");
+  }
+}
+
+function addJunitCase(node: Xml, cwd: string, selected: string[], state: JunitState, inherited?: string): void {
+  const raw = node.attrs.file ?? inherited;
+  if (!raw) {
+    invalidReport("JUnit testcase has no file");
+  }
+  const file = reportPath(cwd, raw);
+  if (!selected.includes(file)) {
+    invalidReport(`Foreign test report path: ${raw}`);
+  }
+  state.files.add(file);
+  const failure = node.children.find((c) => c.name === "failure" || c.name === "error");
+  state.collectionError ||= node.children.some((c) => c.name === "error");
+  state.cases.push({
+    name: node.attrs.name ?? "",
+    file,
+    status: failure ? "failed" : node.children.some((c) => c.name === "skipped") ? "skipped" : "passed",
+    ...(failure ? { message: failure.attrs.message ?? failure.text } : {}),
+    ...(node.attrs.time ? { duration_ms: Number(node.attrs.time) * 1000 } : {}),
+  });
+  return;
+}
+
+function appendXmlElement(value: string, current: Xml, stack: Xml[]): void {
+  const { node, closed } = xmlElement(value);
+  current.children.push(node);
+  if (!closed) {
+    stack.push(node);
+  }
+  if (stack.length > 64) {
+    invalidReport("XML report nesting exceeds limit");
+  }
 }
