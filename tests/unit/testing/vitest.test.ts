@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  exactGlob,
-  vitestOptions,
-} from "../../../src/testing/javascript/config";
-import {
-  vitestCoverage,
-  vitestReport,
-} from "../../../src/testing/javascript/reports";
+import { exactGlob, vitestOptions } from "../../../src/testing/javascript/config";
+import { vitestCoverage, vitestReport } from "../../../src/testing/javascript/reports";
 import { context } from "./fixture";
 
 test("Vitest owns exact includes, workspace selection and all coverage thresholds", () => {
@@ -31,12 +25,8 @@ test("Vitest reports validate selected files and line totals without averaging",
       },
     ],
   };
-  expect(
-    vitestReport(JSON.stringify(raw), "/p", ["a.test.ts"]).tests.failed,
-  ).toBe(1);
-  expect(() =>
-    vitestReport(JSON.stringify(raw), "/p", ["b.test.ts"]),
-  ).toThrow();
+  expect(vitestReport(JSON.stringify(raw), "/p", ["a.test.ts"]).tests.failed).toBe(1);
+  expect(() => vitestReport(JSON.stringify(raw), "/p", ["b.test.ts"])).toThrow();
   expect(
     vitestCoverage(
       JSON.stringify({
@@ -59,10 +49,6 @@ test("Vitest rejects truncated JSON and coverage missing an owned source", () =>
   expect(() => vitestReport("{broken", "/p", ["a.test.ts"])).toThrow();
   expect(() => vitestCoverage("{}", "/p", ["src/unused.ts"])).toThrow();
   expect(() =>
-    vitestCoverage(
-      JSON.stringify({ "/elsewhere/a.ts": { statementMap: {}, s: {} } }),
-      "/p",
-      ["src/a.ts"],
-    ),
+    vitestCoverage(JSON.stringify({ "/elsewhere/a.ts": { statementMap: {}, s: {} } }), "/p", ["src/a.ts"]),
   ).toThrow();
 });

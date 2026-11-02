@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
-import type { Adapter, Inventory } from "../../../src/dependencies/model";
+import { type Adapter, type Inventory } from "../../../src/dependencies/model";
 import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
@@ -10,7 +10,9 @@ import { memoryContext } from "../dependencies/memory";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -60,15 +62,9 @@ function fixture() {
       },
     }),
   );
-  const run = keep(
-    spyOn(native, "localTool").mockResolvedValue(
-      output({ stdout: "Version 7.0.2\n" }),
-    ),
-  );
+  const run = keep(spyOn(native, "localTool").mockResolvedValue(output({ stdout: "Version 7.0.2\n" })));
   const network = keep(
-    spyOn(globalThis, "fetch").mockRejectedValue(
-      new Error("readonly verification cannot download"),
-    ),
+    spyOn(globalThis, "fetch").mockRejectedValue(new Error("readonly verification cannot download")),
   );
   const context = {
     target: selected,
@@ -96,7 +92,9 @@ test("TypeScript readiness requires the declared, resolved, installed and execut
 test("changed compiler declaration invalidates readiness before launching the installed executable", async () => {
   const f = fixture();
   const dependency = f.inventory.dependencies[0];
-  if (!dependency) throw new Error("Missing supplied declaration");
+  if (!dependency) {
+    throw new Error("Missing supplied declaration");
+  }
   dependency.declared_specifier = "5.9.3";
   expect(await f.check()).toBe(false);
   expect(f.run).not.toHaveBeenCalled();

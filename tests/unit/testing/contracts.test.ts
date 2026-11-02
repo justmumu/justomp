@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  resolveTestConfig,
-  testPolicyKey,
-} from "../../../src/config/test/resolve";
+import { resolveTestConfig, testPolicyKey } from "../../../src/config/test/resolve";
 import { parseTestRequest } from "../../../src/testing/request";
 import { coverageVerdict, testResult } from "../../../src/testing/result";
 
@@ -58,22 +55,11 @@ test("request is strict and defaulted without changing exact file meaning", () =
 });
 test("coverage is aggregate, exact at the threshold and never invented", () => {
   const policy = { enabled: true, minimum: 70 };
-  expect(
-    coverageVerdict("full", policy, "lines", { covered: 69, total: 100 })
-      .status,
-  ).toBe("below-threshold");
-  expect(
-    coverageVerdict("full", policy, "lines", { covered: 70, total: 100 })
-      .status,
-  ).toBe("passed");
+  expect(coverageVerdict("full", policy, "lines", { covered: 69, total: 100 }).status).toBe("below-threshold");
+  expect(coverageVerdict("full", policy, "lines", { covered: 70, total: 100 }).status).toBe("passed");
   expect(coverageVerdict("full", policy, "lines").status).toBe("unavailable");
-  expect(coverageVerdict("targeted", policy, "lines").status).toBe(
-    "not-enforced-targeted",
-  );
-  expect(
-    coverageVerdict("full", policy, "statements", { covered: 0, total: 0 })
-      .percentage,
-  ).toBeNull();
+  expect(coverageVerdict("targeted", policy, "lines").status).toBe("not-enforced-targeted");
+  expect(coverageVerdict("full", policy, "statements", { covered: 0, total: 0 }).percentage).toBeNull();
 });
 test("assertion failures can be complete; empty and interrupted runs never succeed", () => {
   const base = {
@@ -97,9 +83,10 @@ test("assertion failures can be complete; empty and interrupted runs never succe
       tests: { total: 0, passed: 0, failed: 0, skipped: 0, cases: [] },
     }),
   ).toMatchObject({ success: false, errors: [{ code: "no-tests" }] });
-  expect(
-    testResult({ ...base, errors: [{ code: "timeout", message: "deadline" }] }),
-  ).toMatchObject({ complete: false, success: false });
+  expect(testResult({ ...base, errors: [{ code: "timeout", message: "deadline" }] })).toMatchObject({
+    complete: false,
+    success: false,
+  });
 });
 
 test("normalized test results redact native logs and structured assertion details", () => {

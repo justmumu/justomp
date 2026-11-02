@@ -1,21 +1,19 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import * as config from "../../../src/config/load";
-import type { LintCheckContext } from "../../../src/lint/adapters/types";
+import { type LintCheckContext } from "../../../src/lint/adapters/types";
 import * as coordinator from "../../../src/lint/coordinator";
 import * as files from "../../../src/lint/files";
-import type { PreparationReport } from "../../../src/lint/prepare";
+import { type PreparationReport } from "../../../src/lint/prepare";
 import * as scopes from "../../../src/lint/scope";
-import {
-  checkLintTarget,
-  fixLintTarget,
-  lintAdapters,
-} from "../../../src/lint/service";
+import { checkLintTarget, fixLintTarget, lintAdapters } from "../../../src/lint/service";
 import { output, scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -54,8 +52,8 @@ function fixture() {
   report.projects[selected.project.project_id] = { ...report };
   keep(spyOn(config, "loadConfig").mockResolvedValue(policy));
   const lease = keep(
-    spyOn(coordinator, "withReadyLintTarget").mockImplementation(
-      async (_root, _id, _adapters, operation) => operation(context),
+    spyOn(coordinator, "withReadyLintTarget").mockImplementation(async (_root, _id, _adapters, operation) =>
+      operation(context),
     ),
   );
   keep(spyOn(scopes, "collectLintScope").mockResolvedValue(scope("module.py")));
@@ -111,9 +109,7 @@ test("fix and final checks share one ready lease, check-only never calls fixer",
         version: "0.17.3",
         exit_code: 1,
         duration_ms: 0,
-        diagnostics: [
-          { kind: "lint", severity: "error", message: "Remaining" },
-        ],
+        diagnostics: [{ kind: "lint", severity: "error", message: "Remaining" }],
         cancelled: false,
         truncated: false,
       },
@@ -126,11 +122,7 @@ test("fix and final checks share one ready lease, check-only never calls fixer",
     diagnostics: [{ message: "Remaining" }],
   });
   expect(f.lease).toHaveBeenCalledTimes(1);
-  const checked = await checkLintTarget(
-    f.selected,
-    f.controller.signal,
-    f.report,
-  );
+  const checked = await checkLintTarget(f.selected, f.controller.signal, f.report);
   expect(checked).not.toHaveProperty("fix");
   expect(f.fix).toHaveBeenCalledTimes(1);
 });
@@ -150,7 +142,9 @@ test("post-verification failure retains completed fix and checks", async () => {
 test("failed preparation cannot start a fixer even if environment is otherwise ready", async () => {
   const f = fixture();
   const project = f.report.projects[f.selected.project.project_id];
-  if (!project) throw new Error("Missing fixture project");
+  if (!project) {
+    throw new Error("Missing fixture project");
+  }
   project.complete = false;
   expect(await f.run()).toMatchObject({
     complete: false,
@@ -182,9 +176,7 @@ test("cancellation before preparation retains a requested not-started fix", asyn
 test("check-only adapter failure preserves preparation failure reporting", async () => {
   const f = fixture();
   f.check.mockRejectedValue(new Error("Check launch failed"));
-  expect(
-    await checkLintTarget(f.selected, f.controller.signal, f.report),
-  ).toMatchObject({
+  expect(await checkLintTarget(f.selected, f.controller.signal, f.report)).toMatchObject({
     complete: false,
     incomplete_stages: ["preparation", "lint", "format"],
     preparation: { errors: [{ message: "Check launch failed" }] },

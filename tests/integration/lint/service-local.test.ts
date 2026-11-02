@@ -54,7 +54,9 @@ test("queued check reports the policy actually checked after policy preparation"
       await applyProjection(await planProjection(target, policy.lint));
       const store = await LintStateStore.load(target.root);
       const receipt = store.state.projects[id];
-      if (!receipt) throw new Error("Missing prepared fixture receipt");
+      if (!receipt) {
+        throw new Error("Missing prepared fixture receipt");
+      }
       preparedHash = lintPolicyKey(policy.lint.python);
       receipt.policy_hash = preparedHash;
       await store.save();
@@ -62,12 +64,10 @@ test("queued check reports the policy actually checked after policy preparation"
     await enteredPromise;
     let checkedHash = "";
     const actualCheck = f.adapter.check;
-    const checkHook = spyOn(f.adapter, "check").mockImplementation(
-      async (context) => {
-        checkedHash = lintPolicyKey(context.policy.python);
-        return actualCheck(context);
-      },
-    );
+    const checkHook = spyOn(f.adapter, "check").mockImplementation(async (context) => {
+      checkedHash = lintPolicyKey(context.policy.python);
+      return actualCheck(context);
+    });
     const checking = checkProjectLint(f.root, id);
     try {
       // Observe the real queue to place the policy write after the check's initial read.
@@ -78,10 +78,10 @@ test("queued check reports the policy actually checked after policy preparation"
       )[Symbol.for("justomp.dependencies.queue.v1")];
       let waiting = false;
       for (let attempt = 0; attempt < 100; attempt++) {
-        waiting = domains.some(
-          (domain) => (queue?.get(domain)?.waiters.length ?? 0) > 0,
-        );
-        if (waiting) break;
+        waiting = domains.some((domain) => (queue?.get(domain)?.waiters.length ?? 0) > 0);
+        if (waiting) {
+          break;
+        }
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(waiting).toBe(true);

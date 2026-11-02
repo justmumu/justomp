@@ -1,6 +1,6 @@
 import { redact } from "../dependencies/model";
-import type { Project } from "../inspect/model";
-import type { LintCheck, LintFix, LintPreparation, LintResult } from "./model";
+import { type Project } from "../inspect/model";
+import { type LintCheck, type LintFix, type LintPreparation, type LintResult } from "./model";
 
 export interface LintOutcome {
   preparation: LintPreparation;
@@ -16,13 +16,9 @@ export function lintResult(
   outcome: LintOutcome,
   aborted: boolean,
 ): LintResult {
-  const { preparation, checks, policyHash, selectedReady, failure, fix } =
-    outcome;
+  const { preparation, checks, policyHash, selectedReady, failure, fix } = outcome;
   const cancelled =
-    aborted ||
-    fix?.cancelled === true ||
-    fix?.status === "cancelled" ||
-    checks.some((c) => c.cancelled);
+    aborted || fix?.cancelled === true || fix?.status === "cancelled" || checks.some((c) => c.cancelled);
   const truncated = fix?.truncated === true || checks.some((c) => c.truncated);
   const fixComplete =
     !fix ||
@@ -51,18 +47,13 @@ export function lintResult(
     truncated,
     cancelled,
     partial_change:
-      (!preparation.complete && preparation.changes.length > 0) ||
-      (!complete && (fix?.changed_files.length ?? 0) > 0),
+      (!preparation.complete && preparation.changes.length > 0) || (!complete && (fix?.changed_files.length ?? 0) > 0),
     incomplete_stages: [
       ...(!fixComplete ? ["fix"] : []),
       ...(fix && !fix.observation_complete ? ["observation"] : []),
       ...(!selectedReady ? ["preparation"] : []),
-      ...checks
-        .filter((c) => c.status === "not-run" || c.truncated || c.cancelled)
-        .map((c) => c.kind),
-      ...(failure && checks.some((c) => c.status !== "not-run")
-        ? ["verification"]
-        : []),
+      ...checks.filter((c) => c.status === "not-run" || c.truncated || c.cancelled).map((c) => c.kind),
+      ...(failure && checks.some((c) => c.status !== "not-run") ? ["verification"] : []),
     ],
     remediation: [
       ...new Set([
@@ -75,9 +66,7 @@ export function lintResult(
             ]
           : []),
         ...(truncated
-          ? [
-              "Native output was truncated; address reported issues and rerun to obtain complete diagnostics.",
-            ]
+          ? ["Native output was truncated; address reported issues and rerun to obtain complete diagnostics."]
           : []),
       ]),
     ],

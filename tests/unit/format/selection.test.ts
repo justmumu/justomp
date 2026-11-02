@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
 import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
-import {
-  createFormatScope,
-  formatterFor,
-  selectFormatFiles,
-} from "../../../src/format/selection";
+import { createFormatScope, formatterFor, selectFormatFiles } from "../../../src/format/selection";
 
 const files = [
   "src/main.py",
@@ -76,9 +72,7 @@ test("include and exclude use replacement policy and cannot disable ownership or
 test("exact selections validate every file, reject empty/missing/directory/glob/traversal/unsupported input and deduplicate", () => {
   const scope = createFormatScope(metadata, FORMAT_DEFAULTS);
   expect(selectFormatFiles(scope)).toEqual(scope.files);
-  expect(
-    selectFormatFiles(scope, ["src/main.py", "README.md", "src/main.py"]),
-  ).toEqual(["README.md", "src/main.py"]);
+  expect(selectFormatFiles(scope, ["src/main.py", "README.md", "src/main.py"])).toEqual(["README.md", "src/main.py"]);
   expect(selectFormatFiles(scope, ["src/a[1].ts"])).toEqual(["src/a[1].ts"]);
   for (const invalid of [
     "",
@@ -93,10 +87,9 @@ test("exact selections validate every file, reject empty/missing/directory/glob/
     "package-lock.json",
     "src/api.generated.ts",
     ".deps/foreign.py",
-  ])
-    expect(() => selectFormatFiles(scope, ["README.md", invalid])).toThrow(
-      "not an owned supported file",
-    );
+  ]) {
+    expect(() => selectFormatFiles(scope, ["README.md", invalid])).toThrow("not an owned supported file");
+  }
   expect(() => selectFormatFiles(scope, [])).toThrow("non-empty");
 });
 
@@ -125,31 +118,24 @@ test("dispatch is fixed by extension and discovered ecosystem with explicit JSON
     ["app.scss", "scss"],
     ["app.less", "less"],
     ["pyproject.toml", "toml"],
-  ] as const)
+  ] as const) {
     expect(formatterFor(file, "python")).toEqual({
       engine: "prettier",
       parser,
     });
+  }
 });
 
 test("Go selection omits names the native formatter skips or rewrites", () => {
   const scope = createFormatScope(
     {
       ecosystem: "go",
-      files: [
-        "main.go",
-        ".hidden.go",
-        "Main.GO",
-        "x...go",
-        "parent.../main.go",
-        ".config/main.go",
-      ],
+      files: ["main.go", ".hidden.go", "Main.GO", "x...go", "parent.../main.go", ".config/main.go"],
     },
     FORMAT_DEFAULTS,
   );
   expect(scope.files).toEqual([".config/main.go", "main.go"]);
-  for (const path of [".hidden.go", "Main.GO", "x...go", "parent.../main.go"])
-    expect(() => selectFormatFiles(scope, [path])).toThrow(
-      "not an owned supported file",
-    );
+  for (const path of [".hidden.go", "Main.GO", "x...go", "parent.../main.go"]) {
+    expect(() => selectFormatFiles(scope, [path])).toThrow("not an owned supported file");
+  }
 });

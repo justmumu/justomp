@@ -3,7 +3,7 @@ import { resolveIntegrationTestConfig } from "../../../src/config/integration-te
 import * as config from "../../../src/config/load";
 import { resolveTestConfig } from "../../../src/config/test/resolve";
 import * as packaging from "../../../src/packaging/get-structure";
-import type { TestAdapter, TestTools } from "../../../src/testing/adapters";
+import { type TestAdapter, type TestTools } from "../../../src/testing/adapters";
 import { prepareTests } from "../../../src/testing/prepare";
 import { TestStateStore } from "../../../src/testing/state";
 import * as targets from "../../../src/testing/targets";
@@ -11,7 +11,9 @@ import { target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -55,9 +57,13 @@ for (const runner of ["pytest", "vitest"] as const) {
     );
     keep(
       spyOn(targets, "resolveTestTarget").mockImplementation(async (_s, id) => {
-        if (id === unresolved) throw new Error("runner unresolved");
+        if (id === unresolved) {
+          throw new Error("runner unresolved");
+        }
         const selected = members.find((t) => t.project.project_id === id);
-        if (!selected) throw new Error("missing fixture target");
+        if (!selected) {
+          throw new Error("missing fixture target");
+        }
         return selected;
       }),
     );
@@ -71,7 +77,9 @@ for (const runner of ["pytest", "vitest"] as const) {
     const adapter: TestAdapter = {
       async resolve() {
         resolves++;
-        if (resolutionFailure) throw new Error("registry unavailable");
+        if (resolutionFailure) {
+          throw new Error("registry unavailable");
+        }
         return { [runner]: latest };
       },
       async preflight(context) {
@@ -79,8 +87,9 @@ for (const runner of ["pytest", "vitest"] as const) {
         expect(persisted.waves[runner]?.complete).toBe(false);
       },
       async prepare(context, changes) {
-        if (context.target.project.project_id === failed)
+        if (context.target.project.project_id === failed) {
           throw new Error("install failed");
+        }
         installed.set(context.target.project.project_id, { ...context.tools });
         changes.push({
           project_id: context.target.project.project_id,
@@ -89,21 +98,13 @@ for (const runner of ["pytest", "vitest"] as const) {
         });
       },
       async verify(context) {
-        return (
-          installed.get(context.target.project.project_id)?.[runner] ===
-          context.tools[runner]
-        );
+        return installed.get(context.target.project.project_id)?.[runner] === context.tools[runner];
       },
       async run() {
         throw new Error("Preparation must not execute tests");
       },
     };
-    const run = () =>
-      prepareTests(
-        "/repo",
-        { [runner]: adapter },
-        new AbortController().signal,
-      );
+    const run = () => prepareTests("/repo", { [runner]: adapter }, new AbortController().signal);
     expect((await run()).complete).toBe(true);
     add("b");
     latest = "2.0.0";
@@ -121,9 +122,7 @@ for (const runner of ["pytest", "vitest"] as const) {
     expect(store.state.waves[runner]?.tools).toEqual({ [runner]: "3.0.0" });
     failed = "";
     expect((await run()).complete).toBe(true);
-    expect([...installed.values()]).toEqual(
-      Array.from({ length: 3 }, () => ({ [runner]: "3.0.0" })),
-    );
+    expect([...installed.values()]).toEqual(Array.from({ length: 3 }, () => ({ [runner]: "3.0.0" })));
     add("d");
     resolutionFailure = true;
     expect((await run()).complete).toBe(false);
@@ -139,7 +138,9 @@ for (const runner of ["pytest", "vitest"] as const) {
     expect(resolves).toBe(5);
     if (runner === "vitest") {
       unresolved = "";
-      for (const member of members) member.runner = "bun";
+      for (const member of members) {
+        member.runner = "bun";
+      }
       let runtimeReads = 0;
       const runtime: TestAdapter = {
         ...adapter,
@@ -156,18 +157,14 @@ for (const runner of ["pytest", "vitest"] as const) {
         },
       };
       expect(
-        (
-          await prepareTests(
-            "/repo",
-            { vitest: adapter, bun: runtime },
-            new AbortController().signal,
-          )
-        ).complete,
+        (await prepareTests("/repo", { vitest: adapter, bun: runtime }, new AbortController().signal)).complete,
       ).toBe(true);
       expect(store.state.waves.vitest).toBeUndefined();
       expect(runtimeReads).toBe(members.length);
       expect(resolves).toBe(5);
-      for (const member of members) member.runner = "vitest";
+      for (const member of members) {
+        member.runner = "vitest";
+      }
       expect((await run()).complete).toBe(true);
       expect(resolves).toBe(6);
     }

@@ -1,14 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { renameSync, writeFileSync } from "node:fs";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { COMMIT_DEFAULTS } from "../../src/config/commit/defaults";
@@ -32,9 +24,7 @@ async function fixture(config?: unknown) {
   return root;
 }
 afterEach(async () => {
-  await Promise.all(
-    roots.splice(0).map((p) => rm(p, { recursive: true, force: true })),
-  );
+  await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 test("read does not flush, startup fills only absent attributes and is idempotent", async () => {
   const root = await fixture({
@@ -46,13 +36,9 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     include: ["**/*"],
     exclude: [],
   });
-  expect(await readFile(join(root, ".justomp/config.json"), "utf8")).toBe(
-    before,
-  );
+  expect(await readFile(join(root, ".justomp/config.json"), "utf8")).toBe(before);
   expect((await loadConfig(root, { flush: true })).wrote).toBe(true);
-  expect(
-    JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8")),
-  ).toEqual({
+  expect(JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8"))).toEqual({
     extra: 4,
     format: resolveFormatConfig().policy,
     lint: resolveLintConfig().policy,
@@ -69,20 +55,12 @@ test("read does not flush, startup fills only absent attributes and is idempoten
 test("missing file, partial defaults and concurrent startup preserve values", async () => {
   const root = await fixture();
   expect((await loadConfig(root)).rules).toEqual(INSPECTION_DEFAULTS);
-  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(
-    false,
+  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(false);
+  await Promise.all(Array.from({ length: 8 }, () => loadConfig(root, { flush: true })));
+  expect(JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8")).inspection_rules).toEqual(
+    INSPECTION_DEFAULTS,
   );
-  await Promise.all(
-    Array.from({ length: 8 }, () => loadConfig(root, { flush: true })),
-  );
-  expect(
-    JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8"))
-      .inspection_rules,
-  ).toEqual(INSPECTION_DEFAULTS);
-  await writeFile(
-    join(root, ".justomp/config.json"),
-    JSON.stringify({ inspection_rules: { include: [] } }),
-  );
+  await writeFile(join(root, ".justomp/config.json"), JSON.stringify({ inspection_rules: { include: [] } }));
   expect((await loadConfig(root, { flush: true })).rules).toEqual({
     include: [],
     exclude: INSPECTION_DEFAULTS.exclude,
@@ -133,9 +111,7 @@ test("invalid lint values are never replaced or flushed", async () => {
   });
   const path = join(root, ".justomp/config.json");
   const before = await readFile(path, "utf8");
-  await expect(loadConfig(root, { flush: true })).rejects.toThrow(
-    "lint.python.ruff.lint.ignore",
-  );
+  await expect(loadConfig(root, { flush: true })).rejects.toThrow("lint.python.ruff.lint.ignore");
   expect(await readFile(path, "utf8")).toBe(before);
 });
 
@@ -145,27 +121,23 @@ test.each(["content", "identity"])(
     const root = await fixture({ extra: "original" });
     const path = join(root, ".justomp/config.json");
     const before = await readFile(path, "utf8");
-    const replacement =
-      change === "content" ? JSON.stringify({ extra: "concurrent" }) : before;
+    const replacement = change === "content" ? JSON.stringify({ extra: "concurrent" }) : before;
     const controller = new AbortController();
-    const originalCheck = controller.signal.throwIfAborted.bind(
-      controller.signal,
-    );
+    const originalCheck = controller.signal.throwIfAborted.bind(controller.signal);
     let checks = 0;
     // Inject an external write after the initial read and before publishing defaults.
     controller.signal.throwIfAborted = () => {
       originalCheck();
       if (++checks === 2) {
-        if (change === "content") writeFileSync(path, replacement);
-        else {
+        if (change === "content") {
+          writeFileSync(path, replacement);
+        } else {
           writeFileSync(`${path}.replacement`, replacement);
           renameSync(`${path}.replacement`, path);
         }
       }
     };
-    await expect(
-      loadConfig(root, { flush: true, signal: controller.signal }),
-    ).rejects.toThrow("config-conflict");
+    await expect(loadConfig(root, { flush: true, signal: controller.signal })).rejects.toThrow("config-conflict");
     expect(await readFile(path, "utf8")).toBe(replacement);
   },
 );
@@ -206,9 +178,7 @@ test("invalid typecheck values are not rewritten by config flush", async () => {
   const root = await fixture({ typecheck: { go: { build_tags: null } } });
   const path = join(root, ".justomp/config.json");
   const before = await readFile(path, "utf8");
-  await expect(loadConfig(root, { flush: true })).rejects.toThrow(
-    "typecheck.go.build_tags",
-  );
+  await expect(loadConfig(root, { flush: true })).rejects.toThrow("typecheck.go.build_tags");
   expect(await readFile(path, "utf8")).toBe(before);
 });
 
@@ -248,8 +218,9 @@ test("integration policy flush preserves explicit leaves and has independent key
   const after = await loadConfig(root);
   expect(after.integrationTestKey).not.toBe(before.integrationTestKey);
   expect(after.testingKey).not.toBe(before.testingKey);
-  for (const key of ["key", "testKey", "lintKey", "typecheckKey"] as const)
+  for (const key of ["key", "testKey", "lintKey", "typecheckKey"] as const) {
     expect(after[key]).toBe(before[key]);
+  }
 });
 
 test("format flush preserves legacy preferences while lint consumes the new shared settings", async () => {
@@ -260,9 +231,7 @@ test("format flush preserves legacy preferences while lint consumes the new shar
   const first = await loadConfig(root, { flush: true });
   expect(first.format.prettier.singleQuote).toBe(true);
   expect(first.lint.javascript.prettier.printWidth).toBe(100);
-  const saved = JSON.parse(
-    await readFile(join(root, ".justomp/config.json"), "utf8"),
-  );
+  const saved = JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8"));
   expect(saved.lint.javascript.prettier.printWidth).toBe(88);
   expect(saved.format.prettier.printWidth).toBe(100);
   expect((await loadConfig(root, { flush: true })).wrote).toBe(false);
@@ -279,9 +248,7 @@ test("legacy lint policy flush is atomic, preserved and idempotent", async () =>
   const bytes = await readFile(path, "utf8");
   const saved = JSON.parse(bytes);
   expect(saved.lint.javascript.eslint).toEqual(LEGACY_ESLINT_DEFAULTS);
-  expect(saved.lint.javascript.biome).toEqual(
-    resolveLintConfig().policy.javascript.biome,
-  );
+  expect(saved.lint.javascript.biome).toEqual(resolveLintConfig().policy.javascript.biome);
   expect(saved.custom).toBe(true);
   expect((await loadConfig(root, { flush: true })).wrote).toBe(false);
   expect(await readFile(path, "utf8")).toBe(bytes);
@@ -289,8 +256,23 @@ test("legacy lint policy flush is atomic, preserved and idempotent", async () =>
     lint: { javascript: { eslint: { rules: { "unknown/rule": "error" } } } },
   });
   await writeFile(path, customized);
-  await expect(loadConfig(root, { flush: true })).rejects.toThrow(
-    "unknown/rule",
-  );
+  await expect(loadConfig(root, { flush: true })).rejects.toThrow("unknown/rule");
   expect(await readFile(path, "utf8")).toBe(customized);
+});
+
+test("flushing JavaScript exclusions fills omissions while preserving explicit arrays", async () => {
+  const root = await fixture({ lint: { javascript: { exclude: [".private/**"] } } });
+  const first = await loadConfig(root, { flush: true });
+  expect(first.lint.javascript.exclude).toEqual([".private/**"]);
+  expect(first.typecheck.javascript.exclude).toEqual([]);
+  const path = join(root, ".justomp/config.json");
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  expect(saved.typecheck.javascript.exclude).toEqual([]);
+  saved.lint.javascript.exclude = [];
+  saved.typecheck.javascript.exclude = ["archive/**"];
+  await writeFile(path, JSON.stringify(saved));
+  const explicit = await loadConfig(root, { flush: true });
+  expect(explicit.lint.javascript.exclude).toEqual([]);
+  expect(explicit.typecheck.javascript.exclude).toEqual(["archive/**"]);
+  expect(explicit.wrote).toBe(false);
 });

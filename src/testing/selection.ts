@@ -1,6 +1,6 @@
 import picomatch from "picomatch";
-import type { EcosystemTestPolicy } from "../config/test/model";
-import type { Ecosystem } from "../inspect/model";
+import { type EcosystemTestPolicy } from "../config/test/model";
+import { type Ecosystem } from "../inspect/model";
 import { TestError, type TestSuite } from "./model";
 export function literalGlob(path: string): string {
   return path.replace(/[\\*?[\]{}()!+@]/g, "\\$&");
@@ -34,14 +34,15 @@ export function selectTestFiles(
   requested?: readonly string[],
   suite: TestSuite = "unit",
 ): string[] {
-  if (!requested) return [...available];
+  if (!requested) {
+    return [...available];
+  }
   const availableSet = new Set(available);
-  for (const file of requested)
-    if (!availableSet.has(file))
-      throw new TestError(
-        "invalid-selection",
-        `${file} is not an owned ${suite} test file in the current scope`,
-      );
+  for (const file of requested) {
+    if (!availableSet.has(file)) {
+      throw new TestError("invalid-selection", `${file} is not an owned ${suite} test file in the current scope`);
+    }
+  }
   return [...new Set(requested)];
 }
 
@@ -56,14 +57,13 @@ export function partitionSuites(
   const units = partitionFiles(files, unit, ecosystem);
   const integrations = partitionFiles(files, integration, ecosystem);
   const integrationSet = new Set(integrations.tests);
-  const conflicts = units.tests
-    .filter((file) => integrationSet.has(file))
-    .sort();
-  if (conflicts.length)
+  const conflicts = units.tests.filter((file) => integrationSet.has(file)).sort();
+  if (conflicts.length) {
     throw new TestError(
       "test-scope-conflict",
       `test-scope-conflict: files match both test.${ecosystem} and integration_test.${ecosystem}; adjust include/exclude: ${conflicts.join(", ")}`,
     );
+  }
   const allTests = new Set([...units.tests, ...integrations.tests]);
   const selected = suite === "unit" ? units : integrations;
   return {

@@ -38,14 +38,7 @@ Do not create a config file just to enable the extension. At session startup, th
 {
   "inspection_rules": {
     "include": ["**/*"],
-    "exclude": [
-      "**/.*",
-      "**/node_modules",
-      "**/venv",
-      "**/bower_components",
-      "**/__pycache__",
-      "**/__pypackages__"
-    ]
+    "exclude": ["**/.*", "**/node_modules", "**/venv", "**/bower_components", "**/__pycache__", "**/__pypackages__"]
   }
 }
 ```
@@ -73,10 +66,7 @@ Keep the generated snapshot out of version control if desired. The extension doe
 Other extension tools should use the getter rather than reading the JSON file:
 
 ```ts
-import {
-  getPackagingStructure,
-  retainPackagingStructure,
-} from "justomp/packaging";
+import { getPackagingStructure, retainPackagingStructure } from "justomp/packaging";
 
 const release = await retainPackagingStructure(root);
 try {

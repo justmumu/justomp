@@ -1,15 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  rename,
-  rm,
-  stat,
-  symlink,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -27,7 +17,9 @@ async function fixture() {
 }
 async function changed(root: string, revision: number) {
   for (let i = 0; i < 200; i++) {
-    if ((getPackagingStatus(root)?.revision ?? 0) > revision) return;
+    if ((getPackagingStatus(root)?.revision ?? 0) > revision) {
+      return;
+    }
     await Bun.sleep(10);
   }
   throw new Error("watcher event was not delivered");
@@ -56,9 +48,7 @@ test("clean getter reuses immutable report and never loads disk cache", async ()
   expect(b.structure).toBe(a.structure);
   expect(Object.isFrozen(b.structure.projects)).toBe(true);
   expect((await stat(file)).mtimeMs).toBe(stamp);
-  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(
-    false,
-  );
+  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(false);
 });
 test("manifest events, nested directory moves and explicit refresh produce new scans", async () => {
   const root = await fixture();
@@ -76,9 +66,7 @@ test("manifest events, nested directory moves and explicit refresh produce new s
   await changed(root, rev);
   const c = await getPackagingStructure(root, { refresh: true });
   expect(c.structure.projects.some((p) => p.path === "app")).toBe(true);
-  expect(
-    (await getPackagingStructure(root, { refresh: true })).structure.scanId,
-  ).not.toBe(c.structure.scanId);
+  expect((await getPackagingStructure(root, { refresh: true })).structure.scanId).not.toBe(c.structure.scanId);
 });
 test("source edits and excluded trees do not dirty or subscribe beneath excluded directories", async () => {
   const root = await fixture();
@@ -89,14 +77,8 @@ test("source edits and excluded trees do not dirty or subscribe beneath excluded
   await writeFile(join(root, "index.ts"), "two");
   await writeFile(join(root, "node_modules/x/package.json"), "still bad");
   await Bun.sleep(100);
-  expect((await getPackagingStructure(root)).structure.scanId).toBe(
-    a.structure.scanId,
-  );
-  expect(
-    getPackagingStatus(root)?.watchedPaths.some((p) =>
-      p.includes("node_modules"),
-    ),
-  ).toBe(false);
+  expect((await getPackagingStructure(root)).structure.scanId).toBe(a.structure.scanId);
+  expect(getPackagingStatus(root)?.watchedPaths.some((p) => p.includes("node_modules"))).toBe(false);
 });
 test("each getter reads config contents and replaces the watcher when effective rules change", async () => {
   const root = await fixture();
@@ -122,9 +104,7 @@ test("malformed manifests fail without returning or replacing the last successfu
   const path = join(root, ".justomp/packaging_structure.json");
   const before = await readFile(path, "utf8");
   await writeFile(join(root, "package.json"), "{");
-  await expect(getPackagingStructure(root, { refresh: true })).rejects.toThrow(
-    "incomplete",
-  );
+  await expect(getPackagingStructure(root, { refresh: true })).rejects.toThrow("incomplete");
   expect(await readFile(path, "utf8")).toBe(before);
   expect(a.structure.complete).toBe(true);
 });
@@ -143,10 +123,7 @@ test("output symlink is rejected without overwriting its target", async () => {
   const root = await fixture();
   await mkdir(join(root, ".justomp"));
   await writeFile(join(root, "user.txt"), "keep");
-  await symlink(
-    join(root, "user.txt"),
-    join(root, ".justomp/packaging_structure.json"),
-  );
+  await symlink(join(root, "user.txt"), join(root, ".justomp/packaging_structure.json"));
   await expect(getPackagingStructure(root)).rejects.toThrow("symlink");
   expect(await readFile(join(root, "user.txt"), "utf8")).toBe("keep");
 });

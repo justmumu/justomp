@@ -1,9 +1,4 @@
-export type GateCheckStage =
-  | "fix"
-  | "format"
-  | "lint"
-  | "typecheck"
-  | "dependency";
+export type GateCheckStage = "fix" | "format" | "lint" | "typecheck" | "dependency";
 export interface GateStage {
   stage: GateCheckStage | "preparation";
   project_id?: string;

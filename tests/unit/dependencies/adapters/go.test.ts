@@ -17,8 +17,8 @@ function fixture() {
   f.write("go.mod", text);
   return { ...f, inventory: parseInventory(f.context.project, text) };
 }
-for (const location of ["go.mod", "go.work"] as const)
-  for (const kind of ["registry", "git"] as const)
+for (const location of ["go.mod", "go.work"] as const) {
+  for (const kind of ["registry", "git"] as const) {
     test(`Go rejects ${kind} add shadowed by an unused ${location} replacement`, async () => {
       const f = fixture();
       try {
@@ -54,19 +54,18 @@ for (const location of ["go.mod", "go.work"] as const)
         f.close();
       }
     });
+  }
+}
 for (const override of [
   "workspace member",
   "member replacement",
   "version-specific replacement",
   "module replacement",
-] as const)
+] as const) {
   test(`Go registry source rejects ${override}`, async () => {
     const f = fixture();
     try {
-      if (
-        override === "workspace member" ||
-        override === "member replacement"
-      ) {
+      if (override === "workspace member" || override === "member replacement") {
         f.context.structure.projects.push({
           ...f.context.project,
           project_id: "go:local/go.mod",
@@ -80,11 +79,12 @@ for (const override of [
             ? "module example.test/lib\ngo 1.25\n"
             : "module example.test/other\ngo 1.25\nreplace example.test/lib => ../replacement\n",
         );
-      } else
+      } else {
         f.write(
           "go.mod",
           `module example.test/app\ngo 1.25\nreplace example.test/lib ${override === "version-specific replacement" ? "v1.0.0 => ./local" : "=> example.test/transitive v1.0.0"}\n`,
         );
+      }
       await expect(
         goAdapter.plan(
           f.context,
@@ -107,6 +107,7 @@ for (const override of [
       f.close();
     }
   });
+}
 test("Go accepts only runtime groups and rejects runtime management names and arbitrary Git URLs", async () => {
   const f = fixture();
   try {
@@ -117,9 +118,7 @@ test("Go accepts only runtime groups and rejects runtime management names and ar
           operation: "add",
           project_id: f.context.project.project_id,
           group: { kind: "dev" },
-          packages: [
-            { name: "example.test/lib", source: { kind: "registry" } },
-          ],
+          packages: [{ name: "example.test/lib", source: { kind: "registry" } }],
         },
         goAdapter.groups,
         "go",
@@ -135,7 +134,7 @@ test("Go accepts only runtime groups and rejects runtime management names and ar
           ref: "feature",
         },
       },
-    ])
+    ]) {
       await expect(
         goAdapter.plan(
           f.context,
@@ -148,6 +147,7 @@ test("Go accepts only runtime groups and rejects runtime management names and ar
           f.inventory,
         ),
       ).rejects.toThrow();
+    }
   } finally {
     f.close();
   }

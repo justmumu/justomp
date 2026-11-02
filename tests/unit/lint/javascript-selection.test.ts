@@ -6,13 +6,13 @@ import * as versions from "../../../src/lint/versions";
 import { scope, target } from "../checks/fixture";
 
 afterEach(() => {
-  for (const restore of restores.splice(0)) restore();
+  for (const restore of restores.splice(0)) {
+    restore();
+  }
 });
 const restores: (() => void)[] = [];
 function registry(latest: unknown = "2.6.3") {
-  const scan = spyOn(scopes, "collectLintScope").mockResolvedValue(
-    scope("index.ts"),
-  );
+  const scan = spyOn(scopes, "collectLintScope").mockResolvedValue(scope("index.ts"));
   restores.push(() => scan.mockRestore());
   const fetcher = spyOn(versions, "fetchVersionJSON").mockResolvedValue({
     latest,
@@ -58,18 +58,13 @@ test("new consumer aligns existing Biome consumers to latest", async () => {
   const selected = await resolveJavascript([a, b], policy(), signal(), {
     [a.project.project_id]: { "@biomejs/biome": "2.5.0" },
   });
-  expect(Object.values(selected)).toEqual([
-    { "@biomejs/biome": "2.6.3" },
-    { "@biomejs/biome": "2.6.3" },
-  ]);
+  expect(Object.values(selected)).toEqual([{ "@biomejs/biome": "2.6.3" }, { "@biomejs/biome": "2.6.3" }]);
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 test("invalid latest fails without selecting an older release", async () => {
   const fetcher = registry();
   for (const latest of [undefined, "3.0.0-beta.1", "garbage"]) {
     fetcher.mockResolvedValue({ latest });
-    await expect(
-      resolveJavascript([target("javascript")], policy(), signal()),
-    ).rejects.toThrow("exact stable");
+    await expect(resolveJavascript([target("javascript")], policy(), signal())).rejects.toThrow("exact stable");
   }
 });

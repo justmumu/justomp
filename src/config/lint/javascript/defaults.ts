@@ -1,8 +1,9 @@
 import { PRETTIER_DEFAULTS } from "../../format/defaults";
-import type { JavascriptPolicy } from "../model";
+import { type JavascriptPolicy } from "../model";
 
 /** Explicit Biome 2.6.3 snapshot. See the migration inventory for semantic gaps. */
 export const JAVASCRIPT_DEFAULTS: JavascriptPolicy = {
+  exclude: [],
   biome: {
     globals: [
       "console",

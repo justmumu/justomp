@@ -3,16 +3,14 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { pythonAdapter } from "../../../src/typecheck/adapters/python";
-import {
-  checkProjectTypecheck,
-  prepareProjectTypecheck,
-  typecheckProject,
-} from "../../../src/typecheck/index";
+import { checkProjectTypecheck, prepareProjectTypecheck, typecheckProject } from "../../../src/typecheck/index";
 import { VERSION } from "../../fixtures/typecheck/python/fixture";
 import { cleanup, fixture, id, registry } from "./service-fixture";
 
 afterEach(async () => {
-  for (const fn of cleanup.splice(0).reverse()) await fn();
+  for (const fn of cleanup.splice(0).reverse()) {
+    await fn();
+  }
 });
 test("native selected prepare then readonly checks report current diagnostics, no sources and late mutation", async () => {
   const f = await fixture(),
@@ -26,19 +24,13 @@ test("native selected prepare then readonly checks report current diagnostics, n
     network.mockRestore();
   }
   const before = await f.bytes();
-  const paths = [
-    ".justomp/config.json",
-    ".justomp/typecheck_state.json",
-    ".justomp/packaging_structure.json",
-  ];
+  const paths = [".justomp/config.json", ".justomp/typecheck_state.json", ".justomp/packaging_structure.json"];
   const bytes = () =>
     Promise.all(
       paths.map((path) =>
         Bun.file(join(f.root, path))
           .exists()
-          .then((exists) =>
-            exists ? readFile(join(f.root, path), "utf8") : null,
-          ),
+          .then((exists) => (exists ? readFile(join(f.root, path), "utf8") : null)),
       ),
     );
   const metadata = await bytes();
@@ -49,23 +41,17 @@ test("native selected prepare then readonly checks report current diagnostics, n
   const failed = await checkProjectTypecheck(f.root, id);
   expect(failed.complete).toBe(true);
   expect(failed.success).toBe(false);
-  expect(
-    failed.diagnostics.some((d) => d.rule === "reportAssignmentType"),
-  ).toBe(true);
+  expect(failed.diagnostics.some((d) => d.rule === "reportAssignmentType")).toBe(true);
   const actual = pythonAdapter.check.bind(pythonAdapter);
-  const mutated = spyOn(pythonAdapter, "check").mockImplementation(
-    async (ctx) => {
-      const checks = await actual(ctx);
-      await writeFile(join(f.root, "module.py"), "answer: int = 1\n");
-      return checks;
-    },
-  );
+  const mutated = spyOn(pythonAdapter, "check").mockImplementation(async (ctx) => {
+    const checks = await actual(ctx);
+    await writeFile(join(f.root, "module.py"), "answer: int = 1\n");
+    return checks;
+  });
   try {
     const result = await checkProjectTypecheck(f.root, id);
     expect(result.complete).toBe(false);
-    expect(result.diagnostics, JSON.stringify(result)).toEqual(
-      failed.diagnostics,
-    );
+    expect(result.diagnostics, JSON.stringify(result)).toEqual(failed.diagnostics);
     expect(result.incomplete_stages).toContain("verification");
   } finally {
     mutated.mockRestore();
@@ -82,36 +68,24 @@ test("shared Python workspace source changes invalidate the selected check witho
     network = registry(),
     selected = "python:packages/a/pyproject.toml";
   try {
-    expect((await prepareProjectTypecheck(f.root, selected)).complete).toBe(
-      true,
-    );
+    expect((await prepareProjectTypecheck(f.root, selected)).complete).toBe(true);
   } finally {
     network.mockRestore();
   }
-  await writeFile(
-    join(f.root, "packages/a/module.py"),
-    'answer: int = "bad"\n',
-  );
+  await writeFile(join(f.root, "packages/a/module.py"), 'answer: int = "bad"\n');
   const actual = pythonAdapter.check.bind(pythonAdapter),
     visited: string[] = [];
-  const checking = spyOn(pythonAdapter, "check").mockImplementation(
-    async (context) => {
-      visited.push(context.target.project.project_id);
-      const checks = await actual(context);
-      await writeFile(
-        join(f.root, "packages/b/module.py"),
-        "answer: int = 2\n",
-      );
-      return checks;
-    },
-  );
+  const checking = spyOn(pythonAdapter, "check").mockImplementation(async (context) => {
+    visited.push(context.target.project.project_id);
+    const checks = await actual(context);
+    await writeFile(join(f.root, "packages/b/module.py"), "answer: int = 2\n");
+    return checks;
+  });
   try {
     const result = await checkProjectTypecheck(f.root, selected);
     expect(result.complete, JSON.stringify(result)).toBe(false);
     expect(result.incomplete_stages).toContain("verification");
-    expect(
-      result.diagnostics.some((d) => d.rule === "reportAssignmentType"),
-    ).toBe(true);
+    expect(result.diagnostics.some((d) => d.rule === "reportAssignmentType")).toBe(true);
     expect(visited).toEqual([selected]);
   } finally {
     checking.mockRestore();
@@ -138,7 +112,5 @@ test("public Go full and readonly operations compile source and tests without ru
   const result = await checkProjectTypecheck(f.root, "go:go.mod");
   expect(result.complete, JSON.stringify(result)).toBe(true);
   expect(result.success).toBe(false);
-  expect(
-    result.diagnostics.some((d) => d.project_path === "main_test.go"),
-  ).toBe(true);
+  expect(result.diagnostics.some((d) => d.project_path === "main_test.go")).toBe(true);
 }, 30000);

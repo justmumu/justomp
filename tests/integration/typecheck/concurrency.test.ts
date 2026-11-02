@@ -21,10 +21,7 @@ function deferred() {
   return { promise, resolve };
 }
 async function target(root: string) {
-  return resolveTypecheckTarget(
-    (await getPackagingStructure(root)).structure,
-    "python:a/pyproject.toml",
-  );
+  return resolveTypecheckTarget((await getPackagingStructure(root)).structure, "python:a/pyproject.toml");
 }
 
 test("check holds dependency domains and revalidates after waiting behind mutation", async () => {
@@ -36,24 +33,17 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   const entered = deferred(),
     release = deferred();
   let writerStarted = false;
-  const check = withReadyTypecheckTarget(
-    f.root,
-    selected.project.project_id,
-    { python: f.adapter },
-    async () => {
-      entered.resolve();
-      await release.promise;
-      return true;
-    },
-  );
+  const check = withReadyTypecheckTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => {
+    entered.resolve();
+    await release.promise;
+    return true;
+  });
   await entered.promise;
   const independent = await resolveTypecheckTarget(
     (await getPackagingStructure(f.root, { publish: false })).structure,
     "python:b/pyproject.toml",
   );
-  expect(
-    await withDomains(independent.scope.domains, undefined, async () => true),
-  ).toBe(true);
+  expect(await withDomains(independent.scope.domains, undefined, async () => true)).toBe(true);
   const writer = withDomains(selected.scope.domains, undefined, async () => {
     writerStarted = true;
     await rm(join(f.root, "a/installed.json"));
@@ -64,12 +54,7 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   expect(await check).toBe(true);
   await writer;
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      selected.project.project_id,
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => true),
   ).rejects.toThrow("not ready");
   const locked = deferred(),
     unlock = deferred();
@@ -79,14 +64,9 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   });
   await locked.promise;
   let ran = false;
-  const waiting = withReadyTypecheckTarget(
-    f.root,
-    selected.project.project_id,
-    { python: f.adapter },
-    async () => {
-      ran = true;
-    },
-  );
+  const waiting = withReadyTypecheckTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => {
+    ran = true;
+  });
   unlock.resolve();
   await mutation;
   await expect(waiting).rejects.toThrow("not ready");
@@ -145,18 +125,10 @@ test("external native changes during a check cannot produce stale success", asyn
   const coordinator = await f.start();
   await coordinator.reconcile();
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => {
-        await writeFile(
-          join(f.root, "a/installed.json"),
-          '{"pyright":"0.0.1"}',
-        );
-        return true;
-      },
-    ),
+    withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => {
+      await writeFile(join(f.root, "a/installed.json"), '{"pyright":"0.0.1"}');
+      return true;
+    }),
   ).rejects.toThrow("changed during the check");
 });
 
@@ -210,12 +182,10 @@ test("failed config watcher setup releases its packaging retention and subscript
   const f = await fixture();
   const root = await realpath(f.root);
   const originalAdd = FSWatcher.prototype.add;
-  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (
-    this: FSWatcher,
-    paths,
-  ) {
-    if (paths === join(root, ".justomp/config.json"))
+  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (this: FSWatcher, paths) {
+    if (paths === join(root, ".justomp/config.json")) {
       throw new Error("injected config watcher failure");
+    }
     return originalAdd.call(this, paths);
   });
   try {
@@ -223,10 +193,7 @@ test("failed config watcher setup releases its packaging retention and subscript
   } finally {
     add.mockRestore();
   }
-  const registry = Reflect.get(
-    globalThis,
-    Symbol.for("justomp.packaging.v1"),
-  ) as {
+  const registry = Reflect.get(globalThis, Symbol.for("justomp.packaging.v1")) as {
     leases: Map<string, number>;
     listeners: Map<string, Set<() => void>>;
   };

@@ -11,7 +11,7 @@ for (const override of [
   { issues: { fix: true } },
   { output: { formats: { json: { path: "source.go" } } } },
   { run: { "allow-parallel-runners": true } },
-])
+]) {
   test(`Go policy rejects unsafe operational override ${JSON.stringify(override)}`, () => {
     const policy = resolveLintConfig().policy.go;
     Object.assign(policy.golangci, override);
@@ -19,6 +19,7 @@ for (const override of [
     expect(() => projectGo(policy)).toThrow();
     expect(policy).toEqual(before);
   });
+}
 test("Go projection owns readonly execution, full diagnostics and stdout output", () => {
   const projected = parse(projectGo(resolveLintConfig().policy.go));
   expect(projected.run).toMatchObject({

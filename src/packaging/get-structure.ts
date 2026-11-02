@@ -1,8 +1,8 @@
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { InspectionRules } from "../config/inspection/model";
+import { type InspectionRules } from "../config/inspection/model";
 import { loadConfig } from "../config/load";
-import type { PackagingStructure } from "../inspect/model";
+import { type PackagingStructure } from "../inspect/model";
 import { inspectProject } from "../inspect/scan";
 import { packagingInvocation } from "./invocation";
 import { publishSnapshot } from "./snapshot";
@@ -62,34 +62,35 @@ const { states, aliases, leases } = host[registryKey];
 host[registryKey].listeners ??= new Map();
 const listeners = host[registryKey].listeners;
 function notify(root: string) {
-  for (const listener of listeners.get(root) ?? []) listener();
+  for (const listener of listeners.get(root) ?? []) {
+    listener();
+  }
 }
 /** Subscribes only to discovery changes; never starts preparation itself. */
-export async function subscribePackagingStructure(
-  root: string,
-  listener: () => void,
-): Promise<() => void> {
+export async function subscribePackagingStructure(root: string, listener: () => void): Promise<() => void> {
   const key = await realpath(root);
   const entries = listeners.get(key) ?? new Set<() => void>();
   entries.add(listener);
   listeners.set(key, entries);
   return () => {
     entries.delete(listener);
-    if (!entries.size) listeners.delete(key);
+    if (!entries.size) {
+      listeners.delete(key);
+    }
   };
 }
 function freeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) freeze(child);
+    for (const child of Object.values(value)) {
+      freeze(child);
+    }
     Object.freeze(value);
   }
   return value;
 }
 async function stop(state: State) {
   state.closed = true;
-  state.job?.controller.abort(
-    new StructureError("closed", "Packaging inspection closed"),
-  );
+  state.job?.controller.abort(new StructureError("closed", "Packaging inspection closed"));
   await state.watcher.close();
   await state.job?.promise.catch(() => undefined);
 }
@@ -107,81 +108,84 @@ export async function closePackagingStructure(root?: string): Promise<void> {
     states.delete(key);
     await stop(state);
   }
-  for (const [alias, target] of aliases)
-    if (target === key) aliases.delete(alias);
+  for (const [alias, target] of aliases) {
+    if (target === key) {
+      aliases.delete(alias);
+    }
+  }
 }
 /** Session owners share a root watcher until the last session releases it. */
-export async function retainPackagingStructure(
-  root: string,
-): Promise<() => Promise<void>> {
+export async function retainPackagingStructure(root: string): Promise<() => Promise<void>> {
   const key = await realpath(root);
   leases.set(key, (leases.get(key) ?? 0) + 1);
   let released = false;
   return async () => {
-    if (released) return;
+    if (released) {
+      return;
+    }
     released = true;
     const count = (leases.get(key) ?? 1) - 1;
-    if (count > 0) leases.set(key, count);
-    else {
+    if (count > 0) {
+      leases.set(key, count);
+    } else {
       leases.delete(key);
       await closePackagingStructure(key);
     }
   };
 }
 export function getPackagingStatus(root: string): WatchStatus | undefined {
-  return states
-    .get(aliases.get(resolve(root)) ?? resolve(root))
-    ?.watcher.status();
+  return states.get(aliases.get(resolve(root)) ?? resolve(root))?.watcher.status();
 }
 async function refreshState(
   state: State,
   signal: AbortSignal,
 ): Promise<{ structure: PackagingStructure; publishMs: number }> {
   try {
-    if (!state.watcher.ready && !state.watcher.reason)
+    if (!state.watcher.ready && !state.watcher.reason) {
       await state.watcher.start(signal);
+    }
     for (;;) {
       signal.throwIfAborted();
-      if (state.closed)
+      if (state.closed) {
         throw new StructureError("closed", "Packaging inspection closed");
+      }
       const revision = state.watcher.revision;
       const structure = await inspectProject({
         root: state.root,
         rules: state.rules,
         signal,
       });
-      if (!structure.complete)
-        throw new StructureError(
-          "incomplete",
-          "Project inspection is incomplete",
-          structure,
-        );
-      if (revision !== state.watcher.revision) continue;
+      if (!structure.complete) {
+        throw new StructureError("incomplete", "Project inspection is incomplete", structure);
+      }
+      if (revision !== state.watcher.revision) {
+        continue;
+      }
       const latest = await loadConfig(state.root, { signal });
-      if (latest.key !== state.key)
-        throw new StructureError(
-          "config-changed",
-          "Inspection rules changed during refresh; call again",
-        );
+      if (latest.key !== state.key) {
+        throw new StructureError("config-changed", "Inspection rules changed during refresh; call again");
+      }
       signal.throwIfAborted();
       const published = state.job?.publish !== false;
-      const publishMs = published
-        ? await publishSnapshot(structure, signal)
-        : 0;
+      const publishMs = published ? await publishSnapshot(structure, signal) : 0;
       signal.throwIfAborted();
-      if (state.closed)
+      if (state.closed) {
         throw new StructureError("closed", "Packaging inspection closed");
-      if (revision !== state.watcher.revision) continue;
-      const projectKey = JSON.stringify(
-        structure.projects.map((p) => p.project_id).sort(),
-      );
-      const changed =
-        state.projectKey !== undefined && state.projectKey !== projectKey;
+      }
+      if (revision !== state.watcher.revision) {
+        continue;
+      }
+      const projectKey = JSON.stringify(structure.projects.map((p) => p.project_id).sort());
+      const changed = state.projectKey !== undefined && state.projectKey !== projectKey;
       state.projectKey = projectKey;
       state.snapshot = freeze(structure);
-      if (published) state.published = state.snapshot;
+      if (published) {
+        state.published = state.snapshot;
+      }
       state.revision = revision;
-      if (changed) notify(state.root);
+      if (changed) {
+        notify(state.root);
+      }
       return { structure: state.snapshot, publishMs };
     }
   } catch (error) {
@@ -207,10 +211,7 @@ function joinJob(
     const timer = setTimeout(
       () =>
         controller.abort(
-          new StructureError(
-            "structure-unstable",
-            "structure-unstable: inspection did not settle within 25 seconds",
-          ),
+          new StructureError("structure-unstable", "structure-unstable: inspection did not settle within 25 seconds"),
         ),
       25_000,
     );
@@ -218,51 +219,63 @@ function joinJob(
       controller,
       waiters: 0,
       publish,
-      promise: Promise.resolve().then(() =>
-        refreshState(state, controller.signal),
-      ),
+      promise: Promise.resolve().then(() => refreshState(state, controller.signal)),
     };
     job = current;
     state.job = current;
     void current.promise
       .finally(() => {
         clearTimeout(timer);
-        if (state.job === current) state.job = undefined;
+        if (state.job === current) {
+          state.job = undefined;
+        }
       })
       .catch(() => undefined);
   }
-  if (publish) job.publish = true;
+  if (publish) {
+    job.publish = true;
+  }
   const shared = job;
   shared.waiters++;
   return new Promise((resolveResult, reject) => {
     let done = false;
     const finish = () => {
-      if (done) return false;
+      if (done) {
+        return false;
+      }
       done = true;
       signal.removeEventListener("abort", abort);
       shared.waiters--;
       return true;
     };
     const abort = () => {
-      if (!finish()) return;
+      if (!finish()) {
+        return;
+      }
       if (shared.waiters === 0) {
         state.closed = true;
         shared.controller.abort(signal.reason);
-        void shared.promise
-          .catch(() => undefined)
-          .then(() => reject(signal.reason));
-      } else reject(signal.reason);
+        void shared.promise.catch(() => undefined).then(() => reject(signal.reason));
+      } else {
+        reject(signal.reason);
+      }
     };
     signal.addEventListener("abort", abort, { once: true });
     void shared.promise.then(
       (result) => {
-        if (finish()) resolveResult(result);
+        if (finish()) {
+          resolveResult(result);
+        }
       },
       (error) => {
-        if (finish()) reject(error);
+        if (finish()) {
+          reject(error);
+        }
       },
     );
-    if (signal.aborted) abort();
+    if (signal.aborted) {
+      abort();
+    }
   });
 }
 /** Read current rules and return a process-local watched snapshot, never the disk JSON. */
@@ -272,17 +285,10 @@ export async function getPackagingStructure(
 ): Promise<PackagingResult> {
   const started = performance.now();
   const controller = new AbortController();
-  const signal = options.signal
-    ? AbortSignal.any([options.signal, controller.signal])
-    : controller.signal;
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
   const timer = setTimeout(
     () =>
-      controller.abort(
-        new StructureError(
-          "structure-unstable",
-          "structure-unstable: inspection exceeded 25 seconds",
-        ),
-      ),
+      controller.abort(new StructureError("structure-unstable", "structure-unstable: inspection exceeded 25 seconds")),
     25_000,
   );
   try {
@@ -297,12 +303,9 @@ export async function getPackagingStructure(
         signal,
         excludedRoots: invocation.excluded,
       });
-      if (!structure.complete)
-        throw new StructureError(
-          "incomplete",
-          "Repository inspection incomplete",
-          structure,
-        );
+      if (!structure.complete) {
+        throw new StructureError("incomplete", "Repository inspection incomplete", structure);
+      }
       return {
         structure,
         cacheHit: false,
@@ -339,7 +342,9 @@ export async function getPackagingStructure(
       };
       state.watcher.subscribe(() => notify(canonical));
       states.set(canonical, state);
-      if (previous) await stop(previous);
+      if (previous) {
+        await stop(previous);
+      }
     }
     signal.throwIfAborted();
     const cacheHit =
@@ -352,25 +357,25 @@ export async function getPackagingStructure(
       ? { structure: state.snapshot as PackagingStructure, publishMs: 0 }
       : await joinJob(state, signal, options.publish !== false);
     signal.throwIfAborted();
-    if (state.closed)
-      throw new StructureError(
-        "closed",
-        "Packaging scope changed during request",
-      );
-    if (state.watcher.healthy && state.revision !== state.watcher.revision)
+    if (state.closed) {
+      throw new StructureError("closed", "Packaging scope changed during request");
+    }
+    if (state.watcher.healthy && state.revision !== state.watcher.revision) {
       return await getPackagingStructure(root, {
         ...options,
         refresh: true,
         signal,
       });
+    }
     // A default caller can join after a read-only job crossed its publication checkpoint.
     // Refresh through the normal cancellable job so shutdown/revision guarantees remain shared.
-    if (options.publish !== false && state.published !== result.structure)
+    if (options.publish !== false && state.published !== result.structure) {
       return await getPackagingStructure(root, {
         ...options,
         refresh: true,
         signal,
       });
+    }
     return {
       ...result,
       cacheHit,

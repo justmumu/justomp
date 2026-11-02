@@ -1,4 +1,4 @@
-import type { ToolVersions } from "../adapters/types";
+import { type ToolVersions } from "../adapters/types";
 
 export const BIOME_PACKAGE = "@biomejs/biome";
 export const BIOME_TOOL = { package: BIOME_PACKAGE, binary: "biome" } as const;

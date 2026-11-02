@@ -11,9 +11,7 @@ test("Python aliases cannot target the same declaration twice", () => {
       { name: "foo-bar", source: { kind: "registry" } },
     ],
   });
-  expect(() => normalizeDependencyRequest(request, "python")).toThrow(
-    "duplicate targets",
-  );
+  expect(() => normalizeDependencyRequest(request, "python")).toThrow("duplicate targets");
 });
 test("JavaScript registry names cannot become repository shorthand", () => {
   const request = parseRequest("add", {
@@ -21,16 +19,12 @@ test("JavaScript registry names cannot become repository shorthand", () => {
     group: { kind: "runtime" },
     packages: [{ name: "owner/repository", source: { kind: "registry" } }],
   });
-  expect(() => normalizeDependencyRequest(request, "javascript")).toThrow(
-    "not a valid javascript package name",
-  );
+  expect(() => normalizeDependencyRequest(request, "javascript")).toThrow("not a valid javascript package name");
 });
 test("JavaScript exact updates require complete versions", () => {
   const request = parseRequest("update", {
     project_id: "javascript:package.json",
     packages: [{ name: "foo", version: "1.2" }],
   });
-  expect(() => normalizeDependencyRequest(request, "javascript")).toThrow(
-    "complete major.minor.patch",
-  );
+  expect(() => normalizeDependencyRequest(request, "javascript")).toThrow("complete major.minor.patch");
 });

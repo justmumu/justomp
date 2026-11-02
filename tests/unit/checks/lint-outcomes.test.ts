@@ -1,15 +1,12 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
-import type {
-  AdapterContext,
-  ProcessResult,
-} from "../../../src/dependencies/model";
+import { type AdapterContext, type ProcessResult } from "../../../src/dependencies/model";
 import * as paths from "../../../src/dependencies/paths";
 import * as runner from "../../../src/dependencies/runner";
 import * as prettier from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
-import type { LintCheckContext } from "../../../src/lint/adapters/types";
+import { type LintCheckContext } from "../../../src/lint/adapters/types";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
 import * as scopes from "../../../src/lint/scope";
@@ -17,16 +14,15 @@ import { output, scope, target } from "./fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
   return spy;
 }
-function biomeReport(
-  diagnostics: unknown[] = [],
-  summary: Record<string, number> = {},
-) {
+function biomeReport(diagnostics: unknown[] = [], summary: Record<string, number> = {}) {
   return JSON.stringify({
     command: "check",
     summary: {
@@ -63,30 +59,14 @@ function fixture(language: "python" | "javascript") {
     },
   };
   const files = keep(
-    spyOn(scopes, "collectLintScope").mockResolvedValue(
-      scope(language === "python" ? "module.py" : "index.ts"),
-    ),
+    spyOn(scopes, "collectLintScope").mockResolvedValue(scope(language === "python" ? "module.py" : "index.ts")),
   );
-  const invoke =
-    language === "python"
-      ? keep(spyOn(runner, "runProcess"))
-      : keep(spyOn(native, "localTool"));
-  keep(
-    spyOn(paths, "safePath").mockImplementation(async (_root, path) => path),
-  );
-  keep(
-    spyOn(runtime, "lintManagerContext").mockResolvedValue(
-      {} as AdapterContext,
-    ),
-  );
-  const formatted = keep(
-    spyOn(prettier, "checkPrettierFile").mockResolvedValue(true),
-  );
+  const invoke = language === "python" ? keep(spyOn(runner, "runProcess")) : keep(spyOn(native, "localTool"));
+  keep(spyOn(paths, "safePath").mockImplementation(async (_root, path) => path));
+  keep(spyOn(runtime, "lintManagerContext").mockResolvedValue({} as AdapterContext));
+  const formatted = keep(spyOn(prettier, "checkPrettierFile").mockResolvedValue(true));
   const adapter = language === "python" ? pythonAdapter : javascriptAdapter;
-  function results(
-    lint: ProcessResult,
-    format = output({ stdout: language === "python" ? "[]" : "" }),
-  ) {
+  function results(lint: ProcessResult, format = output({ stdout: language === "python" ? "[]" : "" })) {
     invoke.mockImplementation(async () => {
       controller.signal.throwIfAborted();
       return format;
@@ -102,7 +82,9 @@ function fixture(language: "python" | "javascript") {
     results,
     check: () => adapter.check(context),
     fix: () => {
-      if (!adapter.fix) throw new Error("Missing fixture fixer");
+      if (!adapter.fix) {
+        throw new Error("Missing fixture fixer");
+      }
       return adapter.fix(context, ["module.py", "index.ts"]);
     },
   };
@@ -111,46 +93,44 @@ for (const language of ["python", "javascript"] as const) {
   test(`${language} empty scope returns no-sources without invoking a tool`, async () => {
     const f = fixture(language);
     f.files.mockResolvedValue({ ...scope("unused"), files: [], empty: true });
-    expect((await f.check()).map((c) => c.status)).toEqual([
-      "no-sources",
-      "no-sources",
-    ]);
+    expect((await f.check()).map((c) => c.status)).toEqual(["no-sources", "no-sources"]);
     expect(f.invoke).not.toHaveBeenCalled();
   });
   test(`${language} successful outputs pass both stages with explicit read-only arguments`, async () => {
     const f = fixture(language);
     f.results(output({ stdout: language === "python" ? "[]" : biomeReport() }));
-    expect((await f.check()).map((c) => c.status)).toEqual([
-      "passed",
-      "passed",
-    ]);
+    expect((await f.check()).map((c) => c.status)).toEqual(["passed", "passed"]);
     expect(f.invoke).toHaveBeenCalledTimes(language === "python" ? 2 : 1);
     const argumentsText = JSON.stringify(f.invoke.mock.calls);
     expect(argumentsText).toContain(f.context.projection.configs.lint);
-    if (language === "python")
+    if (language === "python") {
       expect(argumentsText).toContain(f.context.projection.configs.format);
-    else
+    } else {
       expect(f.formatted).toHaveBeenCalledWith(
         "/repo/apps/app/index.ts",
         "typescript",
         f.context.policy.javascript.prettier,
       );
-    if (language === "python") expect(argumentsText).toContain("--no-fix");
-    else {
+    }
+    if (language === "python") {
+      expect(argumentsText).toContain("--no-fix");
+    } else {
       expect(argumentsText).toContain("--formatter-enabled=false");
       expect(argumentsText).toContain("--enforce-assist=true");
       expect(argumentsText).toContain("--max-diagnostics=none");
       expect(argumentsText).not.toContain("--write");
       expect(argumentsText).not.toContain("--unsafe");
     }
-    if (language === "python") expect(argumentsText).toContain("--check");
+    if (language === "python") {
+      expect(argumentsText).toContain("--check");
+    }
   });
   for (const [name, result] of [
     ["truncated", output({ exit_code: 1, stdout: "[", truncated: true })],
     ["cancelled", output({ exit_code: null, cancelled: true })],
     ["crashed", output({ exit_code: 9 })],
     ["malformed diagnostics", output({ exit_code: 1, stdout: "not JSON" })],
-  ] as const)
+  ] as const) {
     test(`${language} ${name} lint is incomplete and format still runs`, async () => {
       const f = fixture(language);
       f.results(result);
@@ -166,6 +146,7 @@ for (const language of ["python", "javascript"] as const) {
       expect(checks[1]?.status).toBe("passed");
       expect(f.invoke).toHaveBeenCalledTimes(language === "python" ? 2 : 1);
     });
+  }
   test(`${language} pre-aborted invocation marks both stages cancelled`, async () => {
     const f = fixture(language);
     f.invoke.mockImplementation(async () => {
@@ -173,16 +154,12 @@ for (const language of ["python", "javascript"] as const) {
       return output();
     });
     f.controller.abort(new Error("cancelled"));
-    expect(
-      (await f.check()).every((c) => c.cancelled && c.status === "not-run"),
-    ).toBe(true);
+    expect((await f.check()).every((c) => c.cancelled && c.status === "not-run")).toBe(true);
   });
   test(`${language} process startup failure remains incomplete`, async () => {
     const f = fixture(language);
     f.invoke.mockRejectedValue(new Error("executable missing"));
-    expect(
-      (await f.check()).map((c) => ({ status: c.status, reason: c.reason })),
-    ).toEqual([
+    expect((await f.check()).map((c) => ({ status: c.status, reason: c.reason }))).toEqual([
       { status: "not-run", reason: "executable missing" },
       language === "python"
         ? { status: "not-run", reason: "executable missing" }
@@ -261,14 +238,8 @@ test("Biome import assist and Prettier source differences remain separate checks
 for (const [label, report] of [
   ["skipped file", biomeReport([], { skipped: 1 })],
   ["unprinted diagnostics", biomeReport([], { diagnosticsNotPrinted: 1 })],
-  [
-    "missing required summary",
-    JSON.stringify({ command: "check", diagnostics: [] }),
-  ],
-  [
-    "foreign report command",
-    JSON.stringify({ command: "lint", summary: {}, diagnostics: [] }),
-  ],
+  ["missing required summary", JSON.stringify({ command: "check", diagnostics: [] })],
+  ["foreign report command", JSON.stringify({ command: "lint", summary: {}, diagnostics: [] })],
   [
     "configuration diagnostic",
     biomeReport([
@@ -290,12 +261,13 @@ for (const [label, report] of [
     ]),
   ],
   ["empty failing report", biomeReport()],
-] as const)
+] as const) {
   test(`Biome ${label} cannot pass as a completed lint`, async () => {
     const f = fixture("javascript");
     f.results(output({ exit_code: 1, stdout: report }));
     expect((await f.check())[0]).toMatchObject({ status: "not-run" });
   });
+}
 test("Biome source parser diagnostics are completed failures and escaped locations are omitted", async () => {
   const f = fixture("javascript");
   f.results(
@@ -347,7 +319,9 @@ for (const language of ["python", "javascript"] as const) {
       expect(argv).toContain("--no-unsafe-fixes");
       expect(argv).toContain("--no-fix-only");
       expect(argv).toContain("--force-exclude");
-    } else expect(argv).not.toContain("--fix-type");
+    } else {
+      expect(argv).not.toContain("--fix-type");
+    }
     expect(f.formatted).not.toHaveBeenCalled();
     expect(f.invoke).toHaveBeenCalledTimes(1);
   });
@@ -409,15 +383,10 @@ for (const severity of ["warning", "info"] as const) {
       );
       const result = (await f.check())[0];
       // Info alone cannot explain a failing exit; warnings can fail under native policy.
-      expect(result?.status).toBe(
-        exit_code === 0
-          ? "passed"
-          : severity === "warning"
-            ? "failed"
-            : "not-run",
-      );
-      if (result?.status !== "not-run")
+      expect(result?.status).toBe(exit_code === 0 ? "passed" : severity === "warning" ? "failed" : "not-run");
+      if (result?.status !== "not-run") {
         expect(result?.diagnostics[0]?.severity).toBe(severity);
+      }
     });
   }
 }
@@ -426,9 +395,20 @@ for (const mismatch of ["command", "totals"] as const) {
   test(`Biome rejects otherwise completed reports with mismatched ${mismatch}`, async () => {
     const f = fixture("javascript");
     const report = JSON.parse(biomeReport());
-    if (mismatch === "command") report.command = "lint";
-    else report.summary.warnings = 1;
+    if (mismatch === "command") {
+      report.command = "lint";
+    } else {
+      report.summary.warnings = 1;
+    }
     f.results(output({ stdout: JSON.stringify(report) }));
     expect((await f.check())[0]?.status).toBe("not-run");
   });
 }
+
+test("JavaScript checks pass only the lint exclusions to source selection", async () => {
+  const f = fixture("javascript");
+  f.context.policy.javascript.exclude = [".private/**"];
+  f.results(output({ stdout: biomeReport() }));
+  await f.check();
+  expect(f.files).toHaveBeenCalledWith(f.context.target, [".private/**"]);
+});

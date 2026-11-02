@@ -2,7 +2,7 @@ import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { localTool } from "../../lint/javascript/native";
 import { lintManagerContext } from "../../lint/runtime";
-import type { TestAdapter } from "../adapters";
+import { type TestAdapter } from "../adapters";
 import {
   classifyResult,
   coverageEnabled,
@@ -27,19 +27,20 @@ export const vitestTestAdapter: TestAdapter = {
   async run(context) {
     let userConfig = context.target.configFile;
     for (const base of ["vitest", "vite"]) {
-      if (userConfig) break;
+      if (userConfig) {
+        break;
+      }
       for (const extension of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
-        const path = join(
-          context.target.scope.cwd,
-          `${base}.config.${extension}`,
-        );
+        const path = join(context.target.scope.cwd, `${base}.config.${extension}`);
         try {
           await access(path);
           userConfig = path;
           break;
         } catch {}
       }
-      if (userConfig) break;
+      if (userConfig) {
+        break;
+      }
     }
     const config = join(context.artifacts, "vitest.config.mjs");
     await writeFile(config, vitestConfig(context, userConfig));
@@ -62,16 +63,15 @@ export const vitestTestAdapter: TestAdapter = {
       result.executed_files = report.executed_files;
       classifyResult(result, report.collectionError);
     });
-    if (coverageEnabled(context))
+    if (coverageEnabled(context)) {
       await parseEvidence(result, async () => {
         result.coverage = vitestCoverage(
-          await reportText(
-            join(context.artifacts, "coverage/coverage-final.json"),
-          ),
+          await reportText(join(context.artifacts, "coverage/coverage-final.json")),
           context.target.scope.cwd,
           context.scope.sources,
         );
       });
+    }
     return result;
   },
 };

@@ -33,8 +33,9 @@ test("npm failed installation retains completed native declaration removal", asy
     );
     expect(plan.steps).toHaveLength(2);
     const [declaration, install] = plan.steps;
-    if (!declaration || !install)
+    if (!declaration || !install) {
       throw new Error("Expected both native stages");
+    }
     expect((await ctx.run(declaration)).exit_code).toBe(0);
     expect((await ctx.run(install)).exit_code).not.toBe(0);
     expect((await f.manifest()).dependencies["fixture-dep"]).toBeUndefined();

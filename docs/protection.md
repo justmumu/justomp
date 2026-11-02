@@ -37,7 +37,7 @@ single shell argument, never evaluated by a host shell first. There is no native
 OMP shell-snapshot or direnv preflight outside the sandbox.
 
 ```json
-{"command":"git status --short","cwd":"apps/api","timeout":30}
+{ "command": "git status --short", "cwd": "apps/api", "timeout": 30 }
 ```
 
 `cwd` defaults to the session root and relative values resolve from it. Timeout

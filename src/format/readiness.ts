@@ -13,8 +13,12 @@ export async function equivalentConfig(
   expected: string,
   parser: "toml" | "json" | "jsonc" | "yaml" | "babel",
 ): Promise<boolean> {
-  if (before === expected) return true;
-  if (before === null) return false;
+  if (before === expected) {
+    return true;
+  }
+  if (before === null) {
+    return false;
+  }
   try {
     if (parser === "babel") {
       const [actual, wanted] = await Promise.all([

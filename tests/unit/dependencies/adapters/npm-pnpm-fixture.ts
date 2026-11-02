@@ -1,8 +1,4 @@
-import type {
-  AdapterContext,
-  Dependency,
-  Inventory,
-} from "../../../../src/dependencies/model";
+import { type AdapterContext, type Dependency, type Inventory } from "../../../../src/dependencies/model";
 export function context(manager: "npm" | "pnpm"): AdapterContext {
   const project = {
     project_id: "javascript:packages/a/package.json",
@@ -60,9 +56,7 @@ export function context(manager: "npm" | "pnpm"): AdapterContext {
     },
   };
 }
-export function inventory(
-  ...groups: ("runtime" | "dev" | "peer")[]
-): Inventory {
+export function inventory(...groups: ("runtime" | "dev" | "peer")[]): Inventory {
   return {
     dependencies: groups.map(
       (group) =>

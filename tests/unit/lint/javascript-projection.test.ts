@@ -7,12 +7,7 @@ test("Biome projection isolates config discovery and applies explicit typed/fram
   const target = selectedTarget("javascript");
   target.project.frameworks = ["next"];
   const policy = resolveLintConfig().policy.javascript;
-  const output = projectJavascript(
-    target,
-    policy,
-    { ...scope("app.tsx"), hasTypescript: true },
-    "2.6.3",
-  );
+  const output = projectJavascript(target, policy, { ...scope("app.tsx"), hasTypescript: true }, "2.6.3");
   const data = Bun.JSONC.parse(output) as {
     $schema: string;
     root: boolean;
@@ -34,18 +29,18 @@ test("Biome projection isolates config discovery and applies explicit typed/fram
     preset: "none",
     source: { organizeImports: policy.biome.organize_imports },
   });
-  expect(
-    data.overrides.map((o: { linter: { rules: unknown } }) => o.linter.rules),
-  ).toEqual([
+  expect(data.overrides.map((o: { linter: { rules: unknown } }) => o.linter.rules)).toEqual([
     policy.biome.typed_rules,
     policy.biome.react_rules,
     policy.biome.next_rules,
     policy.biome.test_rules,
   ]);
   target.project.frameworks = [];
-  const js = Bun.JSONC.parse(
-    projectJavascript(target, policy, scope("app.js"), "2.6.3"),
-  ) as { overrides: unknown[]; plugins?: unknown; extends?: unknown };
+  const js = Bun.JSONC.parse(projectJavascript(target, policy, scope("app.js"), "2.6.3")) as {
+    overrides: unknown[];
+    plugins?: unknown;
+    extends?: unknown;
+  };
   expect(js.overrides).toHaveLength(1);
   expect(js.plugins).toBeUndefined();
   expect(js.extends).toBeUndefined();

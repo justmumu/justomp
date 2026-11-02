@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import {
-  applyPatchSchema,
-  replaceEditSchema,
-} from "@oh-my-pi/pi-coding-agent/edit";
+import { applyPatchSchema, replaceEditSchema } from "@oh-my-pi/pi-coding-agent/edit";
 import { protectedEditMetadata } from "../../../src/omp/protected-edit-metadata";
 import { extractProtectedToolTargets } from "../../../src/omp/protected-targets";
 
@@ -16,9 +13,7 @@ test("provider-qualified model changes keep edit metadata and target parsing ali
   const before = protectedEditMetadata(settings, undefined);
   expect(before.mode).toBe("replace");
   expect(before.parameters).toBe(replaceEditSchema);
-  const model = { provider: "openai", id: "gpt-5" } as NonNullable<
-    ExtensionContext["model"]
-  >;
+  const model = { provider: "openai", id: "gpt-5" } as NonNullable<ExtensionContext["model"]>;
   const after = protectedEditMetadata(settings, model);
   expect(after.mode).toBe("apply_patch");
   expect(after.parameters).toBe(applyPatchSchema);

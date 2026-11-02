@@ -21,12 +21,7 @@ test("mixed modern Yarn updates preserve default constraints and local/Git selec
       {
         operation: "update",
         project_id: f.id,
-        packages: [
-          { name: "exact", version: "2.0.0" },
-          { name: "within" },
-          { name: "local" },
-          { name: "git" },
-        ],
+        packages: [{ name: "exact", version: "2.0.0" }, { name: "within" }, { name: "local" }, { name: "git" }],
       },
       f.inventory,
     );
@@ -51,7 +46,9 @@ for (const [name, verify] of [
     try {
       const after = structuredClone(f.inventory);
       const dependency = after.dependencies[0];
-      if (!dependency) throw new Error("Missing fixture dependency");
+      if (!dependency) {
+        throw new Error("Missing fixture dependency");
+      }
       dependency.declared_specifier = "1.2.3";
       dependency.resolutions = [{ version: "1.2.3", evidence: "native lock" }];
       await verify?.(
@@ -80,12 +77,11 @@ for (const [name, adapter] of [
     try {
       const after = structuredClone(f.inventory);
       const dependency = after.dependencies[0];
-      if (!dependency) throw new Error("Missing fixture dependency");
+      if (!dependency) {
+        throw new Error("Missing fixture dependency");
+      }
       dependency.declared_specifier = "2.0.0";
-      for (const resolutions of [
-        undefined,
-        [{ version: "1.0.0", evidence: "native lock" }],
-      ]) {
+      for (const resolutions of [undefined, [{ version: "1.0.0", evidence: "native lock" }]]) {
         dependency.resolutions = resolutions;
         await expect(
           adapter.verify?.(
@@ -125,15 +121,14 @@ test("direct Bun resolution excludes another version reachable through a child",
     );
     for (const transitive of [false, true]) {
       const inventory = await bunAdapter.inventory(f.context, transitive);
-      expect(
-        inventory.dependencies.find((d) => d.direct && d.name === "foo")
-          ?.resolutions,
-      ).toEqual([{ version: "1.0.0", evidence: "bun.lock" }]);
-      if (transitive)
-        expect(
-          inventory.dependencies.find((d) => !d.direct && d.name === "foo")
-            ?.resolutions,
-        ).toEqual([{ version: "2.0.0", evidence: "bun.lock" }]);
+      expect(inventory.dependencies.find((d) => d.direct && d.name === "foo")?.resolutions).toEqual([
+        { version: "1.0.0", evidence: "bun.lock" },
+      ]);
+      if (transitive) {
+        expect(inventory.dependencies.find((d) => !d.direct && d.name === "foo")?.resolutions).toEqual([
+          { version: "2.0.0", evidence: "bun.lock" },
+        ]);
+      }
     }
   } finally {
     await f.close();

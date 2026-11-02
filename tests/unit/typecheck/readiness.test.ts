@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { TypecheckToolContext } from "../../../src/typecheck/adapters/types";
+import { type TypecheckToolContext } from "../../../src/typecheck/adapters/types";
 import { readyTypecheckProjection } from "../../../src/typecheck/readiness";
 
 function context(signal = new AbortController().signal) {
@@ -57,8 +57,6 @@ test("unready tools and cancellation cannot yield a ready projection", async () 
     controller.abort(new Error("cancelled"));
     return true;
   };
-  await expect(readyTypecheckProjection(adapter, ctx)).rejects.toThrow(
-    "cancelled",
-  );
+  await expect(readyTypecheckProjection(adapter, ctx)).rejects.toThrow("cancelled");
   expect(plans).toBe(0);
 });

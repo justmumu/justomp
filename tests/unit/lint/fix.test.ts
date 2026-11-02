@@ -1,9 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
-import type {
-  LintAdapter,
-  LintCheckContext,
-} from "../../../src/lint/adapters/types";
+import { type LintAdapter, type LintCheckContext } from "../../../src/lint/adapters/types";
 import * as files from "../../../src/lint/files";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import * as scopes from "../../../src/lint/scope";
@@ -11,7 +8,9 @@ import { output, scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -40,9 +39,7 @@ function fixture(ecosystem: "python" | "javascript" | "go" = "python") {
       mode: 0o644,
     })),
   );
-  const selectedFiles = keep(
-    spyOn(scopes, "collectLintScope").mockResolvedValue(scope("module.py")),
-  );
+  const selectedFiles = keep(spyOn(scopes, "collectLintScope").mockResolvedValue(scope("module.py")));
   const invoke = {
     async fix() {
       after = true;
@@ -128,12 +125,7 @@ test("before-read failure prevents all native writes", async () => {
   await expect(f.run()).rejects.toThrow("Cannot read source");
   expect(f.fix).not.toHaveBeenCalled();
 });
-for (const outcome of [
-  "failed",
-  "cancelled",
-  "truncated",
-  "rejected",
-] as const) {
+for (const outcome of ["failed", "cancelled", "truncated", "rejected"] as const) {
   test(`native ${outcome} retains observed edits`, async () => {
     const cancelled = outcome === "cancelled";
     const f = fixture();
@@ -144,8 +136,12 @@ for (const outcome of [
       mode: 0o644,
     }));
     f.fix.mockImplementation(async () => {
-      if (cancelled) f.controller.abort();
-      if (outcome === "rejected") throw new Error("Native launch failed");
+      if (cancelled) {
+        f.controller.abort();
+      }
+      if (outcome === "rejected") {
+        throw new Error("Native launch failed");
+      }
       return output({
         exit_code: cancelled ? null : outcome === "truncated" ? 0 : 2,
         cancelled,
@@ -169,8 +165,9 @@ test("one failed after-read cannot erase changes to the remaining files", async 
   });
   let reads = 0;
   f.reads.mockImplementation(async (_root, path) => {
-    if (++reads > 2 && path.endsWith("bad.py"))
+    if (++reads > 2 && path.endsWith("bad.py")) {
       throw new Error("File disappeared");
+    }
     return {
       text: reads > 2 ? "changed" : "old",
       identity: "1:1",
@@ -186,13 +183,7 @@ test("one failed after-read cannot erase changes to the remaining files", async 
   });
 });
 
-for (const key of [
-  "rules",
-  "typed_rules",
-  "test_rules",
-  "react_rules",
-  "next_rules",
-] as const) {
+for (const key of ["rules", "typed_rules", "test_rules", "react_rules", "next_rules"] as const) {
   test(`Biome ${key} cannot promote unsafe fixes`, async () => {
     const f = fixture("javascript");
     f.context.target.project.frameworks = ["next", "react"];
@@ -237,4 +228,13 @@ test("Biome successful write uses report completeness, not remaining unsafe sugg
   );
   await f.run();
   expect(f.report.status).toBe("completed");
+});
+
+test("JavaScript fixing uses the same explicit lint exclusions as checking", async () => {
+  const f = fixture("javascript");
+  f.context.policy.javascript.exclude = [".private/**"];
+  f.selectedFiles.mockResolvedValue({ ...scope(""), files: [], empty: true });
+  await f.run();
+  expect(f.selectedFiles).toHaveBeenCalledWith(f.context.target, [".private/**"]);
+  expect(f.fix).not.toHaveBeenCalled();
 });

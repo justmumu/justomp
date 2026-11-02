@@ -1,4 +1,10 @@
 node_modules/
-.justomp/
+.justomp/*
+!.justomp/config.json
 .private/
 *.tgz
+
+# Managed projections are regenerated from the shared config.
+/biome.justomp.jsonc
+/prettier.justomp.json
+/tsconfig.justomp.*.json

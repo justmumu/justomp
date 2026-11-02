@@ -1,12 +1,7 @@
 import { open } from "node:fs/promises";
 
 /** Persist output as it arrives, including diagnostics before a failed or interrupted run. */
-export async function runCostStage(
-  command: readonly string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  log: string,
-) {
+export async function runCostStage(command: readonly string[], cwd: string, env: NodeJS.ProcessEnv, log: string) {
   const began = performance.now();
   const file = await open(log, "w");
   try {

@@ -18,9 +18,7 @@ export async function fixture(deny: string[] = [], local = false) {
     await f.dispose();
   });
   await writeFile(join(f.root, "module.py"), '"""Example module."""\n');
-  const h = local
-    ? await createLocalHost(f.root, deny)
-    : await createHost(f.root, undefined, deny);
+  const h = local ? await createLocalHost(f.root, deny) : await createHost(f.root, undefined, deny);
   cleanups.push(h.close);
   return { f, h };
 }
@@ -29,12 +27,14 @@ export function registry() {
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
-        if (String(input) === "https://pypi.org/pypi/pyright/json")
+        if (String(input) === "https://pypi.org/pypi/pyright/json") {
           return Response.json({
             releases: { [PYRIGHT_VERSION]: [{ yanked: false }] },
           });
-        if (String(input) !== "https://pypi.org/pypi/ruff/json")
+        }
+        if (String(input) !== "https://pypi.org/pypi/ruff/json") {
           throw new Error(`Unexpected network: ${input}`);
+        }
         return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
       },
       { preconnect: original.preconnect },
@@ -52,7 +52,9 @@ export function json(result: { content: unknown }) {
 export async function until(check: () => Promise<boolean>, message: string) {
   const deadline = Date.now() + 20000;
   while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(message);
+    if (Date.now() > deadline) {
+      throw new Error(message);
+    }
     await Bun.sleep(15);
   }
 }
@@ -67,12 +69,14 @@ export function heldRegistry() {
   const fetcher = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-        if (String(input) === "https://pypi.org/pypi/pyright/json")
+        if (String(input) === "https://pypi.org/pypi/pyright/json") {
           return Response.json({
             releases: { [PYRIGHT_VERSION]: [{ yanked: false }] },
           });
-        if (String(input) !== "https://pypi.org/pypi/ruff/json")
+        }
+        if (String(input) !== "https://pypi.org/pypi/ruff/json") {
           throw new Error(`Unexpected network ${input}`);
+        }
         calls++;
         entered = true;
         const signal = init?.signal;
@@ -80,7 +84,9 @@ export function heldRegistry() {
         const cancelled = new Promise<never>((_, reject) => {
           abort = () => reject(signal?.reason);
           signal?.addEventListener("abort", abort, { once: true });
-          if (signal?.aborted) abort();
+          if (signal?.aborted) {
+            abort();
+          }
         });
         try {
           await Promise.race([gate, cancelled]);

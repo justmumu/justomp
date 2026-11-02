@@ -18,8 +18,9 @@ export function registry() {
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
-        if (String(input) !== "https://pypi.org/pypi/ruff/json")
+        if (String(input) !== "https://pypi.org/pypi/ruff/json") {
           throw new Error(`Unexpected registry request: ${input}`);
+        }
         return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
       },
       { preconnect: original.preconnect },

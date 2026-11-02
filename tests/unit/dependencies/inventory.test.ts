@@ -10,12 +10,7 @@ function inventory(file: string, text: string) {
       path: ".",
       managerRoot: ".",
       manifest: file,
-      ecosystem:
-        file === "package.json"
-          ? "javascript"
-          : file === "go.mod"
-            ? "go"
-            : "python",
+      ecosystem: file === "package.json" ? "javascript" : file === "go.mod" ? "go" : "python",
     },
     text,
   );
@@ -29,17 +24,9 @@ test("JS group occurrences and source provenance are kept without installation",
       devDependencies: { foo: "^2.0.0" },
     }),
   );
-  expect(
-    result.dependencies
-      .filter((d) => d.name === "foo")
-      .map((d) => d.group.kind),
-  ).toEqual(["runtime", "dev"]);
-  expect(result.dependencies.find((d) => d.name === "ui")?.source.kind).toBe(
-    "workspace",
-  );
-  expect(result.dependencies.every((d) => d.resolutions === undefined)).toBe(
-    true,
-  );
+  expect(result.dependencies.filter((d) => d.name === "foo").map((d) => d.group.kind)).toEqual(["runtime", "dev"]);
+  expect(result.dependencies.find((d) => d.name === "ui")?.source.kind).toBe("workspace");
+  expect(result.dependencies.every((d) => d.resolutions === undefined)).toBe(true);
 });
 test("Python requirements keep extras, markers, groups and native sources", async () => {
   const result = await inventory(
@@ -56,8 +43,6 @@ test("Go indirect declarations are not presented as direct packages or checksum 
     "go.mod",
     "module example.test/app\ngo 1.25\nrequire (\n example.test/a v1.0.0\n example.test/b v2.0.0 // indirect\n)\nreplace example.test/a => ./local\n",
   );
-  expect(
-    result.dependencies.filter((d) => d.direct).map((d) => d.name),
-  ).toEqual(["example.test/a"]);
+  expect(result.dependencies.filter((d) => d.direct).map((d) => d.name)).toEqual(["example.test/a"]);
   expect(result.dependencies[0]?.source.kind).toBe("path");
 });

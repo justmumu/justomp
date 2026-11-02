@@ -1,7 +1,4 @@
-import {
-  javascriptFixture,
-  type Manager,
-} from "../../fixtures/lint/javascript/fixture";
+import { javascriptFixture, type Manager } from "../../fixtures/lint/javascript/fixture";
 export const cleanups: (() => Promise<void>)[] = [];
 export async function fixture(
   manager: Manager = "npm",

@@ -1,12 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { COMMIT_DEFAULTS } from "../../../src/config/commit/defaults";
@@ -33,23 +26,21 @@ async function host(root: string, deny = false) {
   return h;
 }
 afterEach(async () => {
-  for (const h of hosts.splice(0)) await h.close();
-  for (const root of roots.splice(0))
+  for (const h of hosts.splice(0)) {
+    await h.close();
+  }
+  for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
+  }
 });
 test("actual OMP loader, session hook and tool share a snapshot in headless mode", async () => {
   const root = await fixture();
   await mkdir(join(root, ".justomp"));
-  await writeFile(
-    join(root, ".justomp/config.json"),
-    '{"inspection_rules":{"exclude":[]},"custom":7}',
-  );
+  await writeFile(join(root, ".justomp/config.json"), '{"inspection_rules":{"exclude":[]},"custom":7}');
   const h = await host(root);
   expect(h.registered.definition.approval).toBe("write");
   await h.runner.emit({ type: "session_start" });
-  const config = JSON.parse(
-    await readFile(join(root, ".justomp/config.json"), "utf8"),
-  );
+  const config = JSON.parse(await readFile(join(root, ".justomp/config.json"), "utf8"));
   expect(config).toEqual({
     inspection_rules: { exclude: [], include: ["**/*"] },
     custom: 7,
@@ -60,56 +51,40 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
     integration_test: resolveIntegrationTestConfig().policy,
     commit: COMMIT_DEFAULTS,
   });
-  const snapshot = JSON.parse(
-    await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"),
-  );
+  const snapshot = JSON.parse(await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"));
   const result = await h.tool.execute("test", {});
   expect(result.isError).not.toBe(true);
   expect(result.details.structure.projects).toEqual(snapshot.projects);
   // Background lint setup may refresh inspection; unchanged explicit getters still share its cache.
   const next = await h.tool.execute("cached", {});
   expect(next.details.structure.projects).toEqual(snapshot.projects);
-  expect(
-    result.content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("\n"),
-  ).toContain('"name":"hello"');
+  expect(result.content.map((block) => (block.type === "text" ? block.text : "")).join("\n")).toContain(
+    '"name":"hello"',
+  );
 });
 test("nested sessions install both repository hooks without changing tool cwd", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-hook-host-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-hook-host-")));
   roots.push(root);
   await gitText(root, ["init", "-q"]);
   const nested = join(root, "nested");
   await mkdir(nested);
   const h = await host(nested);
-  expect(h.runner.getRegisteredTool("repo_commit")?.definition.approval).toBe(
-    "exec",
-  );
+  expect(h.runner.getRegisteredTool("repo_commit")?.definition.approval).toBe("exec");
   await h.runner.emit({ type: "session_start" });
   const hook = await readFile(join(root, ".git/hooks/pre-commit"), "utf8");
   const push = await readFile(join(root, ".git/hooks/pre-push"), "utf8");
   expect(h.runner.getRegisteredTool("repo_push")).toBeUndefined();
   await h.runner.emit({ type: "session_start" });
-  expect(await readFile(join(root, ".git/hooks/pre-commit"), "utf8")).toBe(
-    hook,
-  );
+  expect(await readFile(join(root, ".git/hooks/pre-commit"), "utf8")).toBe(hook);
   expect(await readFile(join(root, ".git/hooks/pre-push"), "utf8")).toBe(push);
-  expect((await h.tool.execute("scope", {})).details.structure.root).toBe(
-    nested,
-  );
+  expect((await h.tool.execute("scope", {})).details.structure.root).toBe(nested);
 });
 test("host denial prevents the custom tool from writing anything", async () => {
   const root = await fixture();
   const h = await host(root, true);
   await expect(h.tool.execute("denied", {})).rejects.toThrow();
-  expect(
-    await Bun.file(join(root, ".justomp/packaging_structure.json")).exists(),
-  ).toBe(false);
-  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(
-    false,
-  );
+  expect(await Bun.file(join(root, ".justomp/packaging_structure.json")).exists()).toBe(false);
+  expect(await Bun.file(join(root, ".justomp/config.json")).exists()).toBe(false);
 });
 test("startup config error is visible and a later tool call can recover without flushing", async () => {
   const root = await fixture();
@@ -137,12 +112,8 @@ test("cancelled tool does not publish and shutdown releases watcher resources", 
   const h = await host(root);
   const controller = new AbortController();
   controller.abort();
-  await expect(
-    h.tool.execute("cancel", {}, controller.signal),
-  ).rejects.toThrow();
-  expect(
-    await Bun.file(join(root, ".justomp/packaging_structure.json")).exists(),
-  ).toBe(false);
+  await expect(h.tool.execute("cancel", {}, controller.signal)).rejects.toThrow();
+  expect(await Bun.file(join(root, ".justomp/packaging_structure.json")).exists()).toBe(false);
   await h.runner.emit({ type: "session_start" });
   expect(getPackagingStatus(root)?.healthy).toBe(true);
   await h.runner.emit({ type: "session_shutdown" });
@@ -152,10 +123,7 @@ test("two sessions preserve config and one shutdown leaves the other watcher ali
   const root = await fixture();
   const a = await host(root),
     b = await host(root);
-  await Promise.all([
-    a.runner.emit({ type: "session_start" }),
-    b.runner.emit({ type: "session_start" }),
-  ]);
+  await Promise.all([a.runner.emit({ type: "session_start" }), b.runner.emit({ type: "session_start" })]);
   await a.runner.emit({ type: "session_shutdown" });
   expect(getPackagingStatus(root)?.healthy).toBe(true);
   expect((await b.tool.execute("still-live", {})).isError).not.toBe(true);

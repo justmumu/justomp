@@ -1,17 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readInventory } from "../../../src/dependencies/inventory";
-import type { Adapter } from "../../../src/dependencies/model";
+import { type Adapter } from "../../../src/dependencies/model";
 import { withDomains } from "../../../src/dependencies/queue";
 import { executeDependency } from "../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
@@ -21,17 +13,18 @@ const originalPath = process.env.PATH;
 const originalEnvironment = process.env.UV_PROJECT_ENVIRONMENT;
 afterEach(async () => {
   process.env.PATH = originalPath;
-  if (originalEnvironment === undefined)
+  if (originalEnvironment === undefined) {
     delete process.env.UV_PROJECT_ENVIRONMENT;
-  else process.env.UV_PROJECT_ENVIRONMENT = originalEnvironment;
+  } else {
+    process.env.UV_PROJECT_ENVIRONMENT = originalEnvironment;
+  }
   await closePackagingStructure();
-  for (const root of roots.splice(0))
+  for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
+  }
 });
 async function temporaryRoot() {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-domains-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-domains-")));
   roots.push(root);
   return root;
 }
@@ -76,12 +69,7 @@ const adapter: Adapter = {
   }),
 };
 function sync(root: string, name: string) {
-  return executeDependency(
-    root,
-    "sync",
-    { project_id: `python:${name}/pyproject.toml` },
-    { uv: adapter },
-  );
+  return executeDependency(root, "sync", { project_id: `python:${name}/pyproject.toml` }, { uv: adapter });
 }
 async function started(root: string, name: string) {
   for (let i = 0; i < 200; i++) {
@@ -98,9 +86,9 @@ test.each(["absolute", "symlink parent"])(
   "distinct uv roots serialize writes to the same %s environment",
   async (kind) => {
     const root = await fixture();
-    if (kind === "absolute")
+    if (kind === "absolute") {
       process.env.UV_PROJECT_ENVIRONMENT = join(root, "shared-env");
-    else {
+    } else {
       await mkdir(join(root, "shared"));
       await symlink(join(root, "shared"), join(root, "a", "env"));
       await symlink(join(root, "shared"), join(root, "b", "env"));
@@ -112,10 +100,7 @@ test.each(["absolute", "symlink parent"])(
     await Bun.sleep(200);
     await writeFile(join(root, "release"), "release");
     const results = await Promise.all([first, second]);
-    expect(results.map((result) => result.outcome)).toEqual([
-      "success",
-      "success",
-    ]);
+    expect(results.map((result) => result.outcome)).toEqual(["success", "success"]);
     expect(await readFile(join(root, "b-started"), "utf8")).toBe("started");
   },
 );
@@ -148,26 +133,18 @@ test("a changed environment after queue acquisition requeues before probing or m
   const newReady = new Promise<void>((resolve) => {
     newAcquired = resolve;
   });
-  const ownerLease = withDomains(
-    [`write:${join(root, "a")}`],
-    undefined,
-    async () => {
-      ownerAcquired();
-      await new Promise<void>((resolve) => {
-        releaseOwner = resolve;
-      });
-    },
-  );
-  const newLease = withDomains(
-    [`write:${newEnvironment}`],
-    undefined,
-    async () => {
-      newAcquired();
-      await new Promise<void>((resolve) => {
-        releaseNew = resolve;
-      });
-    },
-  );
+  const ownerLease = withDomains([`write:${join(root, "a")}`], undefined, async () => {
+    ownerAcquired();
+    await new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+  });
+  const newLease = withDomains([`write:${newEnvironment}`], undefined, async () => {
+    newAcquired();
+    await new Promise<void>((resolve) => {
+      releaseNew = resolve;
+    });
+  });
   await Promise.all([ownerReady, newReady]);
   const pending = sync(root, "a");
   try {

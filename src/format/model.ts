@@ -1,4 +1,4 @@
-import type { LintEcosystem } from "../lint/model";
+import { type LintEcosystem } from "../lint/model";
 
 export class FormatError extends Error {
   constructor(
@@ -14,6 +14,4 @@ export interface FormatScope {
   /** Eligible owned regular files, relative to the selected project. */
   files: string[];
 }
-export type Formatter =
-  | { engine: "ruff" | "go" }
-  | { engine: "prettier"; parser: string };
+export type Formatter = { engine: "ruff" | "go" } | { engine: "prettier"; parser: string };

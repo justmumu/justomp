@@ -6,14 +6,14 @@ The root is canonicalized but never expanded to an ancestor Git repository. Git 
 
 ## Discovery and relationships
 
-| Input | Interpretation |
-| --- | --- |
-| `package.json` | JavaScript/TypeScript package metadata, engines, declared manager, dependency declarations and framework hints |
-| `pyproject.toml` | Python project metadata, uv workspace and sources, or a tooling-only file |
-| `go.mod` | Module identity, Go version, requires and replacements through a tokenizing parser |
-| `pnpm-workspace.yaml` | Native pnpm membership patterns and exclusions |
-| `go.work` | Explicit workspace members and workspace-level replacements |
-| Recognized lockfile names | Package-manager evidence from presence; lockfile contents are not a dependency graph input |
+| Input                     | Interpretation                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `package.json`            | JavaScript/TypeScript package metadata, engines, declared manager, dependency declarations and framework hints |
+| `pyproject.toml`          | Python project metadata, uv workspace and sources, or a tooling-only file                                      |
+| `go.mod`                  | Module identity, Go version, requires and replacements through a tokenizing parser                             |
+| `pnpm-workspace.yaml`     | Native pnpm membership patterns and exclusions                                                                 |
+| `go.work`                 | Explicit workspace members and workspace-level replacements                                                    |
+| Recognized lockfile names | Package-manager evidence from presence; lockfile contents are not a dependency graph input                     |
 
 Workspace membership and local dependencies are separate collections. Two packages in the same workspace do not automatically depend on one another. Edges require an explicit declaration: JavaScript `workspace:`, `file:` or `link:` references; uv workspace/path sources and supported direct Python paths; or a Go require matched with a local replacement. An unused Go replacement does not create an edge. uv sources can be inherited from a virtual workspace root without a root Python package.
 
@@ -29,14 +29,7 @@ All fields in `.justomp/config.json` are optional. The inspection defaults are s
 {
   "inspection_rules": {
     "include": ["**/*"],
-    "exclude": [
-      "**/.*",
-      "**/node_modules",
-      "**/venv",
-      "**/bower_components",
-      "**/__pycache__",
-      "**/__pypackages__"
-    ]
+    "exclude": ["**/.*", "**/node_modules", "**/venv", "**/bower_components", "**/__pycache__", "**/__pypackages__"]
   }
 }
 ```
@@ -75,16 +68,16 @@ Installing the extension enables its trusted startup hook, including config/snap
 
 Schema version 2 includes:
 
-| Field | Meaning |
-| --- | --- |
-| `schemaVersion` | Stored report schema version |
-| `scanId`, `startedAt`, `completedAt` | Identity and times of the actual scan; cache hits keep these values |
-| `root` | Canonical inspection boundary |
-| `projects` | Stable `project_id`, relative `path`, ecosystem, manifest, evidence, metadata and detection status |
-| `workspaces` | Declaration, resolver kind, member project IDs and resolution status |
-| `localDependencies` | Source/target project IDs with explicit declaration evidence |
-| `diagnostics`, `excluded` | Ambiguity, unresolved declarations and traversal boundaries |
-| `complete`, `metrics` | Whether selected traversal completed, plus scan duration and I/O counters |
+| Field                                | Meaning                                                                                            |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `schemaVersion`                      | Stored report schema version                                                                       |
+| `scanId`, `startedAt`, `completedAt` | Identity and times of the actual scan; cache hits keep these values                                |
+| `root`                               | Canonical inspection boundary                                                                      |
+| `projects`                           | Stable `project_id`, relative `path`, ecosystem, manifest, evidence, metadata and detection status |
+| `workspaces`                         | Declaration, resolver kind, member project IDs and resolution status                               |
+| `localDependencies`                  | Source/target project IDs with explicit declaration evidence                                       |
+| `diagnostics`, `excluded`            | Ambiguity, unresolved declarations and traversal boundaries                                        |
+| `complete`, `metrics`                | Whether selected traversal completed, plus scan duration and I/O counters                          |
 
 Each `project_id` is the ecosystem followed by the normalized root-relative manifest path, for example `python:apps/api/pyproject.toml` or `javascript:package.json`. The project directory `path` is `.` at the root. A copied root, repeated inspection, or package name/version edit keeps the ID; moving the manifest changes it. Several ecosystems in one directory have distinct IDs. Workspace members and dependency `from`/`to` values use these same IDs.
 
@@ -106,12 +99,12 @@ bun run bench:inspect > /tmp/justomp-benchmark.json
 
 The harness creates and removes its own temporary projects. Progress goes to stderr; stdout is a single JSON report. It does not use the source checkout as a fixture and does not create a production `.justomp/config.json`.
 
-| Fixture | Projects | Included entries | Excluded dependency entries |
-| --- | ---: | ---: | ---: |
-| Small | 1 | 100 | 0 |
-| Medium | 50 | 10,000 | 0 |
-| Large | 500 | 100,000 | 0 |
-| Excluded tree | 50 | 10,000 | 1,000,000 |
+| Fixture       | Projects | Included entries | Excluded dependency entries |
+| ------------- | -------: | ---------------: | --------------------------: |
+| Small         |        1 |              100 |                           0 |
+| Medium        |       50 |           10,000 |                           0 |
+| Large         |      500 |          100,000 |                           0 |
+| Excluded tree |       50 |           10,000 |                   1,000,000 |
 
 Entries are actual files and directories, not simulated multipliers. Projects are flat JavaScript packages with explicit local dependencies. Source files and excluded empty files use hardlinks with a separate seed per directory; logical entry count and content storage are reported separately. Fixture generation uses bounded batches of 32 filesystem operations. The inspector itself performs sequential bounded I/O. The generated `.justomp` directory can add one excluded parent entry after the initial scan.
 
@@ -135,12 +128,12 @@ Measured on 2026-10-28 with Bun 1.4.2, OMP 18.13.3, an Apple M2 Max (12 logical 
 
 All values below are milliseconds. Initial setup has one sample; other modes have 20 samples. Repeated timings are p50 / p95 / max.
 
-| Projects / included entries / excluded entries | Initial | Clean getter | Dirty refresh | Full-scan fallback | Watched directories |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 1 / 100 / 0 | 15.29 | 0.31 / 0.90 / 1.80 | 3.73 / 6.17 / 7.70 | 1.22 / 1.75 / 1.95 | 2 |
-| 50 / 10,000 / 0 | 144.50 | 0.32 / 1.31 / 1.77 | 52.65 / 58.50 / 71.30 | 51.63 / 52.85 / 67.69 | 51 |
-| 500 / 100,000 / 0 | 1984.49 | 0.75 / 2.51 / 2.71 | 516.48 / 559.90 / 629.56 | 519.01 / 543.72 / 614.12 | 501 |
-| 50 / 10,000 / 1,000,000 | 158.35 | 0.37 / 1.18 / 3.26 | 52.92 / 54.64 / 70.99 | 50.44 / 53.32 / 53.74 | 51 |
+| Projects / included entries / excluded entries | Initial |       Clean getter |            Dirty refresh |       Full-scan fallback | Watched directories |
+| ---------------------------------------------- | ------: | -----------------: | -----------------------: | -----------------------: | ------------------: |
+| 1 / 100 / 0                                    |   15.29 | 0.31 / 0.90 / 1.80 |       3.73 / 6.17 / 7.70 |       1.22 / 1.75 / 1.95 |                   2 |
+| 50 / 10,000 / 0                                |  144.50 | 0.32 / 1.31 / 1.77 |    52.65 / 58.50 / 71.30 |    51.63 / 52.85 / 67.69 |                  51 |
+| 500 / 100,000 / 0                              | 1984.49 | 0.75 / 2.51 / 2.71 | 516.48 / 559.90 / 629.56 | 519.01 / 543.72 / 614.12 |                 501 |
+| 50 / 10,000 / 1,000,000                        |  158.35 | 0.37 / 1.18 / 3.26 |    52.92 / 54.64 / 70.99 |    50.44 / 53.32 / 53.74 |                  51 |
 
 All 80 clean getters reused the existing scan, with no manifest reads or snapshot publication. The one-million-entry excluded tree added only its `node_modules` parent entry to traversal: 10,001 observed entries, 51 inspected directories and 51 watched directories. Its 977 excluded directories received no child subscriptions. This compares with 10,000 entries and the same 51 directories without that dependency tree.
 

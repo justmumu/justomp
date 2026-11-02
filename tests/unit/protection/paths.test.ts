@@ -1,16 +1,8 @@
 import { expect, test } from "bun:test";
-import type { Project, Workspace } from "../../../src/inspect/model";
-import {
-  collectProtectedPaths,
-  findProtectedPath,
-} from "../../../src/protection/paths";
+import { type Project, type Workspace } from "../../../src/inspect/model";
+import { collectProtectedPaths, findProtectedPath } from "../../../src/protection/paths";
 
-function project(
-  ecosystem: Project["ecosystem"],
-  path: string,
-  manager: string,
-  owner = path,
-): Project {
+function project(ecosystem: Project["ecosystem"], path: string, manager: string, owner = path): Project {
   const name = {
     python: "pyproject.toml",
     javascript: "package.json",
@@ -82,8 +74,9 @@ test("protects manifests, shared owner locks and owned projections in mixed repo
     "services/api/golangci.justomp.yml",
     ".justomp/config.json",
     ".justomp/typecheck_state.json",
-  ])
+  ]) {
     expect(paths).toContain(`/repo/${path}`);
+  }
   expect(paths).not.toContain("/repo/apps/web/pnpm-lock.yaml");
   expect(paths).not.toContain("/repo/services/go.mod");
   expect(paths).not.toContain("/repo/apps/api/pyrightconfig.json");
@@ -104,8 +97,9 @@ test("ambiguous managers protect each known candidate lock without choosing a ma
     "bun.lockb",
     "yarn.lock",
     "pnpm-lock.yaml",
-  ])
+  ]) {
     expect(paths).toContain(`/repo/${name}`);
+  }
 });
 
 test("virtual workspace roots have their own protected declaration and lock", () => {
@@ -141,31 +135,16 @@ test("virtual workspace roots have their own protected declaration and lock", ()
 });
 
 test("rejects incomplete inspection and metadata paths outside the root", () => {
-  expect(() =>
-    collectProtectedPaths({ ...structure([]), complete: false }),
-  ).toThrow("incomplete");
+  expect(() => collectProtectedPaths({ ...structure([]), complete: false })).toThrow("incomplete");
   const app = project("python", "../outside", "uv");
   expect(() => collectProtectedPaths(structure([app]))).toThrow("outside");
 });
 
 test("matches protected files and affected ancestors without prefix collisions", () => {
-  const protectedPaths = [
-    "/repo/apps/api/pyproject.toml",
-    "/repo/.justomp/config.json",
-  ];
-  expect(
-    findProtectedPath("/repo/apps/api/pyproject.toml", protectedPaths),
-  ).toBe(protectedPaths[0]);
-  expect(findProtectedPath("/repo/apps", protectedPaths)).toBe(
-    protectedPaths[0],
-  );
-  expect(
-    findProtectedPath("/repo/apps/api/main.py", protectedPaths),
-  ).toBeUndefined();
-  expect(
-    findProtectedPath("/repo/apps/api/pyproject.toml.backup", protectedPaths),
-  ).toBeUndefined();
-  expect(
-    findProtectedPath("/repo/apps/api-other", protectedPaths),
-  ).toBeUndefined();
+  const protectedPaths = ["/repo/apps/api/pyproject.toml", "/repo/.justomp/config.json"];
+  expect(findProtectedPath("/repo/apps/api/pyproject.toml", protectedPaths)).toBe(protectedPaths[0]);
+  expect(findProtectedPath("/repo/apps", protectedPaths)).toBe(protectedPaths[0]);
+  expect(findProtectedPath("/repo/apps/api/main.py", protectedPaths)).toBeUndefined();
+  expect(findProtectedPath("/repo/apps/api/pyproject.toml.backup", protectedPaths)).toBeUndefined();
+  expect(findProtectedPath("/repo/apps/api-other", protectedPaths)).toBeUndefined();
 });

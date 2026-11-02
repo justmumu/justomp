@@ -1,8 +1,8 @@
-import type { LintPolicy } from "../../config/lint/model";
-import type { ProcessResult } from "../../dependencies/model";
-import type { LintCheck, LintEcosystem, PreparationChange } from "../model";
-import type { ProjectionPlan } from "../projection";
-import type { LintTarget } from "../targets";
+import { type LintPolicy } from "../../config/lint/model";
+import { type ProcessResult } from "../../dependencies/model";
+import { type LintCheck, type LintEcosystem, type PreparationChange } from "../model";
+import { type ProjectionPlan } from "../projection";
+import { type LintTarget } from "../targets";
 
 export type ToolVersions = Record<string, string>;
 export interface LintOperationContext {
@@ -38,11 +38,6 @@ export interface LintAdapter {
   verify(context: LintCheckContext): Promise<boolean>;
   check(context: LintCheckContext): Promise<LintCheck[]>;
   /** Native source mutation, called only with explicit owned files under the ready lease. */
-  fix?(
-    context: LintCheckContext,
-    files: readonly string[],
-  ): Promise<ProcessResult>;
+  fix?(context: LintCheckContext, files: readonly string[]): Promise<ProcessResult>;
 }
-export type LintAdapterRegistry = Readonly<
-  Partial<Record<LintEcosystem, LintAdapter>>
->;
+export type LintAdapterRegistry = Readonly<Partial<Record<LintEcosystem, LintAdapter>>>;

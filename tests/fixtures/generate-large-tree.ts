@@ -1,11 +1,4 @@
-import {
-  link,
-  mkdir,
-  mkdtemp,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { link, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 export interface LargeTreeOptions {
@@ -27,34 +20,19 @@ export interface LargeTreeFixture {
   firstManifest: string;
   cleanup: () => Promise<void>;
 }
-const SOURCE =
-  'export const fixture = "source contents must never be read by inspection";\n';
-async function links(
-  seed: string,
-  directory: string,
-  count: number,
-  start: number,
-  prefix: string,
-): Promise<void> {
+const SOURCE = 'export const fixture = "source contents must never be read by inspection";\n';
+async function links(seed: string, directory: string, count: number, start: number, prefix: string): Promise<void> {
   for (let offset = start; offset < count; offset += 32) {
     const end = Math.min(count, offset + 32);
     await Promise.all(
       Array.from({ length: end - offset }, (_, index) =>
-        link(
-          seed,
-          join(
-            directory,
-            `${prefix}-${String(offset + index).padStart(5, "0")}.ts`,
-          ),
-        ),
+        link(seed, join(directory, `${prefix}-${String(offset + index).padStart(5, "0")}.ts`)),
       ),
     );
   }
 }
 /** Real entries with bounded construction IO; hardlinks keep content storage small. */
-export async function createLargeTree(
-  options: LargeTreeOptions,
-): Promise<LargeTreeFixture> {
+export async function createLargeTree(options: LargeTreeOptions): Promise<LargeTreeFixture> {
   const { projects, entries } = options;
   const excludedEntries = options.excludedEntries ?? 0;
   if (
@@ -64,13 +42,10 @@ export async function createLargeTree(
     entries < projects * 2 ||
     !Number.isInteger(excludedEntries) ||
     excludedEntries < 0
-  )
-    throw new Error(
-      "Fixture requires positive projects, >=2 entries per project and nonnegative excluded entries",
-    );
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-benchmark-")),
-  );
+  ) {
+    throw new Error("Fixture requires positive projects, >=2 entries per project and nonnegative excluded entries");
+  }
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-benchmark-")));
   let manifestBytes = 0;
   let excludedDirectories = 0;
   try {

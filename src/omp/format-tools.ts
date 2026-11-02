@@ -1,34 +1,24 @@
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { formatIssue } from "../format/result";
 import { formatProject } from "../format/service";
-import type { WithSessionRoot } from "./dependency-tools";
+import { type WithSessionRoot } from "./dependency-tools";
 
 function response<T extends object>(result: T) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
     details: result,
-    ...("success" in result && result.success === false
-      ? { isError: true }
-      : {}),
+    ...("success" in result && result.success === false ? { isError: true } : {}),
   };
 }
-export function registerFormatTools(
-  pi: ExtensionAPI,
-  withRoot: WithSessionRoot,
-): void {
+export function registerFormatTools(pi: ExtensionAPI, withRoot: WithSessionRoot): void {
   const parameters = pi.zod
     .object({
-      project_id: pi.zod
-        .string()
-        .min(1)
-        .describe("Stable project_id from list_projects."),
+      project_id: pi.zod.string().min(1).describe("Stable project_id from list_projects."),
       files: pi.zod
         .array(pi.zod.string().min(1))
         .min(1)
         .optional()
-        .describe(
-          "Exact project-relative file paths. Omit to format every owned supported file.",
-        ),
+        .describe("Exact project-relative file paths. Omit to format every owned supported file."),
     })
     .strict();
   pi.registerTool({

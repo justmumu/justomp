@@ -11,7 +11,5 @@ test("Biome compatibility checks native runtime, without application compiler or
   };
   const tools = { "@biomejs/biome": "2.6.3" };
   expect(() => validateCompatibility(metadata, tools, "26.0.0")).not.toThrow();
-  expect(() => validateCompatibility(metadata, tools, "12.0.0")).toThrow(
-    "incompatible",
-  );
+  expect(() => validateCompatibility(metadata, tools, "12.0.0")).toThrow("incompatible");
 });

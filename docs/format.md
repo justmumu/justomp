@@ -21,12 +21,12 @@ The OMP tool uses the `exec` approval tier. Its JSON text and `details` contain 
 
 ## Engines and preparation
 
-| Files | Engine |
-| --- | --- |
-| Python project's `.py`, `.pyi` | Prepared Ruff `format` |
-| Go project's `.go` | Prepared golangci-lint `fmt`, with gofumpt and goimports by default |
-| JS/TS, JSON/JSONC, YAML, Markdown/MDX, HTML, CSS/SCSS/Less | Bundled Prettier |
-| TOML, including `pyproject.toml` | Bundled Prettier TOML plugin |
+| Files                                                      | Engine                                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- |
+| Python project's `.py`, `.pyi`                             | Prepared Ruff `format`                                              |
+| Go project's `.go`                                         | Prepared golangci-lint `fmt`, with gofumpt and goimports by default |
+| JS/TS, JSON/JSONC, YAML, Markdown/MDX, HTML, CSS/SCSS/Less | Bundled Prettier                                                    |
+| TOML, including `pyproject.toml`                           | Bundled Prettier TOML plugin                                        |
 
 Ruff and Biome lint fixes are not run. Go formatting includes the agreed import organization. `go.mod`, `go.work`, sums, lockfiles and notebooks are not format targets. Known JSONC configuration filenames, including `tsconfig*.json` and Pyright configs, keep their comments.
 

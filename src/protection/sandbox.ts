@@ -18,14 +18,20 @@ export interface SandboxCommand {
 }
 
 function absolutePath(path: string): void {
-  if (path.includes("\0")) throw new Error("Sandbox paths cannot contain NUL");
-  if (!isAbsolute(path))
+  if (path.includes("\0")) {
+    throw new Error("Sandbox paths cannot contain NUL");
+  }
+  if (!isAbsolute(path)) {
     throw new Error(`Sandbox path must be absolute: ${path}`);
-  if (normalize(path) !== path)
+  }
+  if (normalize(path) !== path) {
     throw new Error(`Sandbox path must be normalized: ${path}`);
+  }
 }
 export function sandboxPaths(paths: readonly string[]): string[] {
-  for (const path of paths) absolutePath(path);
+  for (const path of paths) {
+    absolutePath(path);
+  }
   return [...new Set(paths)].sort();
 }
 function parents(paths: readonly string[]): string[] {
@@ -37,16 +43,10 @@ function parents(paths: readonly string[]): string[] {
       parent = dirname(parent);
     }
   }
-  return [...entries].sort(
-    (a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b),
-  );
+  return [...entries].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b));
 }
 /** Only fixed flags and literal argv values are assembled; the workload stays one shell argument. */
-export function buildSandboxArgv(
-  platform: string,
-  executable: string,
-  request: SandboxRequest,
-): string[] {
+export function buildSandboxArgv(platform: string, executable: string, request: SandboxRequest): string[] {
   absolutePath(request.cwd);
   const paths = sandboxPaths(request.protectedPaths);
   const shell = request.shell ?? "/bin/bash";
@@ -55,12 +55,8 @@ export function buildSandboxArgv(
     const profile = [
       "(version 1)",
       "(allow default)",
-      ...paths.map(
-        (path) => `(deny file-write* (subpath ${JSON.stringify(path)}))`,
-      ),
-      ...parents(paths).map(
-        (path) => `(deny file-write-unlink (literal ${JSON.stringify(path)}))`,
-      ),
+      ...paths.map((path) => `(deny file-write* (subpath ${JSON.stringify(path)}))`),
+      ...parents(paths).map((path) => `(deny file-write-unlink (literal ${JSON.stringify(path)}))`),
     ].join("\n");
     return [executable, "-p", profile, shell, "-c", request.command];
   }
@@ -116,17 +112,12 @@ function exclusive<T>(operation: () => Promise<T>): Promise<T> {
   return pending;
 }
 function sameNode(before: Stats, after: Stats): boolean {
-  return (
-    before.dev === after.dev &&
-    before.ino === after.ino &&
-    before.mode === after.mode
-  );
+  return before.dev === after.dev && before.ino === after.ino && before.mode === after.mode;
 }
 function unchanged(before: Stats, after: Stats): boolean {
   return (
     sameNode(before, after) &&
-    (before.isDirectory() ||
-      (before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs))
+    (before.isDirectory() || (before.mtimeMs === after.mtimeMs && before.ctimeMs === after.ctimeMs))
   );
 }
 function isMissing(error: unknown): boolean {
@@ -136,22 +127,24 @@ async function statOrMissing(path: string): Promise<Stats | undefined> {
   try {
     return await lstat(path);
   } catch (error) {
-    if (isMissing(error)) return undefined;
+    if (isMissing(error)) {
+      return undefined;
+    }
     throw error;
   }
 }
 function checkTarget(path: string, stat: Stats): void {
-  if (stat.isSymbolicLink())
+  if (stat.isSymbolicLink()) {
     throw new Error(`Sandbox target must be canonical, not a symlink: ${path}`);
-  if (!stat.isFile() && !stat.isDirectory())
+  }
+  if (!stat.isFile() && !stat.isDirectory()) {
     throw new Error(`Unsupported sandbox target: ${path}`);
-  if (stat.isFile() && stat.nlink > 1)
+  }
+  if (stat.isFile() && stat.nlink > 1) {
     throw new Error(`Cannot protect a hardlinked file: ${path}`);
+  }
 }
-async function acquirePlaceholders(
-  paths: string[],
-  owned: Placeholder[],
-): Promise<void> {
+async function acquirePlaceholders(paths: string[], owned: Placeholder[]): Promise<void> {
   const directoryPaths = new Set(parents(paths));
   const entries = [...directoryPaths, ...paths];
   for (const path of [...new Set(entries)]) {
@@ -169,10 +162,7 @@ async function acquirePlaceholders(
       if (!directoryPaths.has(path)) {
         const file = await open(
           path,
-          constants.O_CREAT |
-            constants.O_EXCL |
-            constants.O_WRONLY |
-            constants.O_NOFOLLOW,
+          constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
           0o600,
         );
         try {
@@ -185,7 +175,9 @@ async function acquirePlaceholders(
         stat = await lstat(path);
       }
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
       checkTarget(path, await lstat(path));
       continue;
     }
@@ -198,25 +190,32 @@ async function releasePlaceholders(owned: Placeholder[]): Promise<void> {
   const failures: unknown[] = [];
   for (const entry of [...owned].reverse()) {
     entry.owners--;
-    if (entry.owners > 0) continue;
-    if (registry.placeholders.get(entry.path) === entry)
+    if (entry.owners > 0) {
+      continue;
+    }
+    if (registry.placeholders.get(entry.path) === entry) {
       registry.placeholders.delete(entry.path);
+    }
     try {
       const current = await statOrMissing(entry.path);
       // Never remove a replacement, a touched file, or a file with real content.
-      if (!current || !unchanged(entry.stat, current)) continue;
-      if (current.isFile() && current.size === 0) await unlink(entry.path);
-      else if (current.isDirectory()) await rmdir(entry.path);
+      if (!current || !unchanged(entry.stat, current)) {
+        continue;
+      }
+      if (current.isFile() && current.size === 0) {
+        await unlink(entry.path);
+      } else if (current.isDirectory()) {
+        await rmdir(entry.path);
+      }
     } catch (error) {
-      if (
-        !isMissing(error) &&
-        (error as NodeJS.ErrnoException).code !== "ENOTEMPTY"
-      )
+      if (!isMissing(error) && (error as NodeJS.ErrnoException).code !== "ENOTEMPTY") {
         failures.push(error);
+      }
     }
   }
-  if (failures.length)
+  if (failures.length) {
     throw new AggregateError(failures, "Sandbox placeholder cleanup failed");
+  }
 }
 const linuxChecks = new Map<string, Promise<void>>();
 async function sandboxExecutable(signal?: AbortSignal): Promise<string> {
@@ -224,25 +223,28 @@ async function sandboxExecutable(signal?: AbortSignal): Promise<string> {
     await access("/usr/bin/sandbox-exec", constants.X_OK);
     return "/usr/bin/sandbox-exec";
   }
-  if (process.platform !== "linux")
+  if (process.platform !== "linux") {
     throw new Error("File protection supports macOS and Linux only");
+  }
   const executable = Bun.which("bwrap");
-  if (!executable)
+  if (!executable) {
     throw new Error("File protection requires bubblewrap (bwrap) on Linux");
+  }
   let check = linuxChecks.get(executable);
   if (!check) {
     check = runProcess(executable, ["--help"], {
       cwd: "/",
       signal: AbortSignal.timeout(5000),
     }).then((result) => {
-      if (result.exit_code !== 0 || !result.stdout.includes("--disable-userns"))
-        throw new Error(
-          "File protection requires bubblewrap with --disable-userns support (0.8 or later)",
-        );
+      if (result.exit_code !== 0 || !result.stdout.includes("--disable-userns")) {
+        throw new Error("File protection requires bubblewrap with --disable-userns support (0.8 or later)");
+      }
     });
     linuxChecks.set(executable, check);
     void check.catch(() => {
-      if (linuxChecks.get(executable) === check) linuxChecks.delete(executable);
+      if (linuxChecks.get(executable) === check) {
+        linuxChecks.delete(executable);
+      }
     });
   }
   await check;
@@ -250,9 +252,7 @@ async function sandboxExecutable(signal?: AbortSignal): Promise<string> {
   return executable;
 }
 /** Fresh per-call policy; no global unlock, network filter, restore, or fallback. */
-export async function createSandboxCommand(
-  request: SandboxRequest,
-): Promise<SandboxCommand> {
+export async function createSandboxCommand(request: SandboxRequest): Promise<SandboxCommand> {
   request.signal?.throwIfAborted();
   const paths = sandboxPaths(request.protectedPaths);
   absolutePath(request.cwd);
@@ -262,18 +262,23 @@ export async function createSandboxCommand(
   let released = false;
   const cleanup = () =>
     exclusive(async () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       await releasePlaceholders(owned);
     });
   try {
-    if (process.platform === "linux")
+    if (process.platform === "linux") {
       await exclusive(() => acquirePlaceholders(paths, owned));
-    else
+    } else {
       for (const path of paths) {
         const stat = await statOrMissing(path);
-        if (stat) checkTarget(path, stat);
+        if (stat) {
+          checkTarget(path, stat);
+        }
       }
+    }
     request.signal?.throwIfAborted();
     return {
       argv: buildSandboxArgv(process.platform, executable, {

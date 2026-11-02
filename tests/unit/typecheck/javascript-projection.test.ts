@@ -10,7 +10,9 @@ import { scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -20,24 +22,18 @@ function fixture() {
   const selected = target("javascript");
   const documents = new Map<string, string>();
   keep(
-    spyOn(files, "readProjectionFile").mockImplementation(
-      async (_root, path) => ({
-        text: documents.get(path) ?? null,
-        identity: null,
-        mode: 0o644,
-      }),
-    ),
+    spyOn(files, "readProjectionFile").mockImplementation(async (_root, path) => ({
+      text: documents.get(path) ?? null,
+      identity: null,
+      mode: 0o644,
+    })),
   );
   keep(
     spyOn(TypecheckStateStore, "load").mockResolvedValue({
       state: { schema: 1, projects: {}, waves: {} },
     } as TypecheckStateStore),
   );
-  const node = (
-    name: string,
-    included: string[],
-    references: string[] = [],
-  ): graph.JavascriptConfigNode => ({
+  const node = (name: string, included: string[], references: string[] = []): graph.JavascriptConfigNode => ({
     path: join(selected.scope.cwd, name),
     project_id: selected.project.project_id,
     raw: {},
@@ -56,15 +52,8 @@ function fixture() {
       files: ["src/value.ts", "tests/value.ts"],
     },
   };
-  const read = keep(
-    spyOn(graph, "readJavascriptConfigGraph").mockResolvedValue(supplied),
-  );
-  const plan = () =>
-    planJavascriptProjection(
-      selected,
-      resolveTypecheckConfig().policy,
-      new AbortController().signal,
-    );
+  const read = keep(spyOn(graph, "readJavascriptConfigGraph").mockResolvedValue(supplied));
+  const plan = () => planJavascriptProjection(selected, resolveTypecheckConfig().policy, new AbortController().signal);
   return { selected, documents, node, app, tests, supplied, read, plan };
 }
 function config(content: string) {
@@ -95,17 +84,10 @@ test("managed contexts retain native aliases through extends and add excluded te
       exclude: [],
     }),
   ]);
-  expect(
-    plan.files.every(
-      (file) =>
-        !Object.hasOwn(object(config(file.content).compilerOptions), "paths"),
-    ),
-  ).toBe(true);
-  for (const file of plan.files)
-    f.documents.set(
-      file.path,
-      file.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"),
-    );
+  expect(plan.files.every((file) => !Object.hasOwn(object(config(file.content).compilerOptions), "paths"))).toBe(true);
+  for (const file of plan.files) {
+    f.documents.set(file.path, file.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"));
+  }
   expect((await f.plan()).current).toBe(true);
   f.supplied.scope.files.push("tests/new.ts");
   expect((await f.plan()).current).toBe(false);
@@ -150,4 +132,22 @@ test("uncovered tests keep the production context while inherited child project 
     files: ["./src/value.ts", "./tests/value.ts"],
     compilerOptions: { rootDir: "/repo" },
   });
+});
+
+test("typecheck projection forwards its independent source exclusions to graph selection", async () => {
+  const f = fixture();
+  const policy = resolveTypecheckConfig().policy;
+  policy.javascript.exclude = [".private/**"];
+  const signal = new AbortController().signal;
+  await planJavascriptProjection(f.selected, policy, signal);
+  expect(f.read).toHaveBeenCalledWith(f.selected, signal, undefined, undefined, [".private/**"]);
+  f.supplied.scope.files = ["src/value.ts"];
+  const filtered = await planJavascriptProjection(f.selected, policy, signal);
+  expect(filtered.files.map((file) => config(file.content).files)).toEqual([["./src/value.ts"]]);
+  for (const file of filtered.files) {
+    f.documents.set(file.path, file.content);
+  }
+  f.supplied.scope.files.push("tests/value.ts");
+  policy.javascript.exclude = [];
+  expect((await planJavascriptProjection(f.selected, policy, signal)).current).toBe(false);
 });

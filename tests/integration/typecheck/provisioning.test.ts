@@ -7,12 +7,7 @@ import { fixture } from "./fixture";
 
 test("new discovery supersedes a failed wave and unchanged retries retain its exact target", async () => {
   const f = await fixture();
-  const run = () =>
-    prepareTypecheck(
-      f.root,
-      { python: f.adapter },
-      new AbortController().signal,
-    );
+  const run = () => prepareTypecheck(f.root, { python: f.adapter }, new AbortController().signal);
   expect((await run()).complete).toBe(true);
   await f.add("b");
   f.latest("2.0.0");
@@ -22,38 +17,25 @@ test("new discovery supersedes a failed wave and unchanged retries retain its ex
   f.latest("3.0.0");
   expect((await run()).complete).toBe(false);
   expect(f.counts().resolves).toBe(3);
-  const state = JSON.parse(
-    await readFile(join(f.root, ".justomp/typecheck_state.json"), "utf8"),
-  );
+  const state = JSON.parse(await readFile(join(f.root, ".justomp/typecheck_state.json"), "utf8"));
   expect(state.waves.python.pending).toEqual([]);
   expect(state.waves.python.tools).toEqual({ pyright: "3.0.0" });
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("wave");
   f.fail("b");
   expect((await run()).complete).toBe(false);
   expect(f.counts().resolves).toBe(3);
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("wave");
   f.fail("");
   f.latest("4.0.0");
   expect((await run()).complete).toBe(true);
   expect(f.counts().resolves).toBe(3);
-  for (const name of ["a", "b", "c"])
-    expect(
-      JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8")),
-    ).toEqual({ pyright: "3.0.0" });
+  for (const name of ["a", "b", "c"]) {
+    expect(JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8"))).toEqual({ pyright: "3.0.0" });
+  }
   expect((await run()).complete).toBe(true);
   expect(f.counts().resolves).toBe(3);
   await rm(join(f.root, "c"), { recursive: true });
@@ -63,12 +45,7 @@ test("new discovery supersedes a failed wave and unchanged retries retain its ex
 
 test("deleted failed member no longer blocks a wave and old project IDs never mutate", async () => {
   const f = await fixture();
-  const run = () =>
-    prepareTypecheck(
-      f.root,
-      { python: f.adapter },
-      new AbortController().signal,
-    );
+  const run = () => prepareTypecheck(f.root, { python: f.adapter }, new AbortController().signal);
   await f.add("b");
   f.fail("b");
   expect((await run()).complete).toBe(false);
@@ -77,24 +54,14 @@ test("deleted failed member no longer blocks a wave and old project IDs never mu
   expect(f.counts().resolves).toBe(1);
   await rename(join(f.root, "a"), join(f.root, "moved"));
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("Unknown project_id");
   expect(f.counts().resolves).toBe(1);
 });
 
 test("JavaScript shares exact TypeScript across failure/restart and relinquishes lint ownership", async () => {
   const f = await fixture("javascript");
-  const run = () =>
-    prepareTypecheck(
-      f.root,
-      { javascript: f.adapter },
-      new AbortController().signal,
-    );
+  const run = () => prepareTypecheck(f.root, { javascript: f.adapter }, new AbortController().signal);
   expect((await run()).complete).toBe(true);
   const lintPath = join(f.root, ".justomp/lint_state.json");
   const lint = {
@@ -113,33 +80,23 @@ test("JavaScript shares exact TypeScript across failure/restart and relinquishes
   f.latest("2.0.0");
   f.fail("b");
   expect((await run()).complete).toBe(false);
-  const invalidated = JSON.parse(await readFile(lintPath, "utf8")).projects[
-    "javascript:a/package.json"
-  ];
+  const invalidated = JSON.parse(await readFile(lintPath, "utf8")).projects["javascript:a/package.json"];
   expect(invalidated.ready).toBe(false);
   expect(invalidated.tools).toEqual({});
   expect(invalidated.policy_hash).toBe("old-lint-policy");
   const lintState = JSON.parse(await readFile(lintPath, "utf8"));
   expect(lintState.waves.javascript.complete).toBe(false);
-  expect(
-    lintState.waves.javascript.versions["javascript:a/package.json"],
-  ).toEqual({});
+  expect(lintState.waves.javascript.versions["javascript:a/package.json"]).toEqual({});
   await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "javascript:a/package.json",
-      { javascript: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, "javascript:a/package.json", { javascript: f.adapter }, async () => true),
   ).rejects.toThrow("wave");
   f.latest("3.0.0");
   f.fail("");
   expect((await run()).complete).toBe(true);
   expect(f.counts().resolves).toBe(2);
-  for (const name of ["a", "b"])
-    expect(
-      JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8")),
-    ).toEqual({ typescript: "2.0.0" });
+  for (const name of ["a", "b"]) {
+    expect(JSON.parse(await readFile(join(f.root, name, "installed.json"), "utf8"))).toEqual({ typescript: "2.0.0" });
+  }
 });
 
 test("native workspace batch sees ready members alongside a newly discovered member", async () => {
@@ -158,12 +115,7 @@ test("native workspace batch sees ready members alongside a newly discovered mem
     batches.push(context.targets.map((t) => t.project.path).sort());
     await original(context);
   };
-  const run = () =>
-    prepareTypecheck(
-      f.root,
-      { javascript: f.adapter },
-      new AbortController().signal,
-    );
+  const run = () => prepareTypecheck(f.root, { javascript: f.adapter }, new AbortController().signal);
   expect((await run()).complete).toBe(true);
   await f.add("b");
   expect((await run()).complete).toBe(true);
@@ -172,34 +124,22 @@ test("native workspace batch sees ready members alongside a newly discovered mem
 
 test("temporarily unresolved live member retains its exact wave target", async () => {
   const f = await fixture();
-  const run = () =>
-    prepareTypecheck(
-      f.root,
-      { python: f.adapter },
-      new AbortController().signal,
-    );
+  const run = () => prepareTypecheck(f.root, { python: f.adapter }, new AbortController().signal);
   expect((await run()).complete).toBe(true);
   await f.add("b");
   f.latest("2.0.0");
   f.fail("b");
   expect((await run()).complete).toBe(false);
-  await writeFile(
-    join(f.root, "b/pyproject.toml"),
-    '[project]\nname="b"\nversion="0.1.0"\n',
-  );
+  await writeFile(join(f.root, "b/pyproject.toml"), '[project]\nname="b"\nversion="0.1.0"\n');
   f.latest("3.0.0");
   f.fail("");
   expect((await run()).complete).toBe(false);
-  const state = JSON.parse(
-    await readFile(join(f.root, ".justomp/typecheck_state.json"), "utf8"),
-  );
+  const state = JSON.parse(await readFile(join(f.root, ".justomp/typecheck_state.json"), "utf8"));
   expect(state.waves.python.projects).toContain("python:b/pyproject.toml");
   await f.add("b");
   expect((await run()).complete).toBe(true);
   expect(f.counts().resolves).toBe(2);
-  expect(
-    JSON.parse(await readFile(join(f.root, "b/installed.json"), "utf8")),
-  ).toEqual({ pyright: "2.0.0" });
+  expect(JSON.parse(await readFile(join(f.root, "b/installed.json"), "utf8"))).toEqual({ pyright: "2.0.0" });
 });
 
 test("Go preparation refreshes installed runtime receipts after an upgrade", async () => {
@@ -210,17 +150,14 @@ test("Go preparation refreshes installed runtime receipts after an upgrade", asy
   const adapter = {
     ...f.adapter,
     async resolve(targets: Parameters<typeof f.adapter.resolve>[0]) {
-      return Object.fromEntries(
-        targets.map((target) => [target.project.project_id, { go: installed }]),
-      );
+      return Object.fromEntries(targets.map((target) => [target.project.project_id, { go: installed }]));
     },
     async prepareBatch() {},
     async verifyTools(context: Parameters<typeof f.adapter.verifyTools>[0]) {
       return context.versions.go === installed;
     },
   };
-  const run = () =>
-    prepareTypecheck(f.root, { go: adapter }, new AbortController().signal);
+  const run = () => prepareTypecheck(f.root, { go: adapter }, new AbortController().signal);
   expect((await run()).complete).toBe(true);
   installed = "1.25.6";
   const upgraded = await run();

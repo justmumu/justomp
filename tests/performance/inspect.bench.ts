@@ -6,11 +6,7 @@ import {
   getPackagingStructure,
   type PackagingResult,
 } from "../../src/packaging/get-structure";
-import {
-  createLargeTree,
-  type LargeTreeFixture,
-  type LargeTreeOptions,
-} from "../fixtures/generate-large-tree";
+import { createLargeTree, type LargeTreeFixture, type LargeTreeOptions } from "../fixtures/generate-large-tree";
 
 const SAMPLES = 20;
 interface Sample {
@@ -30,8 +26,7 @@ interface Sample {
 }
 function distribution(values: number[]) {
   const sorted = [...values].sort((a, b) => a - b);
-  const at = (percent: number) =>
-    sorted[Math.max(0, Math.ceil(sorted.length * percent) - 1)] ?? 0;
+  const at = (percent: number) => sorted[Math.max(0, Math.ceil(sorted.length * percent) - 1)] ?? 0;
   return {
     samples: sorted.length,
     p50: at(0.5),
@@ -56,19 +51,10 @@ function summarize(samples: Sample[]) {
   ] as const;
   return {
     cacheHits: samples.filter((s) => s.cacheHit).length,
-    ...Object.fromEntries(
-      fields.map((field) => [
-        field,
-        distribution(samples.map((s) => s[field])),
-      ]),
-    ),
+    ...Object.fromEntries(fields.map((field) => [field, distribution(samples.map((s) => s[field]))])),
   };
 }
-function sample(
-  result: PackagingResult,
-  wallMs: number,
-  eventWaitMs = 0,
-): Sample {
+function sample(result: PackagingResult, wallMs: number, eventWaitMs = 0): Sample {
   const metrics = result.structure.metrics;
   return {
     wallMs,
@@ -88,9 +74,7 @@ function sample(
 }
 async function fileDescriptors(): Promise<number | null> {
   try {
-    return (
-      await readdir(process.platform === "linux" ? "/proc/self/fd" : "/dev/fd")
-    ).length;
+    return (await readdir(process.platform === "linux" ? "/proc/self/fd" : "/dev/fd")).length;
   } catch {
     return null;
   }
@@ -98,9 +82,7 @@ async function fileDescriptors(): Promise<number | null> {
 async function resources() {
   return {
     reportedActiveResourceTypes:
-      typeof process.getActiveResourcesInfo === "function"
-        ? process.getActiveResourcesInfo()
-        : null,
+      typeof process.getActiveResourcesInfo === "function" ? process.getActiveResourcesInfo() : null,
     observedFileDescriptors: await fileDescriptors(),
   };
 }
@@ -108,11 +90,15 @@ async function waitForChange(root: string, previous: number): Promise<number> {
   const started = performance.now();
   for (;;) {
     const status = getPackagingStatus(root);
-    if (!status?.healthy)
+    if (!status?.healthy) {
       throw new Error(`Watcher lost coverage: ${status?.reason ?? "closed"}`);
-    if (status.revision > previous) return performance.now() - started;
-    if (performance.now() - started > 5000)
+    }
+    if (status.revision > previous) {
+      return performance.now() - started;
+    }
+    if (performance.now() - started > 5000) {
       throw new Error("Native notification did not arrive within5seconds");
+    }
     await Bun.sleep(2);
   }
 }
@@ -120,10 +106,7 @@ async function measure(fixture: LargeTreeFixture) {
   let sampledPeakRssBytes = process.memoryUsage().rss;
   const rssBefore = sampledPeakRssBytes;
   const capture = () => {
-    sampledPeakRssBytes = Math.max(
-      sampledPeakRssBytes,
-      process.memoryUsage().rss,
-    );
+    sampledPeakRssBytes = Math.max(sampledPeakRssBytes, process.memoryUsage().rss);
   };
   const sampler = setInterval(capture, 20);
   const usageBefore = process.resourceUsage();
@@ -136,10 +119,9 @@ async function measure(fixture: LargeTreeFixture) {
     const initial = await getPackagingStructure(fixture.root);
     const initialSample = sample(initial, performance.now() - started);
     capture();
-    if (!initial.watcher.healthy)
-      throw new Error(
-        `Fixture requires proven local native notifications: ${initial.fallbackReason}`,
-      );
+    if (!initial.watcher.healthy) {
+      throw new Error(`Fixture requires proven local native notifications: ${initial.fallbackReason}`);
+    }
     const resourcesWatching = await resources();
     const idleStart = performance.now();
     const idleBefore = process.cpuUsage();
@@ -156,26 +138,24 @@ async function measure(fixture: LargeTreeFixture) {
     for (let i = 0; i < SAMPLES; i++) {
       started = performance.now();
       const result = await getPackagingStructure(fixture.root);
-      if (!result.cacheHit)
+      if (!result.cacheHit) {
         throw new Error("Clean getter unexpectedly rescanned");
+      }
       clean.push(sample(result, performance.now() - started));
       capture();
     }
     console.error(`[bench] ${SAMPLES} dirty refreshes`);
-    const manifest = JSON.parse(
-      await readFile(fixture.firstManifest, "utf8"),
-    ) as Record<string, unknown>;
+    const manifest = JSON.parse(await readFile(fixture.firstManifest, "utf8")) as Record<string, unknown>;
     const dirty: Sample[] = [];
     for (let i = 0; i < SAMPLES; i++) {
       const revision = getPackagingStatus(fixture.root)?.revision ?? 0;
-      await writeFile(
-        fixture.firstManifest,
-        JSON.stringify({ ...manifest, description: `benchmark revision ${i}` }),
-      );
+      await writeFile(fixture.firstManifest, JSON.stringify({ ...manifest, description: `benchmark revision ${i}` }));
       const eventWait = await waitForChange(fixture.root, revision);
       started = performance.now();
       const result = await getPackagingStructure(fixture.root);
-      if (result.cacheHit) throw new Error("Dirty getter did not refresh");
+      if (result.cacheHit) {
+        throw new Error("Dirty getter did not refresh");
+      }
       dirty.push(sample(result, performance.now() - started, eventWait));
       capture();
     }
@@ -189,20 +169,18 @@ async function measure(fixture: LargeTreeFixture) {
       for (let i = 0; i < SAMPLES; i++) {
         started = performance.now();
         const result = await getPackagingStructure(fixture.root);
-        if (
-          result.cacheHit ||
-          !result.fallbackReason ||
-          result.watcher.watchedPaths.length
-        )
-          throw new Error(
-            "Expected full inspection without polling or subscriptions",
-          );
+        if (result.cacheHit || !result.fallbackReason || result.watcher.watchedPaths.length) {
+          throw new Error("Expected full inspection without polling or subscriptions");
+        }
         fallback.push(sample(result, performance.now() - started));
         capture();
       }
     } finally {
-      if (oldPolling === undefined) delete process.env.CHOKIDAR_USEPOLLING;
-      else process.env.CHOKIDAR_USEPOLLING = oldPolling;
+      if (oldPolling === undefined) {
+        delete process.env.CHOKIDAR_USEPOLLING;
+      } else {
+        process.env.CHOKIDAR_USEPOLLING = oldPolling;
+      }
       await closePackagingStructure(fixture.root);
     }
     const usageAfter = process.resourceUsage();
@@ -243,8 +221,9 @@ function argumentsForRun(): { excludedEntries: number; smoke: boolean } {
     }
     if (arg === "--excluded-entries") {
       excludedEntries = Number(args[++i]);
-      if (!Number.isSafeInteger(excludedEntries) || excludedEntries < 0)
+      if (!Number.isSafeInteger(excludedEntries) || excludedEntries < 0) {
         throw new Error("--excluded-entries requires a nonnegative integer");
+      }
       continue;
     }
     throw new Error(`Unknown benchmark argument: ${arg}`);
@@ -287,9 +266,7 @@ async function main() {
         filesystem: { type: Number(fs.type), blockSize: fs.bsize },
         ...measurements,
       });
-      console.error(
-        `[bench] measured ${fixture.generatedEntries} entries; cleaning temporary fixture`,
-      );
+      console.error(`[bench] measured ${fixture.generatedEntries} entries; cleaning temporary fixture`);
     } finally {
       await fixture.cleanup();
       console.error("[bench] fixture cleanup finished");
@@ -315,8 +292,7 @@ async function main() {
           initialSamples: 1,
           coldCacheClaim: false,
           networkFilesystemTested: false,
-          watcherCount:
-            "Chokidar watched directory paths, not raw kernel watches or file descriptors",
+          watcherCount: "Chokidar watched directory paths, not raw kernel watches or file descriptors",
           entryLayout:
             "Flat JS projects with explicit local dependencies; source and excluded files use per-directory hardlinks. Excluded entries count directories and empty files exactly.",
           memory:

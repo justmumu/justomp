@@ -10,7 +10,9 @@ test("uv verifies release normalization from supplied declaration and resolution
     const before = await readInventory(fixture.root, fixture.context.project);
     const after = structuredClone(before);
     const current = after.dependencies[0];
-    if (!current) throw new Error("Missing supplied dependency");
+    if (!current) {
+      throw new Error("Missing supplied dependency");
+    }
     current.declared_specifier = "==1.0";
     current.resolutions = [{ version: "1.0.0", evidence: "uv.lock" }];
     await uvAdapter.verify?.(
@@ -31,10 +33,7 @@ test("uv verifies release normalization from supplied declaration and resolution
 test("uv inventory applies inherited sources and only traverses the selected member graph", async () => {
   const f = await uvFixture("");
   try {
-    f.write(
-      "pyproject.toml",
-      `${await f.manifest()}[tool.uv.sources]\nuv-other={workspace=true}\n`,
-    );
+    f.write("pyproject.toml", `${await f.manifest()}[tool.uv.sources]\nuv-other={workspace=true}\n`);
     Object.assign(f.context.project, {
       project_id: "python:packages/selected/pyproject.toml",
       path: "packages/selected",
@@ -95,10 +94,7 @@ test("uv refuses ambiguous occurrences and exact conversion of non-registry sour
       join(fixture.root, "pyproject.toml"),
       `[project]\nname="uv-app"\nversion="1.0.0"\ndependencies=["uv-demo; python_version < '3.12'", "uv-demo; python_version >= '3.12'"]\n`,
     );
-    const inventory = await readInventory(
-      fixture.root,
-      fixture.context.project,
-    );
+    const inventory = await readInventory(fixture.root, fixture.context.project);
     await expect(
       uvAdapter.plan(
         fixture.context,
@@ -112,7 +108,9 @@ test("uv refuses ambiguous occurrences and exact conversion of non-registry sour
     ).rejects.toThrow("Select one");
     inventory.dependencies.splice(1);
     const first = inventory.dependencies[0];
-    if (!first) throw new Error("Fixture dependency missing");
+    if (!first) {
+      throw new Error("Fixture dependency missing");
+    }
     first.source = {
       kind: "path",
       specifier: "packages/demo",
@@ -136,13 +134,9 @@ test("uv refuses ambiguous occurrences and exact conversion of non-registry sour
 test("uv reports missing or unsupported lock graphs as incomplete", async () => {
   const fixture = await uvFixture();
   try {
-    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(
-      false,
-    );
+    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(false);
     fixture.write(join(fixture.root, "uv.lock"), "version=99\npackage=[]\n");
-    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(
-      false,
-    );
+    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(false);
   } finally {
     await fixture.dispose();
   }
@@ -155,16 +149,9 @@ test("uv lock inventory retains alternate marker resolutions and rejects broken 
     fixture.write(join(fixture.root, "uv.lock"), lock);
     const inventory = await uvAdapter.inventory(fixture.context, true);
     expect(inventory.complete).toBe(true);
-    expect(
-      inventory.dependencies[0]?.resolutions?.map((r) => r.version),
-    ).toEqual(["1.0.0", "1.5.0"]);
-    fixture.write(
-      join(fixture.root, "uv.lock"),
-      lock.replace('version="1.5.0",marker', 'version="9.0.0",marker'),
-    );
-    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(
-      false,
-    );
+    expect(inventory.dependencies[0]?.resolutions?.map((r) => r.version)).toEqual(["1.0.0", "1.5.0"]);
+    fixture.write(join(fixture.root, "uv.lock"), lock.replace('version="1.5.0",marker', 'version="9.0.0",marker'));
+    expect((await uvAdapter.inventory(fixture.context, true)).complete).toBe(false);
   } finally {
     await fixture.dispose();
   }
@@ -175,8 +162,7 @@ test("uv rejects a registry add shadowed by an undeclared native source", async 
   try {
     fixture.write(
       join(fixture.root, "pyproject.toml"),
-      (await fixture.manifest()) +
-        '\n[tool.uv.sources]\nuv-demo={path="packages/demo"}\n',
+      (await fixture.manifest()) + '\n[tool.uv.sources]\nuv-demo={path="packages/demo"}\n',
     );
     const before = await readInventory(fixture.root, fixture.context.project);
     await expect(

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { typescriptDiagnostics } from "../../../src/typecheck/adapters/javascript";
-import type { TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
+import { type TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
 import { parseJavascriptConfig } from "../../../src/typecheck/javascript/config-graph";
 import { TypecheckError } from "../../../src/typecheck/model";
 
@@ -14,12 +14,8 @@ test("JSONC config preserves comments, trailing commas, extends arrays and refer
     extends: ["./a.json", "./b.json"],
     references: [{ path: "../lib" }],
   });
-  expect(() => parseJavascriptConfig("[]", "tsconfig.json")).toThrow(
-    TypecheckError,
-  );
-  expect(() => parseJavascriptConfig('{"bad":', "tsconfig.json")).toThrow(
-    TypecheckError,
-  );
+  expect(() => parseJavascriptConfig("[]", "tsconfig.json")).toThrow(TypecheckError);
+  expect(() => parseJavascriptConfig('{"bad":', "tsconfig.json")).toThrow(TypecheckError);
 });
 const context = {
   target: {
@@ -55,30 +51,20 @@ test("native non-pretty multiline diagnostics preserve imported paths and global
     rule: "TS6305",
     project_id: "javascript:app",
   });
-  expect(
-    typescriptDiagnostics(
-      context,
-      "../../outside/file.ts(1,1): error TS2322: bad",
-    )[0],
-  ).toMatchObject({
+  expect(typescriptDiagnostics(context, "../../outside/file.ts(1,1): error TS2322: bad")[0]).toMatchObject({
     project_id: "javascript:app",
     project_path: "../../outside/file.ts",
   });
-  expect(() =>
-    typescriptDiagnostics(context, "panic: compiler crashed"),
-  ).toThrow("Unrecognized");
-  expect(() =>
-    typescriptDiagnostics(
-      context,
-      "file.ts(1,1): error TS2322: bad\nUnexpected tail",
-    ),
-  ).toThrow("Unrecognized");
+  expect(() => typescriptDiagnostics(context, "panic: compiler crashed")).toThrow("Unrecognized");
+  expect(() => typescriptDiagnostics(context, "file.ts(1,1): error TS2322: bad\nUnexpected tail")).toThrow(
+    "Unrecognized",
+  );
 });
 
 import { spyOn } from "bun:test";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
-import type { TypecheckTarget } from "../../../src/typecheck/targets";
+import { type TypecheckTarget } from "../../../src/typecheck/targets";
 
 test("one bounded dist-tag query selects the common exact stable TypeScript release", async () => {
   const urls: string[] = [];
@@ -86,9 +72,7 @@ test("one bounded dist-tag query selects the common exact stable TypeScript rele
   const fetcher = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (url: Parameters<typeof fetch>[0], init?: RequestInit) => {
-        expect(new Headers(init?.headers).get("accept")).toBe(
-          "application/json",
-        );
+        expect(new Headers(init?.headers).get("accept")).toBe("application/json");
         urls.push(String(url));
         return Response.json({ latest: "7.0.2", next: "8.0.0-dev.1" });
       },
@@ -96,9 +80,9 @@ test("one bounded dist-tag query selects the common exact stable TypeScript rele
     ),
   );
   try {
-    const targets = ["javascript:.", "javascript:packages/ui"].map(
-      (project_id) => ({ project: { project_id } }),
-    ) as TypecheckTarget[];
+    const targets = ["javascript:.", "javascript:packages/ui"].map((project_id) => ({
+      project: { project_id },
+    })) as TypecheckTarget[];
     const versions = await javascriptAdapter.resolve(
       targets,
       resolveTypecheckConfig().policy,
@@ -108,18 +92,14 @@ test("one bounded dist-tag query selects the common exact stable TypeScript rele
       "javascript:.": { typescript: "7.0.2" },
       "javascript:packages/ui": { typescript: "7.0.2" },
     });
-    expect(urls).toEqual([
-      "https://registry.npmjs.org/-/package/typescript/dist-tags",
-    ]);
+    expect(urls).toEqual(["https://registry.npmjs.org/-/package/typescript/dist-tags"]);
   } finally {
     fetcher.mockRestore();
   }
 });
 
 test("checkout directory names do not select an uncovered test's compiler context", async () => {
-  const { javascriptCheckContexts } = await import(
-    "../../../src/typecheck/javascript/config-graph"
-  );
+  const { javascriptCheckContexts } = await import("../../../src/typecheck/javascript/config-graph");
   const cwd = "/checkouts/specimen/app";
   const target = {
     scope: { cwd },
@@ -148,10 +128,6 @@ test("checkout directory names do not select an uncovered test's compiler contex
       empty: false,
     },
   });
-  expect(
-    contexts.find((context) => context.node?.path === tests.path)?.files,
-  ).toEqual([`${cwd}/tests/extra.ts`]);
-  expect(
-    contexts.find((context) => context.node?.path === app.path)?.files,
-  ).toEqual([`${cwd}/src/main.ts`]);
+  expect(contexts.find((context) => context.node?.path === tests.path)?.files).toEqual([`${cwd}/tests/extra.ts`]);
+  expect(contexts.find((context) => context.node?.path === app.path)?.files).toEqual([`${cwd}/src/main.ts`]);
 });

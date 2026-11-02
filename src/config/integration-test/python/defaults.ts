@@ -1,4 +1,4 @@
-import type { EcosystemTestPolicy } from "../../test/model";
+import { type EcosystemTestPolicy } from "../../test/model";
 import { PYTHON_DEFAULTS as UNIT_DEFAULTS } from "../../test/python/defaults";
 export const PYTHON_DEFAULTS: EcosystemTestPolicy = {
   include: ["tests/integration/**/test_*.py"],

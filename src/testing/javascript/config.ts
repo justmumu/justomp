@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { object } from "../../dependencies/inventory";
-import type { TestRunContext } from "../adapters";
+import { type TestRunContext } from "../adapters";
 import { coverageEnabled } from "../native-tools";
 /** Escape literal files for native glob includes; no substring selection. */
 export function exactGlob(file: string): string {
@@ -38,18 +38,11 @@ export function vitestOptions(context: TestRunContext) {
     typecheck: { enabled: false },
   };
 }
-export function vitestConfig(
-  context: TestRunContext,
-  userConfig?: string,
-): string {
+export function vitestConfig(context: TestRunContext, userConfig?: string): string {
   const options = JSON.stringify(vitestOptions(context));
   return `import {createRequire} from 'node:module';\nimport {pathToFileURL} from 'node:url';\nconst req=createRequire(${JSON.stringify(join(context.target.scope.cwd, "package.json"))});\nconst vitestReq=createRequire(req.resolve('vitest/package.json'));\nconst {loadConfigFromFile}=await import(pathToFileURL(vitestReq.resolve('vite')).href);\nconst loaded=${userConfig ? `await loadConfigFromFile({command:'serve',mode:'test'},${JSON.stringify(userConfig)},${JSON.stringify(context.target.scope.cwd)})` : "undefined"};\nconst base=loaded?.config??{}; if(base.test) {base.test={...base.test};delete base.test.workspace;delete base.test.projects;}\nexport default {...base,root:${JSON.stringify(context.target.scope.cwd)},test:{...base.test,...${options},testNamePattern:undefined,changed:undefined,related:undefined,shard:undefined}};\n`;
 }
-export function bunConfig(
-  context: TestRunContext,
-  existing: Record<string, unknown>,
-  preload?: string,
-) {
+export function bunConfig(context: TestRunContext, existing: Record<string, unknown>, preload?: string) {
   const nativeTest = { ...object(existing.test) };
   delete nativeTest.rerunEach;
   const test = {
@@ -71,11 +64,7 @@ export function bunConfig(
     test: {
       ...test,
       preload: [
-        ...(Array.isArray(preloads)
-          ? preloads
-          : typeof preloads === "string"
-            ? [preloads]
-            : []),
+        ...(Array.isArray(preloads) ? preloads : typeof preloads === "string" ? [preloads] : []),
         ...(preload ? [preload] : []),
       ],
     },

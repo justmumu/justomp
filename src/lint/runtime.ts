@@ -1,30 +1,15 @@
-import {
-  resolveExecutable,
-  validatePnpmNativeScope,
-} from "../dependencies/executable";
-import type { AdapterContext, NativeStep } from "../dependencies/model";
+import { resolveExecutable, validatePnpmNativeScope } from "../dependencies/executable";
+import { type AdapterContext, type NativeStep } from "../dependencies/model";
 import { safePath } from "../dependencies/paths";
 import { runProcess } from "../dependencies/runner";
-import type { LintTarget } from "./targets";
+import { type LintTarget } from "./targets";
 
 /** Native dependency context for a caller that already owns target.scope.domains. */
-export async function lintManagerContext(
-  target: LintTarget,
-  signal: AbortSignal,
-): Promise<AdapterContext> {
-  const executable = await resolveExecutable(
-    target.root,
-    target.project,
-    signal,
-    target.scope,
-  );
-  if (executable.manager === "pnpm")
-    await validatePnpmNativeScope(
-      target.root,
-      target.scope,
-      executable.command,
-      signal,
-    );
+export async function lintManagerContext(target: LintTarget, signal: AbortSignal): Promise<AdapterContext> {
+  const executable = await resolveExecutable(target.root, target.project, signal, target.scope);
+  if (executable.manager === "pnpm") {
+    await validatePnpmNativeScope(target.root, target.scope, executable.command, signal);
+  }
   return {
     root: target.root,
     project: target.project,

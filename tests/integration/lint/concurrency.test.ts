@@ -4,10 +4,7 @@ import { join } from "node:path";
 import { FSWatcher } from "chokidar";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
-import {
-  retainLintCoordinator,
-  withReadyLintTarget,
-} from "../../../src/lint/coordinator";
+import { retainLintCoordinator, withReadyLintTarget } from "../../../src/lint/coordinator";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import { resolveLintTarget } from "../../../src/lint/targets";
 import { getPackagingStructure } from "../../../src/packaging/get-structure";
@@ -21,10 +18,7 @@ function deferred() {
   return { promise, resolve };
 }
 async function target(root: string) {
-  return resolveLintTarget(
-    (await getPackagingStructure(root)).structure,
-    "python:a/pyproject.toml",
-  );
+  return resolveLintTarget((await getPackagingStructure(root)).structure, "python:a/pyproject.toml");
 }
 
 test("check holds dependency domains and revalidates after waiting behind mutation", async () => {
@@ -37,16 +31,11 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   const entered = deferred(),
     release = deferred();
   let writerStarted = false;
-  const check = withReadyLintTarget(
-    f.root,
-    selected.project.project_id,
-    { python: f.adapter },
-    async () => {
-      entered.resolve();
-      await release.promise;
-      return true;
-    },
-  );
+  const check = withReadyLintTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => {
+    entered.resolve();
+    await release.promise;
+    return true;
+  });
   await entered.promise;
   const writer = withDomains(selected.scope.domains, undefined, async () => {
     writerStarted = true;
@@ -58,12 +47,7 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   expect(await check).toBe(true);
   await writer;
   await expect(
-    withReadyLintTarget(
-      f.root,
-      selected.project.project_id,
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyLintTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => true),
   ).rejects.toThrow("not ready");
   const locked = deferred(),
     unlock = deferred();
@@ -73,14 +57,9 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   });
   await locked.promise;
   let ran = false;
-  const waiting = withReadyLintTarget(
-    f.root,
-    selected.project.project_id,
-    { python: f.adapter },
-    async () => {
-      ran = true;
-    },
-  );
+  const waiting = withReadyLintTarget(f.root, selected.project.project_id, { python: f.adapter }, async () => {
+    ran = true;
+  });
   unlock.resolve();
   await mutation;
   await expect(waiting).rejects.toThrow("not ready");
@@ -151,19 +130,13 @@ test("config change during preparation cannot publish a stale ready receipt", as
   const coordinator = await f.start();
   const result = await coordinator.reconcile();
   // An observed policy event may already have run the next pass; either outcome is safe.
-  if (!result.complete)
+  if (!result.complete) {
     await expect(
-      withReadyLintTarget(
-        f.root,
-        "python:a/pyproject.toml",
-        { python: f.adapter },
-        async () => true,
-      ),
+      withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
     ).rejects.toThrow("not ready");
+  }
   expect((await coordinator.reconcile()).complete).toBe(true);
-  expect(await readFile(join(f.root, "a/pyproject.toml"), "utf8")).toContain(
-    "101",
-  );
+  expect(await readFile(join(f.root, "a/pyproject.toml"), "utf8")).toContain("101");
   expect(f.counts().resolves).toBe(1);
 });
 
@@ -172,15 +145,10 @@ test("external native changes during a check cannot produce stale success", asyn
   const coordinator = await f.start();
   await coordinator.reconcile();
   await expect(
-    withReadyLintTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => {
-        await writeFile(join(f.root, "a/installed.json"), '{"ruff":"0.0.1"}');
-        return true;
-      },
-    ),
+    withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => {
+      await writeFile(join(f.root, "a/installed.json"), '{"ruff":"0.0.1"}');
+      return true;
+    }),
   ).rejects.toThrow("changed during the check");
 });
 
@@ -198,12 +166,10 @@ test("new retain waits for the last owner's full teardown and receives a live co
   await entered.promise;
   const closing = first.release();
   let settled = false;
-  const replacement = retainLintCoordinator(f.root, { python: f.adapter }).then(
-    (owner) => {
-      settled = true;
-      return owner;
-    },
-  );
+  const replacement = retainLintCoordinator(f.root, { python: f.adapter }).then((owner) => {
+    settled = true;
+    return owner;
+  });
   try {
     await new Promise((r) => setTimeout(r, 20));
     expect(settled).toBe(false);
@@ -232,12 +198,10 @@ test("failed config watcher setup releases its packaging retention and subscript
   const f = await fixture();
   const root = await realpath(f.root);
   const originalAdd = FSWatcher.prototype.add;
-  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (
-    this: FSWatcher,
-    paths,
-  ) {
-    if (paths === join(root, ".justomp/config.json"))
+  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (this: FSWatcher, paths) {
+    if (paths === join(root, ".justomp/config.json")) {
       throw new Error("injected config watcher failure");
+    }
     return originalAdd.call(this, paths);
   });
   try {
@@ -245,10 +209,7 @@ test("failed config watcher setup releases its packaging retention and subscript
   } finally {
     add.mockRestore();
   }
-  const registry = Reflect.get(
-    globalThis,
-    Symbol.for("justomp.packaging.v1"),
-  ) as {
+  const registry = Reflect.get(globalThis, Symbol.for("justomp.packaging.v1")) as {
     leases: Map<string, number>;
     listeners: Map<string, Set<() => void>>;
   };
@@ -343,9 +304,7 @@ test("cancelled source fixing observes final child writes before releasing depen
   let writerStarted = false;
   const waiting = withDomains(selected.scope.domains, undefined, async () => {
     writerStarted = true;
-    expect(await readFile(join(f.root, "a/module.py"), "utf8")).toBe(
-      "after termination\n",
-    );
+    expect(await readFile(join(f.root, "a/module.py"), "utf8")).toBe("after termination\n");
     expect(fix.changed_files).toEqual(["a/module.py"]);
   });
   expect(writerStarted).toBe(false);

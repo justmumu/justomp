@@ -1,6 +1,7 @@
-import type { JavascriptTypecheckPolicy } from "../model";
+import { type JavascriptTypecheckPolicy } from "../model";
 
 export const JAVASCRIPT_DEFAULTS: JavascriptTypecheckPolicy = {
+  exclude: [],
   compilerOptions: {
     strict: true,
     allowJs: true,

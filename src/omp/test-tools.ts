@@ -1,58 +1,39 @@
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import {
-  type TestCoordinator,
-  waitForTestPreparation,
-} from "../testing/coordinator";
-import type { TestPreparation } from "../testing/model";
+import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type TestCoordinator, waitForTestPreparation } from "../testing/coordinator";
+import { type TestPreparation } from "../testing/model";
 import { preparationReport } from "../testing/prepare";
 import { parseTestRequest } from "../testing/request";
-import {
-  inspectTestProject,
-  runTestTarget,
-  testFailure,
-} from "../testing/service";
-import type { WithSessionRoot } from "./dependency-tools";
+import { inspectTestProject, runTestTarget, testFailure } from "../testing/service";
+import { type WithSessionRoot } from "./dependency-tools";
 
 function response<T extends object>(result: T) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
     details: result,
-    ...("success" in result && result.success === false
-      ? { isError: true }
-      : {}),
+    ...("success" in result && result.success === false ? { isError: true } : {}),
   };
 }
 export function registerTestTools(
   pi: ExtensionAPI,
   withRoot: WithSessionRoot,
-  coordinatorFor: (
-    root: string,
-    ctx: ExtensionContext,
-  ) => Promise<TestCoordinator>,
+  coordinatorFor: (root: string, ctx: ExtensionContext) => Promise<TestCoordinator>,
 ) {
   for (const suite of ["unit", "integration"] as const) {
     const parameters = pi.zod
       .object({
-        project_id: pi.zod
-          .string()
-          .min(1)
-          .describe("Stable project_id from list_projects."),
+        project_id: pi.zod.string().min(1).describe("Stable project_id from list_projects."),
         test_files: pi.zod
           .array(pi.zod.string().min(1))
           .min(1)
           .optional()
-          .describe(
-            `Exact project-relative ${suite} test files; omission runs the full ${suite} suite.`,
-          ),
+          .describe(`Exact project-relative ${suite} test files; omission runs the full ${suite} suite.`),
         timeout_seconds: pi.zod
           .number()
           .int()
           .positive()
           .max(Number.MAX_SAFE_INTEGER)
           .optional()
-          .describe(
-            "Single execution budget after runner setup, default 300 seconds.",
-          ),
+          .describe("Single execution budget after runner setup, default 300 seconds."),
       })
       .strict();
     pi.registerTool({
@@ -68,12 +49,7 @@ export function registerTestTools(
         try {
           const request = parseTestRequest(parameters.parse(input));
           return await withRoot(ctx.cwd, signal, async (root, activeSignal) => {
-            const target = await inspectTestProject(
-                root,
-                request,
-                activeSignal,
-                suite,
-              ),
+            const target = await inspectTestProject(root, request, activeSignal, suite),
               coordinator = await coordinatorFor(root, ctx);
             let observed: TestPreparation | undefined;
             const stop = coordinator.subscribeProgress((report) => {
@@ -90,15 +66,18 @@ export function registerTestTools(
                 response({
                   preparation: {
                     status: "preparing",
-                    message:
-                      "Waiting for verified test runner tools and shared policy",
+                    message: "Waiting for verified test runner tools and shared policy",
                   },
                 }),
               );
               report = await waitForTestPreparation(coordinator, activeSignal);
-              if (waited) report = { ...report, action: "waited" };
+              if (waited) {
+                report = { ...report, action: "waited" };
+              }
             } catch (error) {
-              if (!activeSignal.aborted) throw error;
+              if (!activeSignal.aborted) {
+                throw error;
+              }
               report = {
                 ...(observed ?? preparationReport()),
                 status: "preparing",
@@ -118,16 +97,7 @@ export function registerTestTools(
               stop();
               stopReport();
             }
-            return response(
-              await runTestTarget(
-                target,
-                request,
-                activeSignal,
-                report,
-                undefined,
-                suite,
-              ),
-            );
+            return response(await runTestTarget(target, request, activeSignal, report, undefined, suite));
           });
         } catch (error) {
           return response(testFailure(error, signal, suite));

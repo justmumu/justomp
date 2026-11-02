@@ -9,7 +9,7 @@ import {
   retainPackagingStructure,
   subscribePackagingStructure,
 } from "../packaging/get-structure";
-import type { LintAdapterRegistry, LintCheckContext } from "./adapters/types";
+import { type LintAdapterRegistry, type LintCheckContext } from "./adapters/types";
 import { LintError } from "./model";
 import {
   lintDomains,
@@ -52,25 +52,25 @@ export class LintCoordinator {
   private releasePackaging?: () => Promise<void>;
   private last?: PreparationReport;
   private listeners = new Set<(report: PreparationReport) => void>();
-  private progressListeners = new Set<
-    (progress: PreparationProgress) => void
-  >();
+  private progressListeners = new Set<(progress: PreparationProgress) => void>();
   private progress?: PreparationProgress;
   get preparing(): boolean {
     return this.job !== undefined;
   }
-  subscribeProgress(
-    listener: (progress: PreparationProgress) => void,
-  ): () => void {
+  subscribeProgress(listener: (progress: PreparationProgress) => void): () => void {
     this.progressListeners.add(listener);
-    if (this.job && this.progress) listener(this.progress);
+    if (this.job && this.progress) {
+      listener(this.progress);
+    }
     return () => {
       this.progressListeners.delete(listener);
     };
   }
   subscribe(listener: (report: PreparationReport) => void): () => void {
     this.listeners.add(listener);
-    if (this.last) listener(this.last);
+    if (this.last) {
+      listener(this.last);
+    }
     return () => {
       this.listeners.delete(listener);
     };
@@ -83,19 +83,13 @@ export class LintCoordinator {
     const config = await loadConfig(this.root, {
       signal: this.controller.signal,
     });
-    return JSON.stringify([
-      config.lintKey,
-      structure.projects.map((p) => p.project_id).sort(),
-    ]);
+    return JSON.stringify([config.lintKey, structure.projects.map((p) => p.project_id).sort()]);
   }
   private constructor(
     readonly root: string,
     readonly adapters: LintAdapterRegistry,
   ) {}
-  static async create(
-    root: string,
-    adapters: LintAdapterRegistry,
-  ): Promise<LintCoordinator> {
+  static async create(root: string, adapters: LintAdapterRegistry): Promise<LintCoordinator> {
     const coordinator = new LintCoordinator(root, adapters);
     await loadConfig(root, {
       flush: true,
@@ -106,9 +100,7 @@ export class LintCoordinator {
       await getPackagingStructure(root, {
         signal: coordinator.controller.signal,
       });
-      coordinator.unsubscribe = await subscribePackagingStructure(root, () =>
-        coordinator.notify(),
-      );
+      coordinator.unsubscribe = await subscribePackagingStructure(root, () => coordinator.notify());
       const watcher = new FSWatcher({
         ignoreInitial: true,
         followSymlinks: false,
@@ -120,27 +112,25 @@ export class LintCoordinator {
       const signature = async () => {
         try {
           const stat = await lstat(configPath);
-          return [
-            stat.dev,
-            stat.ino,
-            stat.size,
-            stat.mtimeMs,
-            stat.ctimeMs,
-            stat.mode,
-          ].join(":");
+          return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode].join(":");
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT")
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             return "missing";
+          }
           throw error;
         }
       };
       let previous = await signature();
       watcher.on("all", (_event, path) => {
-        if (path !== configPath) return;
+        if (path !== configPath) {
+          return;
+        }
         void signature()
           .then((current) => {
             // Native backends may report reads: atime is not a policy change.
-            if (current === previous) return;
+            if (current === previous) {
+              return;
+            }
             previous = current;
             coordinator.notify();
           })
@@ -162,7 +152,9 @@ export class LintCoordinator {
     }
   }
   private notify(): void {
-    if (this.closed) return;
+    if (this.closed) {
+      return;
+    }
     if (this.job) {
       this.dirty = true;
       return;
@@ -171,11 +163,12 @@ export class LintCoordinator {
   }
   /** Explicit calls retry failure; events received during a job coalesce to one new pass. */
   reconcile(): Promise<PreparationReport> {
-    if (this.closed)
-      return Promise.reject(
-        new LintError("closed", "Lint preparation is closed"),
-      );
-    if (this.job) return this.job;
+    if (this.closed) {
+      return Promise.reject(new LintError("closed", "Lint preparation is closed"));
+    }
+    if (this.job) {
+      return this.job;
+    }
     this.progress = undefined;
     const running = (async () => {
       let previousInput = "";
@@ -186,21 +179,16 @@ export class LintCoordinator {
         this.dirty = false;
         try {
           previousInput = await this.inputKey();
-          this.last = await prepareLint(
-            this.root,
-            this.adapters,
-            this.controller.signal,
-            (progress) => {
-              this.progress = progress;
-              for (const listener of this.progressListeners) {
-                try {
-                  listener(progress);
-                } catch {
-                  /* Reporting cannot cancel preparation. */
-                }
+          this.last = await prepareLint(this.root, this.adapters, this.controller.signal, (progress) => {
+            this.progress = progress;
+            for (const listener of this.progressListeners) {
+              try {
+                listener(progress);
+              } catch {
+                /* Reporting cannot cancel preparation. */
               }
-            },
-          );
+            }
+          });
         } catch (error) {
           this.last = {
             status: "failed",
@@ -217,21 +205,30 @@ export class LintCoordinator {
         effects.push(...this.last.changes);
         recovery ??= this.last.recovery;
         prepared ||= this.last.action === "prepared";
-        if (!this.dirty || this.closed) break;
+        if (!this.dirty || this.closed) {
+          break;
+        }
         if (!this.last.complete) {
           // Self-writes must not spin a failed native step; genuinely new inputs rerun.
           try {
-            if ((await this.inputKey()) === previousInput) break;
+            if ((await this.inputKey()) === previousInput) {
+              break;
+            }
           } catch {
             break;
           }
         }
       }
       this.last.changes = effects;
-      if (recovery) this.last.recovery = recovery;
-      if (prepared) this.last.action = "prepared";
-      for (const [id, project] of Object.entries(this.last.projects))
+      if (recovery) {
+        this.last.recovery = recovery;
+      }
+      if (prepared) {
+        this.last.action = "prepared";
+      }
+      for (const [id, project] of Object.entries(this.last.projects)) {
         project.changes = effects.filter((change) => change.project_id === id);
+      }
       for (const listener of this.listeners) {
         try {
           listener(this.last);
@@ -244,13 +241,17 @@ export class LintCoordinator {
     this.job = running;
     void running
       .finally(() => {
-        if (this.job === running) this.job = undefined;
+        if (this.job === running) {
+          this.job = undefined;
+        }
       })
       .catch(() => undefined);
     return running;
   }
   shutdown(): Promise<void> {
-    if (this.stopping) return this.stopping;
+    if (this.stopping) {
+      return this.stopping;
+    }
     this.closed = true;
     this.unsubscribe?.();
     this.controller.abort(new LintError("cancelled", "Lint session shut down"));
@@ -267,17 +268,15 @@ export class LintCoordinator {
     })().finally(() => {
       this.listeners.clear();
       this.progressListeners.clear();
-      if (coordinators.get(this.root)?.current === this)
+      if (coordinators.get(this.root)?.current === this) {
         coordinators.delete(this.root);
+      }
     });
     return this.stopping;
   }
 }
 /** One process-local job per canonical root, independent of OMP inspection deadlines. */
-export async function startLintCoordinator(
-  root: string,
-  adapters: LintAdapterRegistry,
-): Promise<LintCoordinator> {
+export async function startLintCoordinator(root: string, adapters: LintAdapterRegistry): Promise<LintCoordinator> {
   const canonical = await realpath(root);
   for (;;) {
     let entry = coordinators.get(canonical);
@@ -292,13 +291,16 @@ export async function startLintCoordinator(
           created.current = coordinator;
         },
         () => {
-          if (coordinators.get(canonical) === created)
+          if (coordinators.get(canonical) === created) {
             coordinators.delete(canonical);
+          }
         },
       );
     }
     const coordinator = await entry.promise;
-    if (!coordinator.isClosed) return coordinator;
+    if (!coordinator.isClosed) {
+      return coordinator;
+    }
     await coordinator.shutdown();
   }
 }
@@ -310,17 +312,22 @@ export async function retainLintCoordinator(
   for (;;) {
     const coordinator = await startLintCoordinator(root, adapters);
     // The last owner may have released between start returning and this continuation.
-    if (coordinator.isClosed) continue;
+    if (coordinator.isClosed) {
+      continue;
+    }
     owners.set(coordinator, (owners.get(coordinator) ?? 0) + 1);
     let released = false;
     return {
       coordinator,
       release: async () => {
-        if (released) return;
+        if (released) {
+          return;
+        }
         released = true;
         const remaining = (owners.get(coordinator) ?? 1) - 1;
-        if (remaining > 0) owners.set(coordinator, remaining);
-        else {
+        if (remaining > 0) {
+          owners.set(coordinator, remaining);
+        } else {
           owners.delete(coordinator);
           await coordinator.shutdown();
         }
@@ -334,8 +341,9 @@ export class LintSession {
   constructor(private adapters: LintAdapterRegistry) {}
   async switchRoot(root: string): Promise<LintCoordinator> {
     const canonical = await realpath(root);
-    if (this.current?.coordinator.root === canonical)
+    if (this.current?.coordinator.root === canonical) {
       return this.current.coordinator;
+    }
     await this.current?.release();
     this.current = await retainLintCoordinator(canonical, this.adapters);
     return this.current.coordinator;
@@ -369,43 +377,32 @@ export async function withReadyLintTarget<T>(
         publish: false,
       });
       const target = await resolveLintTarget(latest.structure, projectId);
-      if (
-        JSON.stringify(lintDomains(target.root, [target])) !==
-        JSON.stringify(domains)
-      )
+      if (JSON.stringify(lintDomains(target.root, [target])) !== JSON.stringify(domains)) {
         return undefined;
+      }
       const policy = await loadConfig(target.root, { signal, flush: false });
       const store = await LintStateStore.load(target.root);
       const receipt = store.state.projects[projectId];
       if (
         store.recovery ||
         !receipt?.ready ||
-        receipt.policy_hash !==
-          lintPolicyKey(policy.lint[target.project.ecosystem])
-      )
-        throw new LintError(
-          "not-ready",
-          "Lint preparation is not ready; prepare this project first",
-        );
+        receipt.policy_hash !== lintPolicyKey(policy.lint[target.project.ecosystem])
+      ) {
+        throw new LintError("not-ready", "Lint preparation is not ready; prepare this project first");
+      }
       if (
         !lintWaveReady(
           store.state,
           target.project.ecosystem,
-          latest.structure.projects
-            .filter((p) => p.ecosystem === target.project.ecosystem)
-            .map((p) => p.project_id),
+          latest.structure.projects.filter((p) => p.ecosystem === target.project.ecosystem).map((p) => p.project_id),
         )
-      )
-        throw new LintError(
-          `incomplete-${target.project.ecosystem}-wave`,
-          "Lint version alignment wave is incomplete",
-        );
+      ) {
+        throw new LintError(`incomplete-${target.project.ecosystem}-wave`, "Lint version alignment wave is incomplete");
+      }
       const adapter = adapters[target.project.ecosystem];
-      if (!adapter)
-        throw new LintError(
-          "unsupported-ecosystem",
-          `No lint adapter registered for ${target.project.ecosystem}`,
-        );
+      if (!adapter) {
+        throw new LintError("unsupported-ecosystem", `No lint adapter registered for ${target.project.ecosystem}`);
+      }
       const context: LintCheckContext = {
         target,
         versions: receipt.tools,
@@ -413,35 +410,28 @@ export async function withReadyLintTarget<T>(
         projection: await planProjection(target, policy.lint, receipt.tools),
         signal,
       };
-      if (!context.projection.current || !(await adapter.verify(context)))
-        throw new LintError(
-          "not-ready",
-          "Native lint environment is not ready; reconcile preparation first",
-        );
+      if (!context.projection.current || !(await adapter.verify(context))) {
+        throw new LintError("not-ready", "Native lint environment is not ready; reconcile preparation first");
+      }
       const value = await operation(context);
       signal.throwIfAborted();
       const after = {
         ...context,
         projection: await planProjection(target, policy.lint, receipt.tools),
       };
-      if (!after.projection.current || !(await adapter.verify(after)))
-        throw new LintError(
-          "not-ready",
-          "Native lint environment changed during the check; prepare again",
-        );
+      if (!after.projection.current || !(await adapter.verify(after))) {
+        throw new LintError("not-ready", "Native lint environment changed during the check; prepare again");
+      }
       if (
-        lintPolicyKey(
-          (await loadConfig(target.root, { signal })).lint[
-            target.project.ecosystem
-          ],
-        ) !== receipt.policy_hash
-      )
-        throw new LintError(
-          "policy-changed",
-          "Lint policy changed during the check",
-        );
+        lintPolicyKey((await loadConfig(target.root, { signal })).lint[target.project.ecosystem]) !==
+        receipt.policy_hash
+      ) {
+        throw new LintError("policy-changed", "Lint policy changed during the check");
+      }
       return { value };
     });
-    if (result) return result.value;
+    if (result) {
+      return result.value;
+    }
   }
 }

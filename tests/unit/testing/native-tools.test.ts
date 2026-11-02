@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Inventory, ProcessResult } from "../../../src/dependencies/model";
+import { type Inventory, type ProcessResult } from "../../../src/dependencies/model";
 import {
   batchJavascriptSteps,
   classifyResult,
@@ -28,7 +28,9 @@ test("exact readiness requires dev declaration, lock and version agreement", () 
   expect(exactDeclarations(inventory, { pytest: "9.0.0" }, true)).toBe(true);
   expect(exactDeclarations(inventory, { pytest: "9.0.1" }, true)).toBe(false);
   const first = inventory.dependencies[0];
-  if (!first) throw new Error("Missing fixture declaration");
+  if (!first) {
+    throw new Error("Missing fixture declaration");
+  }
   first.resolutions = [];
   expect(exactDeclarations(inventory, { pytest: "9.0.0" }, true)).toBe(false);
 });
@@ -49,10 +51,7 @@ test("native failure keeps process evidence and partial test results after cover
     throw new Error("bad coverage");
   });
   expect(result.tests.total).toBe(2);
-  expect(result.errors.map((e) => e.code)).toEqual([
-    "test-failed",
-    "test-operation-failed",
-  ]);
+  expect(result.errors.map((e) => e.code)).toEqual(["test-failed", "test-operation-failed"]);
   expect(result.stderr).toBe("native failure");
   expect(result.logs_truncated).toBe(true);
 });
@@ -63,15 +62,11 @@ test("native preparation requests exact dev tools and coalesces matching native 
     diagnostics: [],
     dependencies: [],
   };
-  expect(
-    javascriptToolRequest("javascript:.", "vitest", "4.0.0", empty),
-  ).toEqual({
+  expect(javascriptToolRequest("javascript:.", "vitest", "4.0.0", empty)).toEqual({
     operation: "add",
     project_id: "javascript:.",
     group: { kind: "dev" },
-    packages: [
-      { name: "vitest", version: "4.0.0", source: { kind: "registry" } },
-    ],
+    packages: [{ name: "vitest", version: "4.0.0", source: { kind: "registry" } }],
   });
   const tools = { vitest: "4.0.0", "@vitest/coverage-v8": "4.0.0" };
   const steps = batchJavascriptSteps(
@@ -103,16 +98,14 @@ test("native preparation requests exact dev tools and coalesces matching native 
       },
     ],
   };
-  expect(
-    javascriptToolRequest("javascript:.", "vitest", "4.0.0", existing),
-  ).toMatchObject({
+  expect(javascriptToolRequest("javascript:.", "vitest", "4.0.0", existing)).toMatchObject({
     operation: "update",
     packages: [{ version: "4.0.0", group: { kind: "dev" } }],
   });
   const declaration = existing.dependencies[0];
-  if (!declaration) throw new Error("Missing fixture declaration");
+  if (!declaration) {
+    throw new Error("Missing fixture declaration");
+  }
   declaration.group = { kind: "runtime" };
-  expect(() =>
-    javascriptToolRequest("javascript:.", "vitest", "4.0.0", existing),
-  ).toThrow("registry dev");
+  expect(() => javascriptToolRequest("javascript:.", "vitest", "4.0.0", existing)).toThrow("registry dev");
 });

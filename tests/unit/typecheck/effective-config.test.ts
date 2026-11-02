@@ -15,13 +15,9 @@ test("effective compiler metadata parses without a native installation", () => {
   ).toEqual({ compilerOptions: { strict: true }, files: ["a.ts"] });
 });
 test("malformed showConfig metadata is rejected", () => {
-  expect(() =>
-    effectiveJavascriptConfig(
-      output({ stdout: "unexpected compiler output\n{}" }),
-      {},
-      path,
-    ),
-  ).toThrow("invalid --showConfig metadata");
+  expect(() => effectiveJavascriptConfig(output({ stdout: "unexpected compiler output\n{}" }), {}, path)).toThrow(
+    "invalid --showConfig metadata",
+  );
 });
 test("empty native configuration retains its options only for a complete no-input result", () => {
   const empty = output({
@@ -38,6 +34,7 @@ test("empty native configuration retains its options only for a complete no-inpu
     { ...empty, cancelled: true },
     { ...empty, stderr: "failure" },
     output({ exit_code: 9 }),
-  ])
+  ]) {
     expect(() => effectiveJavascriptConfig(result, raw, path)).toThrow();
+  }
 });

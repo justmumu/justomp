@@ -8,15 +8,11 @@ test("Yarn modern native registry lifecycle respects constraints and exact downg
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } }],
     });
     const graph = await adapter.inventory(await f.context(), true);
     expect(graph.complete).toBe(true);
-    expect(
-      graph.dependencies.some((d) => d.name === "u6-child" && !d.direct),
-    ).toBe(true);
+    expect(graph.dependencies.some((d) => d.name === "u6-child" && !d.direct)).toBe(true);
     expect(await f.installed("u6-dep")).toBe("1.0.0");
     f.publish("2.0.0");
     await f.operate(adapter, {
@@ -64,21 +60,10 @@ test("modern Yarn node_modules linker shares the same native graph contract as P
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "1.0.0", source: { kind: "registry" } }],
     });
-    expect(
-      JSON.parse(
-        await readFile(
-          join(f.root, "node_modules/u6-dep/package.json"),
-          "utf8",
-        ),
-      ).version,
-    ).toBe("1.0.0");
-    expect((await adapter.inventory(await f.context(), true)).complete).toBe(
-      true,
-    );
+    expect(JSON.parse(await readFile(join(f.root, "node_modules/u6-dep/package.json"), "utf8")).version).toBe("1.0.0");
+    expect((await adapter.inventory(await f.context(), true)).complete).toBe(true);
     await f.operate(adapter, { operation: "sync" });
   } finally {
     await f.close();
@@ -93,13 +78,14 @@ test("service reports Yarn shared-lock resolution changes in both members", asyn
   const f = await fixture("modern", true);
   const previousPath = process.env.PATH;
   try {
-    const launcher =
-      process.env.JUSTOMP_YARN_MODERN_BINARY ?? Bun.which("yarn");
-    if (!launcher) throw new Error("native Yarn launcher missing");
+    const launcher = process.env.JUSTOMP_YARN_MODERN_BINARY ?? Bun.which("yarn");
+    if (!launcher) {
+      throw new Error("native Yarn launcher missing");
+    }
     await mkdir(join(f.root, ".bin"));
     await symlink(launcher, join(f.root, ".bin/yarn"));
     process.env.PATH = `${join(f.root, ".bin")}:${previousPath ?? ""}`;
-    for (const name of ["a", "b"])
+    for (const name of ["a", "b"]) {
       await writeFile(
         join(f.root, "packages", name, "package.json"),
         JSON.stringify({
@@ -108,22 +94,15 @@ test("service reports Yarn shared-lock resolution changes in both members", asyn
           dependencies: { "u6-dep": "^1.0.0" },
         }),
       );
+    }
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } }],
     });
     f.publish("2.0.0");
-    const beforeA = await readFile(
-      join(f.root, "packages/a/package.json"),
-      "utf8",
-    );
-    const beforeB = await readFile(
-      join(f.root, "packages/b/package.json"),
-      "utf8",
-    );
+    const beforeA = await readFile(join(f.root, "packages/a/package.json"), "utf8");
+    const beforeB = await readFile(join(f.root, "packages/b/package.json"), "utf8");
     const result = await executeDependency(
       f.root,
       "update",
@@ -147,12 +126,8 @@ test("service reports Yarn shared-lock resolution changes in both members", asyn
         effect: "resolutions_changed",
       },
     ]);
-    expect(
-      await readFile(join(f.root, "packages/a/package.json"), "utf8"),
-    ).toBe(beforeA);
-    expect(
-      await readFile(join(f.root, "packages/b/package.json"), "utf8"),
-    ).toBe(beforeB);
+    expect(await readFile(join(f.root, "packages/a/package.json"), "utf8")).toBe(beforeA);
+    expect(await readFile(join(f.root, "packages/b/package.json"), "utf8")).toBe(beforeB);
     expect(await f.installed("u6-dep", "packages/a")).toBe("1.1.0");
     expect(await f.installed("u6-dep", "packages/b")).toBe("1.1.0");
     await rm(join(f.root, ".pnp.cjs"));
@@ -166,12 +141,16 @@ test("service reports Yarn shared-lock resolution changes in both members", asyn
       { "yarn-modern": adapter },
     );
     expect(check.outcome, JSON.stringify(check)).toBe("success");
-    expect(
-      "metadata_changes" in check && check.metadata_changes,
-    ).toContainEqual({ path: ".pnp.cjs", change: "created" });
+    expect("metadata_changes" in check && check.metadata_changes).toContainEqual({
+      path: ".pnp.cjs",
+      change: "created",
+    });
   } finally {
-    if (previousPath === undefined) delete process.env.PATH;
-    else process.env.PATH = previousPath;
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
     await closePackagingStructure(f.root);
     await f.close();
   }

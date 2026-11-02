@@ -1,16 +1,7 @@
 {
   "inspection_rules": {
-    "include": [
-      "**/*"
-    ],
-    "exclude": [
-      "**/.*",
-      "**/node_modules",
-      "**/venv",
-      "**/bower_components",
-      "**/__pycache__",
-      "**/__pypackages__"
-    ]
+    "include": ["**/*"],
+    "exclude": ["**/.*", "**/node_modules", "**/venv", "**/bower_components", "**/__pycache__", "**/__pypackages__"]
   },
   "lint": {
     "python": {
@@ -38,9 +29,7 @@
           "node_modules",
           "venv"
         ],
-        "extend-exclude": [
-          ".private"
-        ],
+        "extend-exclude": [".private"],
         "lint": {
           "select": [
             "F",
@@ -86,34 +75,10 @@
             "EXE",
             "D"
           ],
-          "ignore": [
-            "E501",
-            "COM812",
-            "ISC001",
-            "TRY003",
-            "EM101",
-            "EM102",
-            "TID252",
-            "S603",
-            "S607"
-          ],
+          "ignore": ["E501", "COM812", "ISC001", "TRY003", "EM101", "EM102", "TID252", "S603", "S607"],
           "per-file-ignores": {
-            "tests/*": [
-              "S101",
-              "SLF001",
-              "ARG",
-              "T201",
-              "PT011",
-              "ANN",
-              "INP001",
-              "D"
-            ],
-            "scripts/*": [
-              "INP001",
-              "T201",
-              "FBT001",
-              "FBT002"
-            ]
+            "tests/*": ["S101", "SLF001", "ARG", "T201", "PT011", "ANN", "INP001", "D"],
+            "scripts/*": ["INP001", "T201", "FBT001", "FBT002"]
           },
           "isort": {
             "combine-as-imports": true
@@ -131,6 +96,7 @@
       }
     },
     "javascript": {
+      "exclude": [],
       "biome": {
         "globals": [
           "console",
@@ -261,10 +227,7 @@
             "noConsole": {
               "level": "error",
               "options": {
-                "allow": [
-                  "warn",
-                  "error"
-                ]
+                "allow": ["warn", "error"]
               }
             }
           },
@@ -487,10 +450,7 @@
               "max-complexity": 10
             },
             "exhaustive": {
-              "check": [
-                "switch",
-                "mapliteral"
-              ]
+              "check": ["switch", "mapliteral"]
             }
           },
           "exclusions": {
@@ -499,10 +459,7 @@
           }
         },
         "formatters": {
-          "enable": [
-            "gofumpt",
-            "goimports"
-          ],
+          "enable": ["gofumpt", "goimports"],
           "exclusions": {
             "generated": "strict"
           }

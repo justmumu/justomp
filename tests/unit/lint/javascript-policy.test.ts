@@ -1,18 +1,10 @@
 import { expect, test } from "bun:test";
 import { LEGACY_ESLINT_DEFAULTS } from "../../../src/config/lint/javascript/legacy-defaults";
-import {
-  lintPolicyKey,
-  resolveLintConfig,
-} from "../../../src/config/lint/resolve";
+import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 
 test("JavaScript policy declares native globals and preserves empty globals", () => {
-  expect(resolveLintConfig().policy.javascript.biome.globals).toContain(
-    "console",
-  );
-  expect(
-    resolveLintConfig({ javascript: { biome: { globals: [] } } }).policy
-      .javascript.biome.globals,
-  ).toEqual([]);
+  expect(resolveLintConfig().policy.javascript.biome.globals).toContain("console");
+  expect(resolveLintConfig({ javascript: { biome: { globals: [] } } }).policy.javascript.biome.globals).toEqual([]);
 });
 
 test("native maps are authoritative over legacy data and do not hash archived rules", () => {
@@ -33,9 +25,7 @@ test("native maps are authoritative over legacy data and do not hash archived ru
     rules: { "unknown/rule": ["error", { impossible: true }] },
   });
   expect(lintPolicyKey(a.policy)).toBe(lintPolicyKey(b.policy));
-  expect(lintPolicyKey(a.policy.javascript)).toBe(
-    lintPolicyKey(b.policy.javascript),
-  );
+  expect(lintPolicyKey(a.policy.javascript)).toBe(lintPolicyKey(b.policy.javascript));
 });
 
 test("legacy sparse rule maps translate severity and supported options without refilling", () => {
@@ -67,24 +57,18 @@ test.each([
   { rules: { "no-debugger": ["error", { extra: true }] } },
   {
     typed_rules: {
-      "@typescript-eslint/ban-ts-comment": [
-        "error",
-        { minimumDescriptionLength: 20 },
-      ],
+      "@typescript-eslint/ban-ts-comment": ["error", { minimumDescriptionLength: 20 }],
     },
   },
   { globals: { custom: "writable" } },
   { rules: { "no-empty": "error", "no-empty-static-block": "off" } },
-])(
-  "untranslatable legacy settings fail with a named migration remedy: %j",
-  (eslint) => {
-    const input = { javascript: { eslint } };
-    const before = structuredClone(input);
-    expect(() => resolveLintConfig(input)).toThrow("lint.javascript.eslint.");
-    expect(() => resolveLintConfig(input)).toThrow("biome");
-    expect(input).toEqual(before);
-  },
-);
+])("untranslatable legacy settings fail with a named migration remedy: %j", (eslint) => {
+  const input = { javascript: { eslint } };
+  const before = structuredClone(input);
+  expect(() => resolveLintConfig(input)).toThrow("lint.javascript.eslint.");
+  expect(() => resolveLintConfig(input)).toThrow("biome");
+  expect(input).toEqual(before);
+});
 
 test("the complete frozen shipped ESLint policy migrates to the explicit native baseline", () => {
   const legacy = structuredClone(LEGACY_ESLINT_DEFAULTS);
@@ -92,18 +76,12 @@ test("the complete frozen shipped ESLint policy migrates to the explicit native 
     javascript: { eslint: legacy, prettier: { singleQuote: true } },
     future: { retained: true },
   });
-  expect(result.policy.javascript.biome).toEqual(
-    resolveLintConfig().policy.javascript.biome,
-  );
+  expect(result.policy.javascript.biome).toEqual(resolveLintConfig().policy.javascript.biome);
   expect(result.policy.javascript.eslint).toEqual(legacy);
   expect(result.policy.javascript.prettier.singleQuote).toBe(true);
   expect(result.policy.future).toEqual({ retained: true });
-  expect(
-    result.policy.javascript.biome.react_rules.nursery?.useControlLabel,
-  ).toBe("off");
-  expect(
-    result.policy.javascript.biome.typed_rules.correctness?.noUnusedImports,
-  ).toBe("error");
+  expect(result.policy.javascript.biome.react_rules.nursery?.useControlLabel).toBe("off");
+  expect(result.policy.javascript.biome.typed_rules.correctness?.noUnusedImports).toBe("error");
   expect(resolveLintConfig(result.policy).missing).toBe(false);
 });
 
@@ -137,14 +115,9 @@ test.each([
   { rules: { suspicious: { noDebugger: { level: "error", options: [] } } } },
   { organize_imports: { level: "on", fix: "safe" } },
   { globals: {} },
-])(
-  "native configuration uses bounded rule and assist settings: %j",
-  (biome) => {
-    expect(() => resolveLintConfig({ javascript: { biome } })).toThrow(
-      "lint.javascript.biome",
-    );
-  },
-);
+])("native configuration uses bounded rule and assist settings: %j", (biome) => {
+  expect(() => resolveLintConfig({ javascript: { biome } })).toThrow("lint.javascript.biome");
+});
 
 test("native fix classification and disabled assists survive without default merging", () => {
   const rules = {
@@ -163,19 +136,12 @@ test("native fix classification and disabled assists survive without default mer
   expect(result.policy.javascript.biome.organize_imports).toBe("off");
 });
 
-test.each([
-  "extends",
-  "plugins",
-  "$schema",
-  "root",
-  "files",
-  "overrides",
-  "vcs",
-])("managed policy rejects native config redirection: %s", (key) => {
-  expect(() =>
-    resolveLintConfig({ javascript: { biome: { [key]: [] } } }),
-  ).toThrow(`lint.javascript.biome.${key}`);
-});
+test.each(["extends", "plugins", "$schema", "root", "files", "overrides", "vcs"])(
+  "managed policy rejects native config redirection: %s",
+  (key) => {
+    expect(() => resolveLintConfig({ javascript: { biome: { [key]: [] } } })).toThrow(`lint.javascript.biome.${key}`);
+  },
+);
 
 test("unrelated stored fields and nested rule option data retain their own hashes", () => {
   const a = resolveLintConfig({
@@ -221,15 +187,11 @@ test("legacy typed replacements preserve custom severity independent of key orde
     const result = resolveLintConfig({
       javascript: {
         eslint: {
-          typed_rules: Object.fromEntries(
-            reverse ? Object.entries(typed).reverse() : Object.entries(typed),
-          ),
+          typed_rules: Object.fromEntries(reverse ? Object.entries(typed).reverse() : Object.entries(typed)),
         },
       },
     });
-    expect(
-      result.policy.javascript.biome.typed_rules.correctness,
-    ).toMatchObject({
+    expect(result.policy.javascript.biome.typed_rules.correctness).toMatchObject({
       noUnusedVariables: "warn",
       noUnusedImports: "warn",
       noUnusedFunctionParameters: "warn",

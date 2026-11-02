@@ -13,7 +13,7 @@ for (const [manager, config, contents] of [
   ["pnpm", "pnpm-workspace.yaml", "lockfileDir: ../shared"],
   ["yarn", ".yarnrc.yml", "installStatePath: ../shared"],
   ["yarn", ".yarnrc.yml", "pnpUnpluggedFolder: ../shared"],
-] as const)
+] as const) {
   test(`${manager} maps ${config} redirect into its write domain: ${contents}`, async () => {
     const f = memoryContext({
       manager,
@@ -22,12 +22,8 @@ for (const [manager, config, contents] of [
       managerRoot: "app",
       manifest: "app/package.json",
     });
-    const safe = spyOn(paths, "safePath").mockImplementation(
-      async (root, path) => resolve(root, path),
-    );
-    const canonical = spyOn(paths, "canonicalWritePath").mockImplementation(
-      async (root, path) => resolve(root, path),
-    );
+    const safe = spyOn(paths, "safePath").mockImplementation(async (root, path) => resolve(root, path));
+    const canonical = spyOn(paths, "canonicalWritePath").mockImplementation(async (root, path) => resolve(root, path));
     try {
       f.write(`app/${config}`, contents);
       const result = await resolveManagerScope(f.root, f.context.project);
@@ -39,3 +35,4 @@ for (const [manager, config, contents] of [
       f.close();
     }
   });
+}

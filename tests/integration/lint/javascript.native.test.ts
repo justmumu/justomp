@@ -1,39 +1,29 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  formatPrettier,
-  prettierVersion,
-} from "../../../src/format/engines/prettier";
+import { formatPrettier, prettierVersion } from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
 import { cleanups, fixture } from "./javascript-fixture";
 
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    await cleanup();
+  }
 });
-for (const manager of ["npm", "yarn-modern"] as const)
+for (const manager of ["npm", "yarn-modern"] as const) {
   test(`native ${manager} loads managed Biome and reports readonly lint/format diagnostics`, async () => {
-    const f = await fixture(
-      manager,
-      manager === "npm" ? "next" : "js",
-      manager === "npm",
-    );
+    const f = await fixture(manager, manager === "npm" ? "next" : "js", manager === "npm");
     await f.prepare();
     const ctx = await f.checkContext(manager === "npm" ? 1 : 0);
     const cwd = ctx.target.scope.cwd;
     expect(await javascriptAdapter.verify(ctx)).toBe(true);
-    const manifest = JSON.parse(
-      await readFile(join(cwd, "package.json"), "utf8"),
-    );
+    const manifest = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));
     expect(manifest.devDependencies).toEqual({
       ...(manager === "npm" ? { typescript: "7.0.2" } : {}),
       "@biomejs/biome": "2.6.3",
     });
-    expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual([
-      "passed",
-      "passed",
-    ]);
+    expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(["passed", "passed"]);
     if (manager === "npm") {
       // Root, same-project and nested user configs must not replace the managed policy.
       const foreign = JSON.stringify({
@@ -56,13 +46,13 @@ for (const manager of ["npm", "yarn-modern"] as const)
         manifest: childManifest,
       });
       const untouched = "debugger; export let child=1;\n";
+      await mkdir(join(cwd, ".private"));
+      await writeFile(join(cwd, ".private/archive.ts"), untouched);
+      ctx.policy.javascript.exclude = [".private/**"];
+      await f.project();
       await writeFile(join(f.root, childPath, "child.ts"), untouched);
-      await writeFile(
-        join(cwd, "src/values.ts"),
-        "export const a = 1;\nexport const z = 2;\n",
-      );
-      const source =
-        'import { z, a } from "./values.js";\nexport const values={z,a};\n';
+      await writeFile(join(cwd, "src/values.ts"), "export const a = 1;\nexport const z = 2;\n");
+      const source = 'import { z, a } from "./values.js";\nexport const values={z,a};\n';
       await writeFile(join(cwd, "src/index.ts"), source);
       const metadata = await readFile(join(cwd, "package.json"), "utf8");
       // A shell environment cannot replace the selected managed binary/config.
@@ -90,33 +80,21 @@ for (const manager of ["npm", "yarn-modern"] as const)
         observation_complete: true,
       });
       expect(await readFile(logTarget, "utf8")).toBe("preserve this file\n");
+      expect(await readFile(join(cwd, ".private/archive.ts"), "utf8")).toBe(untouched);
       const fixed = await readFile(join(cwd, "src/index.ts"), "utf8");
       expect(fixed).toContain("import { a, z }");
       expect(fixed).toContain("values={z,a}");
-      expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(
-        ["passed", "failed"],
-      );
-      expect(await readFile(join(f.root, childPath, "child.ts"), "utf8")).toBe(
-        untouched,
-      );
+      expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(["passed", "failed"]);
+      expect(await readFile(join(f.root, childPath, "child.ts"), "utf8")).toBe(untouched);
       expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(metadata);
-      expect(await readFile(join(cwd, "src/biome.jsonc"), "utf8")).toBe(
-        foreign,
-      );
+      expect(await readFile(join(cwd, "src/biome.jsonc"), "utf8")).toBe(foreign);
       await writeFile(
         join(cwd, "src/index.ts"),
-        await formatPrettier(
-          fixed,
-          "typescript",
-          ctx.policy.javascript.prettier,
-        ),
+        await formatPrettier(fixed, "typescript", ctx.policy.javascript.prettier),
       );
     }
     const sourcePath = manager === "npm" ? "src/index.ts" : "index.js";
-    await writeFile(
-      join(cwd, sourcePath),
-      "debugger;\nexport const value=1;\n",
-    );
+    await writeFile(join(cwd, sourcePath), "debugger;\nexport const value=1;\n");
     const before = await f.bytes();
     const checks = await javascriptAdapter.check(ctx);
     expect(checks.map((c) => c.status)).toEqual(["failed", "failed"]);
@@ -127,9 +105,7 @@ for (const manager of ["npm", "yarn-modern"] as const)
         rule: "lint/suspicious/noDebugger",
       }),
     );
-    expect(checks[1]?.diagnostics).toContainEqual(
-      expect.objectContaining({ project_path: sourcePath }),
-    );
+    expect(checks[1]?.diagnostics).toContainEqual(expect.objectContaining({ project_path: sourcePath }));
     expect(checks[1]?.version).toBe(prettierVersion);
     expect(await f.bytes()).toEqual(before);
     if (manager === "npm") {
@@ -138,3 +114,4 @@ for (const manager of ["npm", "yarn-modern"] as const)
       expect((await javascriptAdapter.check(ctx))[0]?.status).toBe("not-run");
     }
   }, 180000);
+}

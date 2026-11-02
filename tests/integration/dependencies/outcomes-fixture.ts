@@ -3,9 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 export const roots: string[] = [];
 export async function fixture(path = ".") {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-outcomes-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-outcomes-")));
   roots.push(root);
   await mkdir(join(root, path), { recursive: true });
   await writeFile(

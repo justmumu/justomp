@@ -5,7 +5,7 @@ import { pnpmAdapter } from "./adapters/pnpm";
 import { uvAdapter } from "./adapters/uv";
 import { yarnClassicAdapter } from "./adapters/yarn-classic";
 import { yarnModernAdapter } from "./adapters/yarn-modern";
-import type { AdapterRegistry } from "./service";
+import { type AdapterRegistry } from "./service";
 
 export const adapters: AdapterRegistry = {
   uv: uvAdapter,

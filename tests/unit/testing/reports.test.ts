@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  junitReport,
-  lcovReport,
-  pythonCoverage,
-} from "../../../src/testing/python/reports";
+import { junitReport, lcovReport, pythonCoverage } from "../../../src/testing/python/reports";
 
 test("JUnit retains failures and validates report structure and ownership", () => {
   const xml =
@@ -13,12 +9,9 @@ test("JUnit retains failures and validates report structure and ownership", () =
     failed: 1,
     passed: 1,
   });
-  for (const invalid of [
-    xml.slice(0, -2),
-    `<!DOCTYPE test>${xml}`,
-    xml.replaceAll("a.test.ts", "foreign.ts"),
-  ])
+  for (const invalid of [xml.slice(0, -2), `<!DOCTYPE test>${xml}`, xml.replaceAll("a.test.ts", "foreign.ts")]) {
     expect(() => junitReport(invalid, "/p", ["a.test.ts"])).toThrow();
+  }
 });
 test("LCOV counts only owned sources and requires every source", () => {
   const lcov = "SF:src/a.ts\nDA:1,1\nDA:2,0\nLF:2\nLH:1\nend_of_record\n";
@@ -27,9 +20,7 @@ test("LCOV counts only owned sources and requires every source", () => {
     total: 2,
   });
   expect(() => lcovReport(lcov, "/p", ["src/a.ts", "src/unused.ts"])).toThrow();
-  expect(() =>
-    lcovReport(lcov.replace("end_of_record", ""), "/p", ["src/a.ts"]),
-  ).toThrow();
+  expect(() => lcovReport(lcov.replace("end_of_record", ""), "/p", ["src/a.ts"])).toThrow();
 });
 
 test("coverage.py JSON rejects missing, malformed and foreign-source reports", () => {
@@ -44,6 +35,7 @@ test("coverage.py JSON rejects missing, malformed and foreign-source reports", (
     "{broken",
     JSON.stringify({ files: {} }),
     JSON.stringify({ files: { "other.py": data.files["src/a.py"] } }),
-  ])
+  ]) {
     expect(() => pythonCoverage(bad, "/p", ["src/a.py"])).toThrow();
+  }
 });

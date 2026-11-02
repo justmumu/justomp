@@ -2,15 +2,17 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import * as config from "../../../src/config/load";
 import * as lint from "../../../src/lint/prepare";
 import { createPushOperations } from "../../../src/prepush/operations";
-import type { ProjectTestResult } from "../../../src/testing/model";
+import { type ProjectTestResult } from "../../../src/testing/model";
 import * as testing from "../../../src/testing/prepare";
 import * as tests from "../../../src/testing/service";
-import type { TestTarget } from "../../../src/testing/targets";
+import { type TestTarget } from "../../../src/testing/targets";
 import * as types from "../../../src/typecheck/prepare";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -33,9 +35,7 @@ function fixture() {
     ...structuredClone(report),
     projects: {},
     diagnostics: [],
-    changes: [
-      { project_id: "api", path: "types.json", kind: "updated" as const },
-    ],
+    changes: [{ project_id: "api", path: "types.json", kind: "updated" as const }],
   };
   const testReport = {
     ...testing.preparationReport(),
@@ -47,15 +47,9 @@ function fixture() {
       wrote: true,
     } as config.LoadedConfig),
   );
-  const prepareLint = keep(
-    spyOn(lint, "prepareLint").mockResolvedValue(lintReport),
-  );
-  const prepareTypes = keep(
-    spyOn(types, "prepareTypecheck").mockResolvedValue(typeReport),
-  );
-  const prepareTests = keep(
-    spyOn(testing, "prepareTests").mockResolvedValue(testReport),
-  );
+  const prepareLint = keep(spyOn(lint, "prepareLint").mockResolvedValue(lintReport));
+  const prepareTypes = keep(spyOn(types, "prepareTypecheck").mockResolvedValue(typeReport));
+  const prepareTests = keep(spyOn(testing, "prepareTests").mockResolvedValue(testReport));
   return {
     lintReport,
     typeReport,
@@ -99,9 +93,7 @@ test("unit checks reuse invocation preparation and forward coverage and incomple
   const f = fixture(),
     signal = new AbortController().signal;
   const target = { root: "/repo" } as TestTarget;
-  const inspect = keep(
-    spyOn(tests, "inspectTestProject").mockResolvedValue(target),
-  );
+  const inspect = keep(spyOn(tests, "inspectTestProject").mockResolvedValue(target));
   const outcome = {
     project_id: "api",
     relative_path: ".",
@@ -145,22 +137,13 @@ test("unit checks reuse invocation preparation and forward coverage and incomple
     });
     expect(stage.details).toBe(outcome);
   }
-  expect(inspect).toHaveBeenCalledWith(
-    "/repo",
-    { project_id: "api", timeout_seconds: 300 },
-    signal,
-  );
-  expect(run).toHaveBeenCalledWith(
-    target,
-    { project_id: "api", timeout_seconds: 300 },
-    signal,
-    f.testReport,
-  );
+  expect(inspect).toHaveBeenCalledWith("/repo", { project_id: "api", timeout_seconds: 300 }, signal);
+  expect(run).toHaveBeenCalledWith(target, { project_id: "api", timeout_seconds: 300 }, signal, f.testReport);
   expect(run.mock.calls.every((call) => call[3] === f.testReport)).toBe(true);
   expect(f.prepareTests).toHaveBeenCalledTimes(1);
   expect(f.prepareLint).toHaveBeenCalledTimes(1);
   expect(f.prepareTypes).toHaveBeenCalledTimes(1);
-  await expect(
-    createPushOperations().run("unit", "/repo", "api", signal),
-  ).rejects.toThrow("preparation has not completed");
+  await expect(createPushOperations().run("unit", "/repo", "api", signal)).rejects.toThrow(
+    "preparation has not completed",
+  );
 });

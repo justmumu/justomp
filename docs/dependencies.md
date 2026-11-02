@@ -7,7 +7,12 @@ The extension uses installed uv, npm, pnpm, Yarn Classic, modern Yarn, Bun and G
 Call `list_projects` with `{}`. Its JSON result contains only these fields:
 
 ```json
-{"projects":[{"project_id":"javascript:package.json","relative_path":"."},{"project_id":"python:apps/api/pyproject.toml","relative_path":"apps/api"}]}
+{
+  "projects": [
+    { "project_id": "javascript:package.json", "relative_path": "." },
+    { "project_id": "python:apps/api/pyproject.toml", "relative_path": "apps/api" }
+  ]
+}
 ```
 
 An empty root returns `{"projects":[]}`. IDs combine the ecosystem and normalized root-relative manifest location. Renaming a package or copying the same tree preserves its ID; moving its manifest changes the ID. Two ecosystems in one directory have different IDs and the same `relative_path`. An old ID fails with `project-not-found`; it is never parsed into an operation path.
@@ -19,7 +24,7 @@ All dependency inputs require `project_id`. Unknown fields are rejected, includi
 Inspect declarations before selecting a group or changing packages:
 
 ```json
-{"project_id":"javascript:package.json","include_transitive":true}
+{ "project_id": "javascript:package.json", "include_transitive": true }
 ```
 
 `dependency_list` defaults to direct declarations. Each entry includes its name, native group, source, declared specifier and evidence. Resolution lists preserve multiple native resolutions; an installed version is shown only when measured. `complete` and `diagnostics` distinguish missing graph evidence from an empty graph. The result also contains manager/version, supported groups and operation capabilities. Source and group combinations can still have native limits described below.
@@ -27,7 +32,11 @@ Inspect declarations before selecting a group or changing packages:
 `dependency_add` requires a group and a nonempty explicit package list:
 
 ```json
-{"project_id":"python:apps/api/pyproject.toml","group":{"kind":"dev"},"packages":[{"name":"httpx","version":">=0.28,<1","source":{"kind":"registry"}}]}
+{
+  "project_id": "python:apps/api/pyproject.toml",
+  "group": { "kind": "dev" },
+  "packages": [{ "name": "httpx", "version": ">=0.28,<1", "source": { "kind": "registry" } }]
+}
 ```
 
 Every addition specifies a source. Registry versions may be native constraints. Other source forms omit `version`:
@@ -43,7 +52,7 @@ Paths are relative to the inspection root, not the selected project. A workspace
 `dependency_remove` removes only the selected native group:
 
 ```json
-{"project_id":"python:apps/api/pyproject.toml","group":{"kind":"dev"},"packages":[{"name":"httpx"}]}
+{ "project_id": "python:apps/api/pyproject.toml", "group": { "kind": "dev" }, "packages": [{ "name": "httpx" }] }
 ```
 
 Groups are `runtime`, `dev`, `optional`, `peer`, `named` and `extra`. `named` and `extra` require a `name`; other groups forbid it. Each adapter supports only its native subset. Go requires explicit `runtime`; `indirect` is graph evidence, not an install group.
@@ -61,20 +70,20 @@ The default is `within_constraints`: the chosen resolution must satisfy the star
 `dependency_sync` takes `project_id` and optional boolean `check`. Omitted or `false`, it materializes the native environment using the manager's default group selection without an intentional upgrade. Managers with real locks require an existing compatible lock. Sync does not install every optional group together.
 
 ```json
-{"project_id":"python:apps/api/pyproject.toml","check":true}
+{ "project_id": "python:apps/api/pyproject.toml", "check": true }
 ```
 
 `check:true` validates dependency consistency with the installed manager. It does not repair a stale lock, relock or upgrade after a failure. Installation is allowed where the native validation requires it:
 
-| Manager | Check command | Effects |
-| --- | --- | --- |
-| uv | `uv lock --check` | Validates the owner lock from the selected project; does not sync its environment. |
-| npm | `npm ci --dry-run --ignore-scripts --no-audit --no-fund` | Validates the owner lock without installation or lifecycle scripts. |
-| pnpm | `pnpm install --frozen-lockfile` | May install using the selected project's native scope. |
-| Yarn Classic | `yarn install --frozen-lockfile --non-interactive` | Retains the existing declaration preflight; may install at the owner. |
-| Modern Yarn | `yarn install --immutable` | May install and regenerate PnP loaders at the owner; cache writes are allowed. |
-| Bun | `bun install --frozen-lockfile --dry-run` | Requires an existing text or binary lock; does not install. |
-| Go | `go mod tidy -diff` | Checks the selected module's tidy state without a preceding download that could repair sums. May fetch modules/cache data; never applies the diff. |
+| Manager      | Check command                                            | Effects                                                                                                                                            |
+| ------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| uv           | `uv lock --check`                                        | Validates the owner lock from the selected project; does not sync its environment.                                                                 |
+| npm          | `npm ci --dry-run --ignore-scripts --no-audit --no-fund` | Validates the owner lock without installation or lifecycle scripts.                                                                                |
+| pnpm         | `pnpm install --frozen-lockfile`                         | May install using the selected project's native scope.                                                                                             |
+| Yarn Classic | `yarn install --frozen-lockfile --non-interactive`       | Retains the existing declaration preflight; may install at the owner.                                                                              |
+| Modern Yarn  | `yarn install --immutable`                               | May install and regenerate PnP loaders at the owner; cache writes are allowed.                                                                     |
+| Bun          | `bun install --frozen-lockfile --dry-run`                | Requires an existing text or binary lock; does not install.                                                                                        |
+| Go           | `go mod tidy -diff`                                      | Checks the selected module's tidy state without a preceding download that could repair sums. May fetch modules/cache data; never applies the diff. |
 
 pnpm and Yarn retain native lifecycle-script behavior. Check is an `exec` operation, not a promise of a read-only filesystem or offline execution. Only `outcome: "success"` passes. Native failure/cancellation, changed dependency input metadata, or failed metadata observation cannot pass. Generated `.pnp.cjs` and `.pnp.loader.mjs` changes are reported as permitted install outputs. Failed commands and changed metadata remain visible; Justomp neither rolls them back nor retries with a repair command. Go sums are integrity metadata rather than a lock, and may legitimately be absent. These semantics are shared by the API and OMP tool; this feature does not install Git hooks.
 
@@ -94,15 +103,15 @@ Lint preparation also uses these native managers under the same queue lease, ins
 
 ## Tested manager families and native limits
 
-| Variant | Exact tested binary | Accepted family | Native groups |
-| --- | --- | --- | --- |
-| uv | 0.11.6 | >=0.11.0, <0.12.0 | runtime, dev, named, extra |
-| npm | 11.12.1 | >=11.0.0, <12.0.0 | runtime, dev, optional, peer |
-| pnpm | 10.20.0 | >=10.0.0, <11.0.0 | runtime, dev, optional, peer |
-| Yarn Classic | 1.22.22 | >=1.22.0, <2.0.0 | runtime, dev, optional, peer |
-| Modern Yarn | 4.12.0 | >=4.12.0, <5.0.0 | runtime, dev, optional, peer |
-| Bun | 1.4.2 | >=1.4.0, <1.5.0 | runtime, dev, optional, peer |
-| Go | 1.25.6 | >=1.25.0, <1.26.0 | runtime |
+| Variant      | Exact tested binary | Accepted family   | Native groups                |
+| ------------ | ------------------- | ----------------- | ---------------------------- |
+| uv           | 0.11.6              | >=0.11.0, <0.12.0 | runtime, dev, named, extra   |
+| npm          | 11.12.1             | >=11.0.0, <12.0.0 | runtime, dev, optional, peer |
+| pnpm         | 10.20.0             | >=10.0.0, <11.0.0 | runtime, dev, optional, peer |
+| Yarn Classic | 1.22.22             | >=1.22.0, <2.0.0  | runtime, dev, optional, peer |
+| Modern Yarn  | 4.12.0              | >=4.12.0, <5.0.0  | runtime, dev, optional, peer |
+| Bun          | 1.4.2               | >=1.4.0, <1.5.0   | runtime, dev, optional, peer |
+| Go           | 1.25.6              | >=1.25.0, <1.26.0 | runtime                      |
 
 The exact binaries above have native fixture evidence on macOS arm64 and Linux arm64; accepted families are compatibility bounds, not a claim that every patch release was tested. The Linux full gate included all supported manager fixtures and process-runner cancellation/output tests in a container with ext4 fixtures and an init process. Linux x64 and Windows runner/manager behavior remain unverified. Modern Yarn starts at 4.12 because that release works with the tested Git 2.52 behavior. Machine-readable versions are recorded in `tests/fixtures/dependencies/manager-versions.json`.
 

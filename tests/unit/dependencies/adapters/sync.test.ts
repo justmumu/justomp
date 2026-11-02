@@ -6,7 +6,7 @@ import { pnpmAdapter } from "../../../../src/dependencies/adapters/pnpm";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
 import { yarnClassicAdapter } from "../../../../src/dependencies/adapters/yarn-classic";
 import { yarnModernAdapter } from "../../../../src/dependencies/adapters/yarn-modern";
-import type { Adapter, Inventory } from "../../../../src/dependencies/model";
+import { type Adapter, type Inventory } from "../../../../src/dependencies/model";
 import { memoryContext } from "../memory";
 
 const cases: {
@@ -85,18 +85,8 @@ const empty: Inventory = { dependencies: [], complete: true, diagnostics: [] };
 
 for (const entry of cases) {
   test(`${entry.name} selects native check while keeping normal sync and scope`, async () => {
-    const ecosystem =
-      entry.manager === "uv"
-        ? "python"
-        : entry.manager === "go"
-          ? "go"
-          : "javascript";
-    const manifest =
-      ecosystem === "python"
-        ? "pyproject.toml"
-        : ecosystem === "go"
-          ? "go.mod"
-          : "package.json";
+    const ecosystem = entry.manager === "uv" ? "python" : entry.manager === "go" ? "go" : "javascript";
+    const manifest = ecosystem === "python" ? "pyproject.toml" : ecosystem === "go" ? "go.mod" : "package.json";
     const f = memoryContext({
       manager: entry.manager,
       ecosystem,
@@ -107,7 +97,9 @@ for (const entry of cases) {
     });
     f.context.cwd = `${f.root}/apps/api`;
     f.write(`apps/api/${manifest}`, "{}");
-    if (entry.lock) f.write(entry.lock, "# supplied lock");
+    if (entry.lock) {
+      f.write(entry.lock, "# supplied lock");
+    }
     try {
       for (const check of [undefined, false, true]) {
         const plan = await entry.adapter.plan(
@@ -119,18 +111,14 @@ for (const entry of cases) {
           },
           empty,
         );
-        expect(plan.steps.map((step) => step.args)).toEqual([
-          check ? entry.check : entry.sync,
-        ]);
-        expect(plan.steps[0]?.cwd ?? f.context.cwd).toBe(
-          entry.owner ? f.context.owner : f.context.cwd,
-        );
+        expect(plan.steps.map((step) => step.args)).toEqual([check ? entry.check : entry.sync]);
+        expect(plan.steps[0]?.cwd ?? f.context.cwd).toBe(entry.owner ? f.context.owner : f.context.cwd);
       }
     } finally {
       f.close();
     }
   });
-  if (entry.lock)
+  if (entry.lock) {
     test(`${entry.name} check requires an existing lock`, async () => {
       const f = memoryContext({ manager: entry.manager });
       try {
@@ -149,4 +137,5 @@ for (const entry of cases) {
         f.close();
       }
     });
+  }
 }

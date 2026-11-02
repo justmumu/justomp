@@ -1,17 +1,14 @@
 import { expect, spyOn, test } from "bun:test";
 import * as files from "../../../src/lint/files";
-import {
-  type LintState,
-  LintStateStore,
-  lintWaveReady,
-} from "../../../src/lint/state";
+import { type LintState, LintStateStore, lintWaveReady } from "../../../src/lint/state";
 
 test("schema one migration retains each accepted exact target without discovery", async () => {
-  const receipt = (
-    ecosystem: string,
-    tools: Record<string, string>,
-    ready = true,
-  ) => ({ ecosystem, tools, policy_hash: "policy", ready });
+  const receipt = (ecosystem: string, tools: Record<string, string>, ready = true) => ({
+    ecosystem,
+    tools,
+    policy_hash: "policy",
+    ready,
+  });
   const old = {
     schema: 1,
     projects: {
@@ -97,7 +94,9 @@ test("readiness requires the whole live cohort and each accepted target", () => 
   expect(lintWaveReady(state, "go", ["go:a", "go:b", "go:new"])).toBe(false);
   expect(lintWaveReady(state, "go", ["go:a"])).toBe(false);
   const receipt = state.projects["go:b"];
-  if (!receipt) throw new Error("Missing fixture receipt");
+  if (!receipt) {
+    throw new Error("Missing fixture receipt");
+  }
   receipt.ready = false;
   expect(lintWaveReady(state, "go", ["go:a", "go:b"])).toBe(false);
   receipt.ready = true;

@@ -1,26 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { INSPECTION_DEFAULTS } from "../../../src/config/inspection/defaults";
 import { validateRules } from "../../../src/config/inspection/validate";
-import {
-  createMatcher,
-  isDiscoveryInput,
-} from "../../../src/inspect/exclusions";
+import { createMatcher, isDiscoveryInput } from "../../../src/inspect/exclusions";
 import { parseGo } from "../../../src/inspect/readers/go";
 
 describe("inspection rules", () => {
   test("prunes hidden and dependency names at every depth without guessing generic names", () => {
     const m = createMatcher(INSPECTION_DEFAULTS);
-    for (const p of [
-      ".git",
-      "a/.venv/x",
-      "node_modules/pkg",
-      "a/venv",
-      "b/bower_components",
-      "a/.file",
-    ])
+    for (const p of [".git", "a/.venv/x", "node_modules/pkg", "a/venv", "b/bower_components", "a/.file"]) {
       expect(m.excludes(p)).toBe(true);
-    for (const p of ["build", "dist", "vendor", "env", "my_node_modules_notes"])
+    }
+    for (const p of ["build", "dist", "vendor", "env", "my_node_modules_notes"]) {
       expect(m.mayTraverse(p)).toBe(true);
+    }
   });
   test("empty arrays replace defaults, exclusion wins and ancestors remain traversable", () => {
     const m = createMatcher({
@@ -32,28 +24,13 @@ describe("inspection rules", () => {
     expect(m.includes("apps/web/package.json")).toBe(true);
     expect(m.includes("apps/web/private/package.json")).toBe(false);
     expect(m.mayTraverse("packages")).toBe(false);
-    expect(
-      createMatcher({ include: [], exclude: [] }).mayTraverse("anything"),
-    ).toBe(false);
-    expect(
-      createMatcher({ include: ["**/*"], exclude: [] }).includes(
-        ".hidden/package.json",
-      ),
-    ).toBe(true);
+    expect(createMatcher({ include: [], exclude: [] }).mayTraverse("anything")).toBe(false);
+    expect(createMatcher({ include: ["**/*"], exclude: [] }).includes(".hidden/package.json")).toBe(true);
   });
   test("unsupported syntax and nonarrays are errors", () => {
-    for (const pattern of [
-      "/abs",
-      "../escape",
-      "!foo",
-      "a/{b,c}",
-      "a/?",
-      "a/[bc]",
-      "a\\b",
-    ])
-      expect(() =>
-        validateRules({ include: [pattern], exclude: [] }),
-      ).toThrow();
+    for (const pattern of ["/abs", "../escape", "!foo", "a/{b,c}", "a/?", "a/[bc]", "a\\b"]) {
+      expect(() => validateRules({ include: [pattern], exclude: [] })).toThrow();
+    }
     expect(() => validateRules({ include: null, exclude: [] })).toThrow();
   });
 });
@@ -64,9 +41,7 @@ test("Go lexer handles comments, blocks and quoted paths", () => {
     "mod",
   );
   expect(parsed.module).toBe("example.test/a");
-  expect(parsed.requires).toEqual([
-    { name: "example.test/b", version: "v1.2.3" },
-  ]);
+  expect(parsed.requires).toEqual([{ name: "example.test/b", version: "v1.2.3" }]);
   expect(parsed.replaces[0]?.target).toBe("../b folder");
   expect(() => parseGo("module x\nrequire (\n broken\n", "mod")).toThrow();
 });
@@ -80,6 +55,7 @@ test("include wildcards preserve intermediate matching ancestors", () => {
 });
 
 test("ordinary filenames matching Object prototype keys are not discovery metadata", () => {
-  for (const name of ["constructor", "toString", "__proto__"])
+  for (const name of ["constructor", "toString", "__proto__"]) {
     expect(isDiscoveryInput(name)).toBe(false);
+  }
 });

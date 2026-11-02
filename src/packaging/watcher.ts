@@ -1,8 +1,8 @@
-import type { Stats } from "node:fs";
+import { type Stats } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { relative, sep } from "node:path";
 import { FSWatcher } from "chokidar";
-import type { InspectionRules } from "../config/inspection/model";
+import { type InspectionRules } from "../config/inspection/model";
 import { createMatcher, isDiscoveryInput } from "../inspect/exclusions";
 export interface WatchStatus {
   ready: boolean;
@@ -34,7 +34,9 @@ export class StructureWatcher {
   }
   private changed() {
     this.revision++;
-    for (const listener of this.listeners) listener();
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
   private fingerprints = new Map<string, string>();
   constructor(
@@ -42,13 +44,7 @@ export class StructureWatcher {
     readonly rules: InspectionRules,
   ) {}
   get healthy() {
-    return (
-      this.ready &&
-      !this.stopped &&
-      !this.reason &&
-      this.watcher !== undefined &&
-      !this.watcher.closed
-    );
+    return this.ready && !this.stopped && !this.reason && this.watcher !== undefined && !this.watcher.closed;
   }
   lose(reason: string) {
     this.reason = reason;
@@ -72,17 +68,13 @@ export class StructureWatcher {
     signal.throwIfAborted();
     const poll = process.env.CHOKIDAR_USEPOLLING?.toLowerCase();
     if (poll && poll !== "0" && poll !== "false") {
-      this.lose(
-        "Native watcher disabled: CHOKIDAR_USEPOLLING requests polling",
-      );
+      this.lose("Native watcher disabled: CHOKIDAR_USEPOLLING requests polling");
       return;
     }
     try {
       const fs = await statfs(this.root);
       if (!LOCAL_FS[process.platform]?.includes(Number(fs.type))) {
-        this.lose(
-          `Unverified filesystem ${fs.type} on ${process.platform}; full inspection required`,
-        );
+        this.lose(`Unverified filesystem ${fs.type} on ${process.platform}; full inspection required`);
         return;
       }
     } catch (error) {
@@ -91,8 +83,7 @@ export class StructureWatcher {
     }
     signal.throwIfAborted();
     const matcher = createMatcher(this.rules);
-    const local = (p: string) =>
-      relative(this.root, p).split(sep).join("/") || ".";
+    const local = (p: string) => relative(this.root, p).split(sep).join("/") || ".";
     const watcher = new FSWatcher({
       backend: "native",
       usePolling: false,
@@ -104,13 +95,20 @@ export class StructureWatcher {
       persistent: false,
       ignored: (path, stats) => {
         const p = local(path);
-        if (p === ".") return false;
-        if (p === ".." || p.startsWith("../")) return true;
-        if (matcher.excludes(p) || stats?.isSymbolicLink()) return true;
+        if (p === ".") {
+          return false;
+        }
+        if (p === ".." || p.startsWith("../")) {
+          return true;
+        }
+        if (matcher.excludes(p) || stats?.isSymbolicLink()) {
+          return true;
+        }
         if (stats?.isFile()) {
           const ignored = !matcher.includes(p) || !isDiscoveryInput(p);
-          if (!ignored && !this.ready)
+          if (!ignored && !this.ready) {
             this.fingerprints.set(p, signature(stats));
+          }
           return ignored;
         }
         return !matcher.mayTraverse(p) && !matcher.includes(p);
@@ -119,30 +117,36 @@ export class StructureWatcher {
     this.watcher = watcher;
     watcher.on("all", (event, path, stats) => {
       const p = local(path);
-      if (matcher.excludes(p)) return;
-      if (event === "unlink") this.fingerprints.delete(p);
+      if (matcher.excludes(p)) {
+        return;
+      }
+      if (event === "unlink") {
+        this.fingerprints.delete(p);
+      }
       if (stats?.isFile() && isDiscoveryInput(p)) {
         const next = signature(stats),
           previous = this.fingerprints.get(p);
         this.fingerprints.set(p, next);
         // macOS can report reads as changes; atime alone is not a discovery input.
-        if (event === "change" && previous === next) return;
+        if (event === "change" && previous === next) {
+          return;
+        }
       }
       if (
         event === "addDir" || event === "unlinkDir"
           ? matcher.mayTraverse(p)
           : matcher.includes(p) && isDiscoveryInput(p)
-      )
+      ) {
         this.changed();
+      }
     });
     watcher.on("error", (error) =>
-      this.lose(
-        `Watcher error: ${error instanceof Error ? error.message : String(error)}`,
-      ),
+      this.lose(`Watcher error: ${error instanceof Error ? error.message : String(error)}`),
     );
     watcher.on("raw", (event) => {
-      if (/overflow|IN_Q_OVERFLOW/i.test(event))
+      if (/overflow|IN_Q_OVERFLOW/i.test(event)) {
         this.lose(`Watcher coverage lost: ${event}`);
+      }
     });
     await new Promise<void>((resolve, reject) => {
       const clean = () => {
@@ -167,9 +171,13 @@ export class StructureWatcher {
       watcher.once("ready", ready);
       watcher.once("error", failed);
       watcher.add(this.root);
-      if (signal.aborted) abort();
+      if (signal.aborted) {
+        abort();
+      }
     });
-    if (this.reason) await watcher.close();
+    if (this.reason) {
+      await watcher.close();
+    }
   }
   async close() {
     this.stopped = true;

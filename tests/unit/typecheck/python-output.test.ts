@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { ProcessResult } from "../../../src/dependencies/model";
+import { type ProcessResult } from "../../../src/dependencies/model";
 import { pyrightOutput } from "../../../src/typecheck/diagnostics/python";
 
 const location = {
@@ -22,10 +22,7 @@ const clean = {
   summary: { filesAnalyzed: 1, errorCount: 0, warningCount: 0 },
 };
 test("Pyright result validates version, complete summaries and diagnostic coordinates", () => {
-  expect(
-    pyrightOutput(location, { ...result, stdout: JSON.stringify(clean) }, 1)
-      .status,
-  ).toBe("passed");
+  expect(pyrightOutput(location, { ...result, stdout: JSON.stringify(clean) }, 1).status).toBe("passed");
   const data = {
     ...clean,
     generalDiagnostics: [
@@ -42,13 +39,7 @@ test("Pyright result validates version, complete summaries and diagnostic coordi
     ],
     summary: { filesAnalyzed: 1, errorCount: 1, warningCount: 0 },
   };
-  expect(
-    pyrightOutput(
-      location,
-      { ...result, exit_code: 1, stdout: JSON.stringify(data) },
-      1,
-    ),
-  ).toMatchObject({
+  expect(pyrightOutput(location, { ...result, exit_code: 1, stdout: JSON.stringify(data) }, 1)).toMatchObject({
     status: "failed",
     diagnostics: [
       {
@@ -85,17 +76,10 @@ test("Pyright result validates version, complete summaries and diagnostic coordi
         },
       ],
     }),
-  ])
-    expect(() =>
-      pyrightOutput(location, { ...result, stdout: malformed }, 1),
-    ).toThrow();
-  expect(
-    pyrightOutput(
-      location,
-      { ...result, exit_code: 1, stdout: JSON.stringify(clean) },
-      1,
-    ),
-  ).toMatchObject({
+  ]) {
+    expect(() => pyrightOutput(location, { ...result, stdout: malformed }, 1)).toThrow();
+  }
+  expect(pyrightOutput(location, { ...result, exit_code: 1, stdout: JSON.stringify(clean) }, 1)).toMatchObject({
     status: "not-run",
     reason: "Pyright failed without error diagnostics",
   });
@@ -105,30 +89,14 @@ test("Pyright result validates version, complete summaries and diagnostic coordi
     generalDiagnostics: [warning],
     summary: { filesAnalyzed: 1, errorCount: 0, warningCount: 1 },
   };
-  expect(
-    pyrightOutput(
-      location,
-      { ...result, exit_code: 1, stdout: JSON.stringify(warningOnly) },
-      1,
-    ),
-  ).toMatchObject({
+  expect(pyrightOutput(location, { ...result, exit_code: 1, stdout: JSON.stringify(warningOnly) }, 1)).toMatchObject({
     status: "not-run",
     reason: "Pyright failed without error diagnostics",
     diagnostics: [{ severity: "warning", message: "Wrong type" }],
   });
 });
 test("crash, truncated and cancelled Pyright outputs cannot pass", () => {
-  for (const partial of [
-    { exit_code: 7 },
-    { truncated: true },
-    { cancelled: true },
-    { stderr: "fatal error" },
-  ])
-    expect(
-      pyrightOutput(
-        location,
-        { ...result, stdout: JSON.stringify(clean), ...partial },
-        1,
-      ).status,
-    ).toBe("not-run");
+  for (const partial of [{ exit_code: 7 }, { truncated: true }, { cancelled: true }, { stderr: "fatal error" }]) {
+    expect(pyrightOutput(location, { ...result, stdout: JSON.stringify(clean), ...partial }, 1).status).toBe("not-run");
+  }
 });

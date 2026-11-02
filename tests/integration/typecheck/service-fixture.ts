@@ -1,9 +1,6 @@
 import { spyOn } from "bun:test";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
-import {
-  pythonFixture,
-  VERSION,
-} from "../../fixtures/typecheck/python/fixture";
+import { pythonFixture, VERSION } from "../../fixtures/typecheck/python/fixture";
 export const cleanup: (() => Promise<void>)[] = [];
 export async function fixture(workspace = false) {
   const f = await pythonFixture(workspace);
@@ -18,8 +15,9 @@ export function registry() {
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0]) => {
-        if (String(input) !== "https://pypi.org/pypi/pyright/json")
+        if (String(input) !== "https://pypi.org/pypi/pyright/json") {
           throw new Error(`Unexpected network: ${input}`);
+        }
         return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
       },
       { preconnect: original.preconnect },

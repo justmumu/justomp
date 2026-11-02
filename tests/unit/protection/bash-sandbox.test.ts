@@ -1,18 +1,11 @@
 import { expect, test } from "bun:test";
-import {
-  buildSandboxArgv,
-  createSandboxCommand,
-  sandboxPaths,
-} from "../../../src/protection/sandbox";
+import { buildSandboxArgv, createSandboxCommand, sandboxPaths } from "../../../src/protection/sandbox";
 
 test("sandbox paths are literal absolute names and deterministic", () => {
-  expect(
-    sandboxPaths([
-      "/repo/a[1]/package.json",
-      "/repo/package.json",
-      "/repo/package.json",
-    ]),
-  ).toEqual(["/repo/a[1]/package.json", "/repo/package.json"]);
+  expect(sandboxPaths(["/repo/a[1]/package.json", "/repo/package.json", "/repo/package.json"])).toEqual([
+    "/repo/a[1]/package.json",
+    "/repo/package.json",
+  ]);
   expect(() => sandboxPaths(["package.json"])).toThrow("absolute");
   expect(() => sandboxPaths(["/repo/../package.json"])).toThrow("normalized");
   expect(() => sandboxPaths(["/repo/invalid\0name"])).toThrow("NUL");
@@ -26,17 +19,11 @@ test("macOS profile denies only literal targets and moving their parents", () =>
   });
   expect(argv[0]).toBe("/usr/bin/sandbox-exec");
   expect(argv[2]).toContain("(allow default)");
-  expect(argv[2]).toContain(
-    '(deny file-write* (subpath "/repo/a[1]/package.json"))',
-  );
+  expect(argv[2]).toContain('(deny file-write* (subpath "/repo/a[1]/package.json"))');
   expect(argv[2]).toContain('(literal "/repo/a[1]")');
   expect(argv[2]).not.toContain("network");
   expect(argv[2]).not.toContain(".bashrc");
-  expect(argv.slice(-3)).toEqual([
-    "/bin/bash",
-    "-c",
-    "printf '%s' 'quoted $value; still data'",
-  ]);
+  expect(argv.slice(-3)).toEqual(["/bin/bash", "-c", "printf '%s' 'quoted $value; still data'"]);
 });
 
 test("Linux argv pins parent paths before readonly targets and preserves networking", () => {
@@ -55,14 +42,7 @@ test("Linux argv pins parent paths before readonly targets and preserves network
     "/repo/apps/api/pyproject.toml",
   ]);
   expect(argv.indexOf("/repo/apps")).toBeLessThan(readonly);
-  expect(argv.slice(-6)).toEqual([
-    "--chdir",
-    "/repo",
-    "--",
-    "/bin/bash",
-    "-c",
-    "echo test; true",
-  ]);
+  expect(argv.slice(-6)).toEqual(["--chdir", "/repo", "--", "/bin/bash", "-c", "echo test; true"]);
 });
 
 test("unsupported platforms and malformed cwd fail before a command is built", () => {
@@ -71,12 +51,8 @@ test("unsupported platforms and malformed cwd fail before a command is built", (
     cwd: "/repo",
     protectedPaths: ["/repo/package.json"],
   };
-  expect(() => buildSandboxArgv("win32", "sandbox", request)).toThrow(
-    "macOS and Linux",
-  );
-  expect(() =>
-    buildSandboxArgv("linux", "bwrap", { ...request, cwd: "repo" }),
-  ).toThrow("absolute");
+  expect(() => buildSandboxArgv("win32", "sandbox", request)).toThrow("macOS and Linux");
+  expect(() => buildSandboxArgv("linux", "bwrap", { ...request, cwd: "repo" })).toThrow("absolute");
 });
 
 test("aborted preparation produces no launch descriptor", async () => {

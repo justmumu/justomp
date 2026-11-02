@@ -1,14 +1,9 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
-import type {
-  Adapter,
-  DependencyRequest,
-  Inventory,
-  NativeStep,
-} from "../../../src/dependencies/model";
+import { type Adapter, type DependencyRequest, type Inventory, type NativeStep } from "../../../src/dependencies/model";
 import { javascriptAdapter as lint } from "../../../src/lint/adapters/javascript";
-import type { LintOperationContext } from "../../../src/lint/adapters/types";
+import { type LintOperationContext } from "../../../src/lint/adapters/types";
 import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as native from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
@@ -18,7 +13,9 @@ import { output, target } from "./fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -40,10 +37,7 @@ function fixture(
     structure: f.context.structure,
   });
   Object.assign(selected.scope, { cwd: f.context.cwd, owner: f.context.owner });
-  const tools: Record<string, string> =
-    feature === "lint"
-      ? { "@biomejs/biome": "2.6.3" }
-      : { typescript: "7.0.2" };
+  const tools: Record<string, string> = feature === "lint" ? { "@biomejs/biome": "2.6.3" } : { typescript: "7.0.2" };
   const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
   const before: Inventory = {
     complete: true,
@@ -79,10 +73,7 @@ function fixture(
   };
   const steps: NativeStep[] = [];
   let result = output();
-  f.write(
-    "package.json",
-    JSON.stringify({ name: "app", dependencies: { existing: "1.0.0" } }),
-  );
+  f.write("package.json", JSON.stringify({ name: "app", dependencies: { existing: "1.0.0" } }));
   f.context.run = async (step) => {
     steps.push(step);
     f.write(
@@ -119,27 +110,16 @@ function fixture(
         stderr: "failed https://user:password@example.invalid/",
       });
     },
-    run: () =>
-      feature === "lint"
-        ? lint.prepareBatch(context)
-        : typecheck.prepareBatch(typed),
+    run: () => (feature === "lint" ? lint.prepareBatch(context) : typecheck.prepareBatch(typed)),
   };
 }
-for (const feature of ["lint", "typecheck"] as const)
-  for (const manager of [
-    "npm",
-    "pnpm",
-    "yarn-classic",
-    "yarn-modern",
-    "bun",
-  ] as const)
-    for (const installed of [false, true])
+for (const feature of ["lint", "typecheck"] as const) {
+  for (const manager of ["npm", "pnpm", "yarn-classic", "yarn-modern", "bun"] as const) {
+    for (const installed of [false, true]) {
       test(`${feature} ${manager} ${installed ? "updates" : "adds"} exact dev tools through its dependency adapter`, async () => {
         const f = fixture(manager, feature, installed);
         await f.run();
-        const tools = Object.entries(f.tools).filter(
-          ([name]) => name !== "prettier",
-        );
+        const tools = Object.entries(f.tools).filter(([name]) => name !== "prettier");
         expect(f.requests).toHaveLength(1);
         expect(f.requests[0]).toEqual(
           installed
@@ -167,12 +147,7 @@ for (const feature of ["lint", "typecheck"] as const)
         expect(f.steps.map((s) => s.args)).toEqual([
           installed
             ? ["fixture-mutation"]
-            : [
-                "fixture-mutation",
-                manager === "npm" || manager === "pnpm"
-                  ? "--save-exact"
-                  : "--exact",
-              ],
+            : ["fixture-mutation", manager === "npm" || manager === "pnpm" ? "--save-exact" : "--exact"],
         ]);
         expect(f.context.changes).toEqual([
           {
@@ -187,7 +162,10 @@ for (const feature of ["lint", "typecheck"] as const)
           },
         ]);
       });
-for (const feature of ["lint", "typecheck"] as const)
+    }
+  }
+}
+for (const feature of ["lint", "typecheck"] as const) {
   test(`${feature} reports completed native metadata changes on failure without retry or version fallback`, async () => {
     const f = fixture("yarn-modern", feature, true);
     f.fail();
@@ -196,15 +174,11 @@ for (const feature of ["lint", "typecheck"] as const)
       message: "Install tools: failed https://[redacted]@example.invalid/",
     });
     expect(f.steps).toHaveLength(1);
-    expect(f.context.changes.map((change) => change.path)).toEqual([
-      "package.json",
-      "lock",
-    ]);
-    expect(f.context.versions[f.f.context.project.project_id ?? ""]).toEqual(
-      f.tools,
-    );
+    expect(f.context.changes.map((change) => change.path)).toEqual(["package.json", "lock"]);
+    expect(f.context.versions[f.f.context.project.project_id ?? ""]).toEqual(f.tools);
     expect(f.f.files.get(`${f.f.root}/lock`)).toBe("native lock output");
   });
+}
 
 test("a legacy Prettier pin leaves the user's existing dependency untouched", async () => {
   const f = fixture("npm", "lint", true);
@@ -236,16 +210,16 @@ test("lint preflight identifies incompatible Node before any native mutation", a
   );
   keep(spyOn(compatibility, "nodeVersion").mockResolvedValue("26.0.0"));
   const id = f.context.targets[0]?.project.project_id;
-  await expect(lint.preflight(f.context)).rejects.toThrow(
-    `${id}: @biomejs/biome@2.6.3`,
-  );
+  await expect(lint.preflight(f.context)).rejects.toThrow(`${id}: @biomejs/biome@2.6.3`);
   expect(f.steps).toEqual([]);
 });
 
 test("Biome readiness verifies exact declaration, lock, installed package and native executable", async () => {
   const f = fixture("npm", "lint");
   const selected = f.context.targets[0];
-  if (!selected) throw new Error("Missing target");
+  if (!selected) {
+    throw new Error("Missing target");
+  }
   const dependency = {
     name: "@biomejs/biome",
     group: { kind: "dev" as const },
@@ -275,11 +249,7 @@ test("Biome readiness verifies exact declaration, lock, installed package and na
     }),
   );
   keep(spyOn(compatibility, "nodeVersion").mockResolvedValue("26.0.0"));
-  const executable = keep(
-    spyOn(native, "localTool").mockResolvedValue(
-      output({ stdout: "Version: 2.6.3\n" }),
-    ),
-  );
+  const executable = keep(spyOn(native, "localTool").mockResolvedValue(output({ stdout: "Version: 2.6.3\n" })));
   const context = {
     target: selected,
     versions: f.tools,

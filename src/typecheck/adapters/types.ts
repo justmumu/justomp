@@ -1,11 +1,7 @@
-import type { TypecheckPolicy } from "../../config/typecheck/model";
-import type {
-  PreparationChange,
-  TypecheckCheck,
-  TypecheckEcosystem,
-} from "../model";
-import type { ProjectionPlan } from "../projection";
-import type { TypecheckTarget } from "../targets";
+import { type TypecheckPolicy } from "../../config/typecheck/model";
+import { type PreparationChange, type TypecheckCheck, type TypecheckEcosystem } from "../model";
+import { type ProjectionPlan } from "../projection";
+import { type TypecheckTarget } from "../targets";
 export type ToolVersions = Record<string, string>;
 export interface TypecheckOperationContext {
   /** All workspace members of one manager owner; caller already holds the lease. */
@@ -35,13 +31,7 @@ export interface TypecheckAdapter {
   /** Tools/declarations/lock verification independent of native policy projection. */
   verifyTools(context: TypecheckToolContext): Promise<boolean>;
   /** Read-only; may inspect installed native tooling. Called after tool provisioning. */
-  plan(
-    target: TypecheckTarget,
-    policy: TypecheckPolicy,
-    signal: AbortSignal,
-  ): Promise<ProjectionPlan>;
+  plan(target: TypecheckTarget, policy: TypecheckPolicy, signal: AbortSignal): Promise<ProjectionPlan>;
   check(context: TypecheckCheckContext): Promise<TypecheckCheck[]>;
 }
-export type TypecheckAdapterRegistry = Readonly<
-  Partial<Record<TypecheckEcosystem, TypecheckAdapter>>
->;
+export type TypecheckAdapterRegistry = Readonly<Partial<Record<TypecheckEcosystem, TypecheckAdapter>>>;

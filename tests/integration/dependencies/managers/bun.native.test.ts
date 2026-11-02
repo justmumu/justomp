@@ -8,15 +8,11 @@ test("Bun native registry lifecycle respects constraints and exact downgrades", 
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } }],
     });
     const graph = await adapter.inventory(await f.context(), true);
     expect(graph.complete).toBe(true);
-    expect(
-      graph.dependencies.some((d) => d.name === "u6-child" && !d.direct),
-    ).toBe(true);
+    expect(graph.dependencies.some((d) => d.name === "u6-child" && !d.direct)).toBe(true);
     expect(await f.installed("u6-dep")).toBe("1.0.0");
     f.publish("2.0.0");
     await f.operate(adapter, {
@@ -40,9 +36,7 @@ test("Bun native registry lifecycle respects constraints and exact downgrades", 
     expect((await f.manifest()).dependencies["u6-dep"]).toBe("1.0.0");
     await rm(join(f.root, "node_modules"), { recursive: true, force: true });
     await f.operate(adapter, { operation: "sync", check: true });
-    expect(
-      await Bun.file(join(f.root, "node_modules/u6-dep/package.json")).exists(),
-    ).toBe(false);
+    expect(await Bun.file(join(f.root, "node_modules/u6-dep/package.json")).exists()).toBe(false);
     await f.operate(adapter, { operation: "sync" });
     await f.operate(adapter, {
       operation: "remove",
@@ -65,24 +59,16 @@ import { join } from "node:path";
 test("Bun binary lock graph and frozen sync retain native binary metadata", async () => {
   const f = await fixture("bun");
   try {
-    await writeFile(
-      join(f.root, "bunfig.toml"),
-      "[install]\nsaveTextLockfile = false\n",
-    );
+    await writeFile(join(f.root, "bunfig.toml"), "[install]\nsaveTextLockfile = false\n");
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "1.0.0", source: { kind: "registry" } }],
     });
     const before = await readFile(join(f.root, "bun.lockb"));
     const graph = await adapter.inventory(await f.context(), true);
     expect(graph.complete).toBe(true);
-    expect(
-      graph.dependencies.find((d) => d.name === "u6-child")?.resolutions?.[0]
-        ?.version,
-    ).toBe("1.0.0");
+    expect(graph.dependencies.find((d) => d.name === "u6-child")?.resolutions?.[0]?.version).toBe("1.0.0");
     expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);
     await f.operate(adapter, { operation: "sync", check: true });
     expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);

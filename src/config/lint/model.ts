@@ -42,6 +42,7 @@ export type BiomeAssistSetting =
       options?: Record<string, unknown>;
     };
 export interface JavascriptPolicy extends PolicyObject {
+  exclude: string[];
   biome: PolicyObject & {
     globals: string[];
     rules: BiomeRuleMap;

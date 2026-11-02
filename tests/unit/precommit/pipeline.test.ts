@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { GateCheckStage, GateStage } from "../../../src/precommit/model";
+import { type GateCheckStage, type GateStage } from "../../../src/precommit/model";
 import { type GatePorts, runGate } from "../../../src/precommit/pipeline";
 
 function successfulPorts(calls: string[]): GatePorts {
@@ -53,14 +53,7 @@ test("dependency failure is reported without repair or rerun", async () => {
   const result = await runGate(["api"], ports, new AbortController().signal);
   expect(result.success).toBe(false);
   expect(result.complete).toBe(true);
-  expect(calls).toEqual([
-    "fix:api",
-    "format:api",
-    "lint:api",
-    "typecheck:api",
-    "dependency:api",
-    "stage",
-  ]);
+  expect(calls).toEqual(["fix:api", "format:api", "lint:api", "typecheck:api", "dependency:api", "stage"]);
 });
 
 test("cancellation after an awaited stage records effects but does not stage", async () => {
@@ -111,14 +104,7 @@ test("fix and format precede checks; completed failure still stages known effect
     },
     new AbortController().signal,
   );
-  expect(calls).toEqual([
-    "fix",
-    "format",
-    "lint",
-    "typecheck",
-    "stage",
-    "whitespace",
-  ]);
+  expect(calls).toEqual(["fix", "format", "lint", "typecheck", "stage", "whitespace"]);
   expect(result.success).toBe(false);
   expect(result.complete).toBe(true);
   expect(result.staged_files).toEqual(["api/a.ts"]);
@@ -143,11 +129,7 @@ test("incomplete observation never stages; empty selection only checks whitespac
     whitespace: async () => true,
     dependencyKey: (id: string) => id,
   };
-  expect(
-    (await runGate(["api"], ports, new AbortController().signal)).complete,
-  ).toBe(false);
+  expect((await runGate(["api"], ports, new AbortController().signal)).complete).toBe(false);
   expect(stages).toBe(0);
-  expect((await runGate([], ports, new AbortController().signal)).success).toBe(
-    true,
-  );
+  expect((await runGate([], ports, new AbortController().signal)).success).toBe(true);
 });

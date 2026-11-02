@@ -12,7 +12,5 @@ test("pytest overrides owned addopts/retry/report controls and uses namespace di
   expect(config.args[0]).toEndWith("managed_pytest.py");
   const targeted = pythonConfig(context("targeted"));
   expect(targeted.pytestArgs).toContain("--no-cov");
-  expect(targeted.pytestArgs.some((a) => a.startsWith("--cov-report"))).toBe(
-    false,
-  );
+  expect(targeted.pytestArgs.some((a) => a.startsWith("--cov-report"))).toBe(false);
 });

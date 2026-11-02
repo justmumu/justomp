@@ -1,13 +1,13 @@
 import { resolve } from "node:path";
 import { loadConfig } from "../config/load";
-import type { ProcessResult } from "../dependencies/model";
+import { type ProcessResult } from "../dependencies/model";
 import { withReadyLintTarget } from "../lint/coordinator";
 import { lintAdapters } from "../lint/service";
 import { checkGoFormat } from "./engines/go";
 import { checkPrettier } from "./engines/prettier";
 import { checkPythonFormat } from "./engines/python";
 import { readFormatFile } from "./files";
-import type { Formatter } from "./model";
+import { type Formatter } from "./model";
 import { type FormatIssue, formatIssue } from "./result";
 import { collectFormatScope } from "./scope";
 import { formatterFor } from "./selection";
@@ -28,27 +28,20 @@ export interface FormatCheckResult {
   errors: FormatIssue[];
 }
 function nativePassed(result: ProcessResult, engine: "ruff" | "go"): boolean {
-  if (
-    result.cancelled ||
-    result.truncated ||
-    result.exit_code === null ||
-    result.signal
-  )
+  if (result.cancelled || result.truncated || result.exit_code === null || result.signal) {
     throw new Error("Native format check did not complete");
-  if (engine === "ruff" && result.exit_code === 1) return false;
+  }
+  if (engine === "ruff" && result.exit_code === 1) {
+    return false;
+  }
   // golangci-lint fmt --diff exits 1 after emitting a patch. A bare exit 1
   // (for example, invalid config) is still an incomplete check.
-  if (
-    engine === "go" &&
-    result.exit_code === 1 &&
-    result.stdout.trim() &&
-    !result.stderr.trim()
-  )
+  if (engine === "go" && result.exit_code === 1 && result.stdout.trim() && !result.stderr.trim()) {
     return false;
-  if (result.exit_code !== 0)
-    throw new Error(
-      result.stderr || `Native format check exited ${result.exit_code}`,
-    );
+  }
+  if (result.exit_code !== 0) {
+    throw new Error(result.stderr || `Native format check exited ${result.exit_code}`);
+  }
   return engine !== "go" || result.stdout.trim() === "";
 }
 /** Uses prepared tools and the full formatter scope without installs or file publication. */
@@ -75,37 +68,29 @@ export async function checkProjectFormat(
         const target = context.target;
         result.relative_path = target.project.path;
         const policy = await loadConfig(target.root, { signal, flush: false });
-        const scope = await collectFormatScope(
-          target,
-          policy.format,
-          policy.lint,
-        );
+        const scope = await collectFormatScope(target, policy.format, policy.lint);
         result.files = scope.files.map((path) => {
           const formatter = formatterFor(path, target.project.ecosystem);
-          if (!formatter) throw new Error(`Unsupported format file: ${path}`);
+          if (!formatter) {
+            throw new Error(`Unsupported format file: ${path}`);
+          }
           return { path, engine: formatter.engine, status: "not-run" };
         });
         for (const file of result.files) {
           signal.throwIfAborted();
           try {
             const formatter = formatterFor(file.path, target.project.ecosystem);
-            if (!formatter)
+            if (!formatter) {
               throw new Error(`Unsupported format file: ${file.path}`);
-            const before = await readFormatFile(
-              target.root,
-              resolve(target.scope.cwd, file.path),
-            );
+            }
+            const before = await readFormatFile(target.root, resolve(target.scope.cwd, file.path));
             let passed: boolean;
             if (formatter.engine === "prettier") {
-              passed = await checkPrettier(
-                before.text,
-                formatter.parser,
-                policy.format.prettier,
-              );
+              passed = await checkPrettier(before.text, formatter.parser, policy.format.prettier);
             } else {
-              const native = await (formatter.engine === "ruff"
-                ? checkPythonFormat
-                : checkGoFormat)(context, [file.path]);
+              const native = await (formatter.engine === "ruff" ? checkPythonFormat : checkGoFormat)(context, [
+                file.path,
+              ]);
               result.cancelled ||= native.cancelled;
               passed = nativePassed(native, formatter.engine);
             }
@@ -131,10 +116,7 @@ export async function checkProjectFormat(
   result.complete =
     !result.cancelled &&
     !result.errors.length &&
-    result.files.every(
-      (file) => file.status === "passed" || file.status === "unformatted",
-    );
-  result.success =
-    result.complete && result.files.every((file) => file.status === "passed");
+    result.files.every((file) => file.status === "passed" || file.status === "unformatted");
+  result.success = result.complete && result.files.every((file) => file.status === "passed");
   return result;
 }

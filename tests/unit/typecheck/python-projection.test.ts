@@ -8,21 +8,19 @@ import { scope, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function fixture() {
   const selected = target("python");
   selected.project.manifest = "apps/app/pyproject.toml";
-  const docs = new Map<string, string>([
-    ["/repo/apps/app/pyproject.toml", '[project]\nname="app"\nversion="1"\n'],
-  ]);
-  const read = spyOn(files, "readProjectionFile").mockImplementation(
-    async (_root, path) => ({
-      text: docs.get(path) ?? null,
-      identity: docs.has(path) ? path : null,
-      mode: 0o644,
-    }),
-  );
+  const docs = new Map<string, string>([["/repo/apps/app/pyproject.toml", '[project]\nname="app"\nversion="1"\n']]);
+  const read = spyOn(files, "readProjectionFile").mockImplementation(async (_root, path) => ({
+    text: docs.get(path) ?? null,
+    identity: docs.has(path) ? path : null,
+    mode: 0o644,
+  }));
   const collect = spyOn(scopes, "collectTypecheckScope").mockResolvedValue({
     ...scope("module.py"),
     files: ["module.py", "tests/example.py"],
@@ -31,12 +29,7 @@ function fixture() {
     () => read.mockRestore(),
     () => collect.mockRestore(),
   );
-  const plan = () =>
-    planPythonProjection(
-      selected,
-      resolveTypecheckConfig().policy,
-      new AbortController().signal,
-    );
+  const plan = () => planPythonProjection(selected, resolveTypecheckConfig().policy, new AbortController().signal);
   return { selected, docs, collect, plan };
 }
 test("Pyright TOML projection retains import paths and replaces native diagnostic opt-outs", async () => {
@@ -57,26 +50,21 @@ test("Pyright TOML projection retains import paths and replaces native diagnosti
     venv: ".venv",
   });
   expect(config.reportUnknownParameterType).toBeUndefined();
-  expect(f.docs.get("/repo/apps/app/pyproject.toml")).toContain(
-    'typeCheckingMode="off"',
-  );
+  expect(f.docs.get("/repo/apps/app/pyproject.toml")).toContain('typeCheckingMode="off"');
 });
 test("Pyright projection detects new sources, empty scope and unowned output without a compiler", async () => {
   const f = fixture();
   const first = await f.plan();
   const generated = first.files[0];
-  if (!generated) throw new Error("missing projection");
-  f.docs.set(
-    generated.path,
-    generated.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"),
-  );
+  if (!generated) {
+    throw new Error("missing projection");
+  }
+  f.docs.set(generated.path, generated.content.replaceAll("\n", "\r\n").replaceAll("  ", "\t"));
   expect((await f.plan()).current).toBe(true);
   f.collect.mockResolvedValue(scope("new.py"));
   expect((await f.plan()).current).toBe(false);
   f.collect.mockResolvedValue({ ...scope("unused"), files: [], empty: true });
-  expect(
-    object(Bun.JSONC.parse((await f.plan()).files[0]?.content ?? "{}")).include,
-  ).toEqual([]);
+  expect(object(Bun.JSONC.parse((await f.plan()).files[0]?.content ?? "{}")).include).toEqual([]);
   f.docs.set(generated.path, "{}");
   await expect(f.plan()).rejects.toMatchObject({ code: "projection-conflict" });
 });

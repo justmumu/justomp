@@ -3,7 +3,7 @@ import { LintError } from "../../lint/model";
 import { GO_DEFAULTS } from "./go/defaults";
 import { JAVASCRIPT_DEFAULTS } from "./javascript/defaults";
 import { migrateJavascriptPolicy } from "./javascript/migrate";
-import type { LintPolicy } from "./model";
+import { type LintPolicy } from "./model";
 import { PYTHON_DEFAULTS } from "./python/defaults";
 
 const defaults: LintPolicy = {
@@ -33,34 +33,36 @@ function invalid(path: string, type: string): never {
   throw new LintError("invalid-config", `${path} must be ${type}`);
 }
 function object(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     invalid(path, "an object");
+  }
   return value as Record<string, unknown>;
 }
 function strings(value: unknown, path: string): void {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
     invalid(path, "an array of strings");
+  }
 }
 
-function validateSetting(
-  value: unknown,
-  path: string,
-  levels: Set<unknown>,
-  fixes: boolean,
-): void {
-  if (levels.has(value)) return;
+function validateSetting(value: unknown, path: string, levels: Set<unknown>, fixes: boolean): void {
+  if (levels.has(value)) {
+    return;
+  }
   const setting = object(value, path);
-  if (!levels.has(setting.level)) invalid(`${path}.level`, "a native severity");
-  for (const key of Object.keys(setting))
-    if (key !== "level" && key !== "options" && !(fixes && key === "fix"))
+  if (!levels.has(setting.level)) {
+    invalid(`${path}.level`, "a native severity");
+  }
+  for (const key of Object.keys(setting)) {
+    if (key !== "level" && key !== "options" && !(fixes && key === "fix")) {
       invalid(`${path}.${key}`, "a supported native rule attribute");
-  if (Object.hasOwn(setting, "options"))
+    }
+  }
+  if (Object.hasOwn(setting, "options")) {
     object(setting.options, `${path}.options`);
-  if (
-    Object.hasOwn(setting, "fix") &&
-    !["none", "safe", "unsafe"].includes(String(setting.fix))
-  )
+  }
+  if (Object.hasOwn(setting, "fix") && !["none", "safe", "unsafe"].includes(String(setting.fix))) {
     invalid(`${path}.fix`, "none, safe or unsafe");
+  }
 }
 
 /** Fill structural fields, while treating user-keyed maps and arrays as values. */
@@ -77,20 +79,14 @@ export function resolveLintConfig(value?: unknown): {
     }
     if (path === "lint.javascript.biome") {
       const supplied = object(input, path);
-      for (const key of [
-        "extends",
-        "plugins",
-        "$schema",
-        "root",
-        "files",
-        "overrides",
-        "vcs",
-      ])
-        if (Object.hasOwn(supplied, key))
+      for (const key of ["extends", "plugins", "$schema", "root", "files", "overrides", "vcs"]) {
+        if (Object.hasOwn(supplied, key)) {
           invalid(
             `${path}.${key}`,
             "absent from managed policy; configuration discovery and file scope are owned by Justomp",
           );
+        }
+      }
     }
     if (path === "lint.javascript.biome.organize_imports") {
       validateSetting(input, path, new Set(["on", "off"]), false);
@@ -99,24 +95,20 @@ export function resolveLintConfig(value?: unknown): {
     if (ruleMaps.has(path)) {
       const rules = object(input, path);
       for (const [group, settings] of Object.entries(rules)) {
-        if (!groups.has(group))
+        if (!groups.has(group)) {
           invalid(`${path}.${group}`, "a native rule group");
-        for (const [rule, setting] of Object.entries(
-          object(settings, `${path}.${group}`),
-        ))
-          validateSetting(
-            setting,
-            `${path}.${group}.${rule}`,
-            severities,
-            true,
-          );
+        }
+        for (const [rule, setting] of Object.entries(object(settings, `${path}.${group}`))) {
+          validateSetting(setting, `${path}.${group}.${rule}`, severities, true);
+        }
       }
       return structuredClone(rules);
     }
     if (path === "lint.python.ruff.lint.per-file-ignores") {
       const patterns = object(input, path);
-      for (const [pattern, rules] of Object.entries(patterns))
+      for (const [pattern, rules] of Object.entries(patterns)) {
         strings(rules, `${path}.${pattern}`);
+      }
       return structuredClone(patterns);
     }
     if (Array.isArray(fallback)) {
@@ -126,19 +118,14 @@ export function resolveLintConfig(value?: unknown): {
     if (fallback && typeof fallback === "object") {
       const supplied = object(input, path);
       const result = structuredClone(supplied);
-      for (const [key, defaultValue] of Object.entries(fallback))
-        result[key] = merge(
-          Object.hasOwn(supplied, key) ? supplied[key] : undefined,
-          defaultValue,
-          `${path}.${key}`,
-        );
+      for (const [key, defaultValue] of Object.entries(fallback)) {
+        result[key] = merge(Object.hasOwn(supplied, key) ? supplied[key] : undefined, defaultValue, `${path}.${key}`);
+      }
       return result;
     }
-    if (
-      typeof input !== typeof fallback ||
-      (typeof input === "number" && !Number.isFinite(input))
-    )
+    if (typeof input !== typeof fallback || (typeof input === "number" && !Number.isFinite(input))) {
       invalid(path, `a ${typeof fallback}`);
+    }
     return input;
   }
   const policy = merge(migration.value, defaults, "lint") as LintPolicy;
@@ -148,36 +135,30 @@ export function resolveLintConfig(value?: unknown): {
 /** Object ordering is immaterial; native rule option and pattern arrays retain order. */
 export function lintPolicyKey(policy: unknown): string {
   function activeJavascript(value: unknown): unknown {
-    if (
-      !value ||
-      typeof value !== "object" ||
-      Array.isArray(value) ||
-      !Object.hasOwn(value, "biome")
-    )
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, "biome")) {
       return value;
+    }
     const { eslint: _legacy, ...active } = value as Record<string, unknown>;
     return active;
   }
   const active =
-    policy &&
-    typeof policy === "object" &&
-    !Array.isArray(policy) &&
-    Object.hasOwn(policy, "javascript")
+    policy && typeof policy === "object" && !Array.isArray(policy) && Object.hasOwn(policy, "javascript")
       ? {
           ...policy,
-          javascript: activeJavascript(
-            (policy as Record<string, unknown>).javascript,
-          ),
+          javascript: activeJavascript((policy as Record<string, unknown>).javascript),
         }
       : activeJavascript(policy);
   function canonical(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonical);
-    if (value && typeof value === "object")
+    if (Array.isArray(value)) {
+      return value.map(canonical);
+    }
+    if (value && typeof value === "object") {
       return Object.fromEntries(
         Object.entries(value)
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([key, item]) => [key, canonical(item)]),
       );
+    }
     return value;
   }
   return createHash("sha256")

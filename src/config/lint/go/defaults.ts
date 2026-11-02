@@ -1,4 +1,4 @@
-import type { GoPolicy } from "../model";
+import { type GoPolicy } from "../model";
 
 export const GO_DEFAULTS: GoPolicy = {
   golangci: {

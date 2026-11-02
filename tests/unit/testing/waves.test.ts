@@ -43,7 +43,9 @@ test("new members supersede partial waves while unchanged cohorts retain exact t
     projects: ["a", "b"],
     pending: [],
   });
-  expect(
-    nextWave({ ...partial, projects: ["a", "removed"], complete: true }, ["a"]),
-  ).toEqual({ resolve: false, projects: ["a"], pending: [] });
+  expect(nextWave({ ...partial, projects: ["a", "removed"], complete: true }, ["a"])).toEqual({
+    resolve: false,
+    projects: ["a"],
+    pending: [],
+  });
 });

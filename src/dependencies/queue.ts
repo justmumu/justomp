@@ -23,7 +23,9 @@ function acquire(domain: string, signal?: AbortSignal): Promise<() => void> {
     state.held = true;
     let released = false;
     return () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       const next = state.waiters.shift();
       if (next) {
@@ -35,7 +37,9 @@ function acquire(domain: string, signal?: AbortSignal): Promise<() => void> {
       }
     };
   }
-  if (!state.held) return Promise.resolve(grant());
+  if (!state.held) {
+    return Promise.resolve(grant());
+  }
   return new Promise((resolve, reject) => {
     const waiter: Waiter = {
       resolve,
@@ -50,7 +54,9 @@ function acquire(domain: string, signal?: AbortSignal): Promise<() => void> {
     };
     state.waiters.push(waiter);
     signal?.addEventListener("abort", waiter.abort, { once: true });
-    if (signal?.aborted) waiter.abort();
+    if (signal?.aborted) {
+      waiter.abort();
+    }
   });
 }
 export async function withDomains<T>(
@@ -60,11 +66,14 @@ export async function withDomains<T>(
 ): Promise<T> {
   const releases: (() => void)[] = [];
   try {
-    for (const domain of [...new Set(domains)].sort())
+    for (const domain of [...new Set(domains)].sort()) {
       releases.push(await acquire(domain, signal));
+    }
     signal?.throwIfAborted();
     return await operation();
   } finally {
-    for (const release of releases.reverse()) release();
+    for (const release of releases.reverse()) {
+      release();
+    }
   }
 }

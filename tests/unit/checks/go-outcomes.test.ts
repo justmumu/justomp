@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
-import type { TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
+import { type TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
 import {
   assertGoSuccess,
   goCompileOutcome,
   goDiagnostics,
   recordGoProcess,
 } from "../../../src/typecheck/diagnostics/go";
-import type { TypecheckCheck } from "../../../src/typecheck/model";
+import { type TypecheckCheck } from "../../../src/typecheck/model";
 import { output, target } from "./fixture";
 
 function context(): TypecheckCheckContext {
@@ -36,10 +36,7 @@ test("Go process aggregation retains a failure after a clean package", () => {
     truncated: false,
     cancelled: false,
   };
-  recordGoProcess(
-    check,
-    output({ exit_code: 2, truncated: true, cancelled: true }),
-  );
+  recordGoProcess(check, output({ exit_code: 2, truncated: true, cancelled: true }));
   recordGoProcess(check, output());
   expect(check).toMatchObject({
     exit_code: 2,
@@ -49,10 +46,7 @@ test("Go process aggregation retains a failure after a clean package", () => {
 });
 test("truncated Go discovery is rejected before parsing or compilation", () => {
   expect(() =>
-    assertGoSuccess(
-      output({ stdout: '{"GoFiles":', truncated: true }),
-      "Go package discovery failed",
-    ),
+    assertGoSuccess(output({ stdout: '{"GoFiles":', truncated: true }), "Go package discovery failed"),
   ).toThrow("truncated");
 });
 test("Go compiler diagnostics containing runtime failure words remain completed failures", () => {
@@ -60,8 +54,7 @@ test("Go compiler diagnostics containing runtime failure words remain completed 
     context(),
     output({
       exit_code: 1,
-      stderr:
-        'main.go:3:5: cannot use "missing go.sum permission denied" (untyped string constant) as int value',
+      stderr: 'main.go:3:5: cannot use "missing go.sum permission denied" (untyped string constant) as int value',
     }),
   );
   expect(result).toMatchObject({
@@ -81,9 +74,7 @@ test("Go diagnostics choose the longest Go project path regardless of ecosystem 
     project_id: "go:apps/app/lib",
     path: "apps/app/lib",
   });
-  expect(
-    goDiagnostics(ctx, "main.go:1:2: wrong\nlib/extra.go:3: bad"),
-  ).toMatchObject([
+  expect(goDiagnostics(ctx, "main.go:1:2: wrong\nlib/extra.go:3: bad")).toMatchObject([
     {
       project_id: "go:apps/app",
       path: "apps/app/main.go",
@@ -103,20 +94,19 @@ for (const [name, result] of [
       stderr: "main.go:3:2: no required module provides package missing",
     }),
   ],
-  [
-    "compiler unavailable",
-    output({ exit_code: 2, stderr: "cgo: C compiler not found" }),
-  ],
+  ["compiler unavailable", output({ exit_code: 2, stderr: "cgo: C compiler not found" })],
   ["truncation", output({ truncated: true })],
   ["cancellation", output({ cancelled: true, exit_code: null })],
   ["unknown failure", output({ exit_code: 9 })],
-] as const)
+] as const) {
   test(`Go ${name} result is classified without a native compiler`, () => {
     const outcome = goCompileOutcome(context(), result);
     expect(outcome.status).toBe(name === "success" ? "passed" : "not-run");
-    if (name !== "success")
+    if (name !== "success") {
       expect(outcome.reason).toContain("did not complete");
+    }
   });
+}
 
 test("pre-aborted Go check never resolves or invokes the native runtime", async () => {
   const { spyOn } = await import("bun:test");
@@ -127,9 +117,10 @@ test("pre-aborted Go check never resolves or invokes the native runtime", async 
     controller = new AbortController();
   controller.abort(new Error("cancelled"));
   try {
-    expect(
-      (await goAdapter.check({ ...ctx, signal: controller.signal }))[0],
-    ).toMatchObject({ status: "not-run", cancelled: true });
+    expect((await goAdapter.check({ ...ctx, signal: controller.signal }))[0]).toMatchObject({
+      status: "not-run",
+      cancelled: true,
+    });
     expect(probe).not.toHaveBeenCalled();
   } finally {
     probe.mockRestore();

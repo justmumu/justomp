@@ -1,4 +1,4 @@
-import type { EcosystemTestPolicy } from "../model";
+import { type EcosystemTestPolicy } from "../model";
 export const JAVASCRIPT_DEFAULTS: EcosystemTestPolicy = {
   include: ["tests/unit/**/*.test.{js,jsx,ts,tsx}"],
   exclude: ["tests/integration/**"],

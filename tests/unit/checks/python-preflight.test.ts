@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import type { Stats } from "node:fs";
+import { type Stats } from "node:fs";
 import * as fs from "node:fs/promises";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
@@ -12,7 +12,9 @@ import { output, target } from "./fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -28,10 +30,7 @@ function fixture(tool: "ruff" | "pyright") {
   });
   restores.push(f.close);
   f.context.version = "0.11.6";
-  f.write(
-    "pyproject.toml",
-    '[project]\nname="app"\nversion="1.0.0"\nrequires-python=">=3.11"\n',
-  );
+  f.write("pyproject.toml", '[project]\nname="app"\nversion="1.0.0"\nrequires-python=">=3.11"\n');
   const selected = target("python");
   Object.assign(selected, {
     root: f.root,
@@ -44,34 +43,28 @@ function fixture(tool: "ruff" | "pyright") {
     broken = false;
   keep(
     spyOn(fs, "lstat").mockImplementation((async () => {
-      if (!existing)
+      if (!existing) {
         throw Object.assign(new Error("missing"), { code: "ENOENT" });
+      }
       return {} as Stats;
     }) as unknown as typeof fs.lstat),
   );
   keep(
     spyOn(fs, "realpath").mockImplementation((async (path: unknown) => {
-      if (broken)
+      if (broken) {
         throw Object.assign(new Error("missing interpreter"), {
           code: "ENOENT",
         });
-      return String(path).endsWith(".venv/bin/python")
-        ? "/python/current"
-        : String(path);
+      }
+      return String(path).endsWith(".venv/bin/python") ? "/python/current" : String(path);
     }) as typeof fs.realpath),
   );
   const node = keep(spyOn(Bun, "which").mockReturnValue("/node"));
-  const process = keep(
-    spyOn(runner, "runProcess").mockResolvedValue(
-      output({ stdout: "v24.0.0\n" }),
-    ),
-  );
+  const process = keep(spyOn(runner, "runProcess").mockResolvedValue(output({ stdout: "v24.0.0\n" })));
   const run = keep(
     spyOn(f.context, "run").mockImplementation(async (step) =>
       output({
-        stdout: step.args.includes("--show-version")
-          ? "3.13.0\n"
-          : "/python/current\n",
+        stdout: step.args.includes("--show-version") ? "3.13.0\n" : "/python/current\n",
       }),
     ),
   );
@@ -108,30 +101,20 @@ for (const tool of ["ruff", "pyright"] as const) {
       ["python", "find", "--show-version", "/python/current"],
       ["python", "find", ">=3.11,==3.13.0"],
     ]);
-    expect(
-      f.run.mock.calls.every(
-        ([step]) => step.env?.UV_PYTHON_DOWNLOADS === "never",
-      ),
-    ).toBe(true);
+    expect(f.run.mock.calls.every(([step]) => step.env?.UV_PYTHON_DOWNLOADS === "never")).toBe(true);
     expect(f.context.changes).toEqual([]);
   });
   test(`${tool} preflight reports an unavailable or incompatible Python before mutations`, async () => {
     const f = fixture(tool);
-    f.run.mockResolvedValueOnce(
-      output({ exit_code: 1, stderr: "not installed" }),
-    );
+    f.run.mockResolvedValueOnce(output({ exit_code: 1, stderr: "not installed" }));
     await expect(f.preflight()).rejects.toMatchObject({
       code: "native-preparation-failed",
     });
     f.run
       .mockResolvedValueOnce(output({ stdout: "/python/current\n" }))
       .mockResolvedValueOnce(output({ stdout: "3.13.0\n" }))
-      .mockResolvedValueOnce(
-        output({ exit_code: 1, stderr: "incompatible pin" }),
-      );
-    await expect(f.preflight()).rejects.toThrow(
-      "does not satisfy project constraints",
-    );
+      .mockResolvedValueOnce(output({ exit_code: 1, stderr: "incompatible pin" }));
+    await expect(f.preflight()).rejects.toThrow("does not satisfy project constraints");
     expect(f.context.changes).toEqual([]);
   });
   test(`${tool} preflight rejects interpreter replacement and damaged environments`, async () => {

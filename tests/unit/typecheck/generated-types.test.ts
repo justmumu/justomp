@@ -12,7 +12,9 @@ import { generatedUnit } from "./generated-fixture";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
-  for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    cleanup();
+  }
 });
 function fixture(next = true) {
   const f = generatedUnit(next);
@@ -101,9 +103,7 @@ test("Next config failure prevents generation and checking while retaining suppl
   const result = await run(f);
   expect(result.ready).toBe(false);
   expect(result.value).toBeUndefined();
-  expect(result.preparation.errors[0]?.message).toContain(
-    "required fixture environment missing",
-  );
+  expect(result.preparation.errors[0]?.message).toContain("required fixture environment missing");
   expect(result.preparation.changes).toContainEqual({
     project_id: f.selected.project.project_id,
     path: "apps/app/config-log.txt",
@@ -113,9 +113,7 @@ test("Next config failure prevents generation and checking while retaining suppl
 });
 test("typegen rejection never falls back to build or invokes the checker", async () => {
   const f = fixture();
-  f.generate.mockResolvedValue(
-    output({ exit_code: 1, stderr: "Unknown command typegen" }),
-  );
+  f.generate.mockResolvedValue(output({ exit_code: 1, stderr: "Unknown command typegen" }));
   const result = await run(f);
   expect(result.ready).toBe(false);
   expect(result.value).toBeUndefined();
@@ -155,9 +153,7 @@ test("generator toolchain changes invalidate readiness without changing the reta
   const result = await run(f);
   expect(result.ready).toBe(false);
   expect(result.value).toBeUndefined();
-  expect(result.preparation.errors[0]?.code).toBe(
-    "generator-changed-toolchain",
-  );
+  expect(result.preparation.errors[0]?.code).toBe("generator-changed-toolchain");
   expect(f.state.projects[f.selected.project.project_id]?.ready).toBe(false);
   expect(f.state.waves.javascript).toMatchObject({
     complete: false,
@@ -169,7 +165,7 @@ test("generator toolchain changes invalidate readiness without changing the reta
     kind: "updated",
   });
 });
-for (const boundary of ["config", "generation"] as const)
+for (const boundary of ["config", "generation"] as const) {
   test(`source mutation during ${boundary} cannot certify generated outputs`, async () => {
     const f = fixture();
     if (boundary === "config") {
@@ -190,6 +186,7 @@ for (const boundary of ["config", "generation"] as const)
     expect(result.value).toBeUndefined();
     expect(result.preparation.errors[0]?.code).toBe("source-changed");
   });
+}
 test("unexpected emitted paths are reported as effects but never receive a successful receipt", async () => {
   const f = fixture(false),
     member = f.add("core");
@@ -200,9 +197,7 @@ test("unexpected emitted paths are reported as effects but never receive a succe
   const result = await run(f);
   expect(result.ready).toBe(false);
   expect(result.value).toBeUndefined();
-  expect(result.preparation.errors[0]?.message).toContain(
-    "differed from effective config prediction",
-  );
+  expect(result.preparation.errors[0]?.message).toContain("differed from effective config prediction");
   expect(result.preparation.changes).toContainEqual({
     project_id: member.project.project_id,
     path: "packages/core/types/extra.d.ts",
@@ -237,46 +232,33 @@ test("declaration ordering, arguments and rewritten references come from our sup
       evidence: { file: "package.json", field: "dependencies.core" },
     },
   ];
-  const uiNode = required(
-    required(f.graphs.get(ui.project.project_id)).nodes[0],
-  );
-  const coreNode = required(
-    required(f.graphs.get(core.project.project_id)).nodes[0],
-  );
+  const uiNode = required(required(f.graphs.get(ui.project.project_id)).nodes[0]);
+  const coreNode = required(required(f.graphs.get(core.project.project_id)).nodes[0]);
   uiNode.references = [coreNode.path];
   required(f.graphs.get(ui.project.project_id)).nodes.push(coreNode);
   const plan = await resolveJavascriptTypes(f.selected, f.controller.signal);
-  expect(
-    plan.declarations.map((step) => step.target.project.project_id),
-  ).toEqual([core.project.project_id, ui.project.project_id]);
+  expect(plan.declarations.map((step) => step.target.project.project_id)).toEqual([
+    core.project.project_id,
+    ui.project.project_id,
+  ]);
   const compiled: string[] = [];
   f.compile.mockImplementation(async (member, args) => {
     compiled.push(member.project.project_id);
     expect(args).toContain("--emitDeclarationOnly");
-    expect(
-      args.slice(
-        args.lastIndexOf("--noCheck"),
-        args.lastIndexOf("--noCheck") + 2,
-      ),
-    ).toEqual(["--noCheck", "false"]);
+    expect(args.slice(args.lastIndexOf("--noCheck"), args.lastIndexOf("--noCheck") + 2)).toEqual([
+      "--noCheck",
+      "false",
+    ]);
     const path = join(member.scope.cwd, "types/index.d.ts");
     f.write(path, "declaration");
     return output({ stdout: `TSFILE: ${path}\n` });
   });
-  const result = await prepareJavascriptTypes(
-    f.context,
-    plan,
-    plan.project_ids,
-  );
+  const result = await prepareJavascriptTypes(f.context, plan, plan.project_ids);
   expect(result.complete).toBe(true);
   expect(compiled).toEqual([core.project.project_id, ui.project.project_id]);
-  const projected = required(
-    f.documents.get(required(plan.declarations[1]).projection),
-  );
+  const projected = required(f.documents.get(required(plan.declarations[1]).projection));
   const data = JSON.parse(projected.slice(projected.indexOf("\n") + 1));
-  expect(data.references).toEqual([
-    { path: required(plan.declarations[0]).projection },
-  ]);
+  expect(data.references).toEqual([{ path: required(plan.declarations[0]).projection }]);
   expect(data.compilerOptions).toMatchObject({
     noEmit: false,
     noCheck: false,
@@ -300,8 +282,7 @@ test("a dynamically discovered Next reference reacquires the expanded closure an
       });
     }
     return output({
-      stdout:
-        'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
+      stdout: 'JUSTOMP_NEXT_INPUTS={"config":"config/native.json","dist":"generated-next"}',
     });
   });
   const result = await run(f);
@@ -317,9 +298,9 @@ test("a dynamically discovered Next reference reacquires the expanded closure an
     path: "apps/app/config-loads.txt",
     kind: "updated",
   });
-  expect(
-    f.state.generated?.[f.selected.project.project_id]?.project_ids,
-  ).toContain("javascript:packages/library/package.json");
+  expect(f.state.generated?.[f.selected.project.project_id]?.project_ids).toContain(
+    "javascript:packages/library/package.json",
+  );
 });
 test("declaration-only and configuration-only local packages need no compiler generation", async () => {
   const f = fixture(false),
@@ -380,9 +361,7 @@ test("source-bearing same-package references emit while solution references only
     scope: scope("app/main.ts"),
   });
   const plan = await resolveJavascriptTypes(member, f.controller.signal);
-  expect(plan.declarations.map((step) => step.node.path)).toEqual([
-    library.path,
-  ]);
+  expect(plan.declarations.map((step) => step.node.path)).toEqual([library.path]);
 });
 test("installed local package metadata adds the declaration chain without inspected edges", async () => {
   const f = fixture(false),
@@ -395,12 +374,28 @@ test("installed local package metadata adds the declaration chain without inspec
     dependencies: { core: "*" },
   });
   const plan = await resolveJavascriptTypes(f.selected, f.controller.signal);
-  expect(
-    plan.declarations.map((step) => step.target.project.project_id),
-  ).toEqual([core.project.project_id, ui.project.project_id]);
+  expect(plan.declarations.map((step) => step.target.project.project_id)).toEqual([
+    core.project.project_id,
+    ui.project.project_id,
+  ]);
 });
 
 function required<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error("Missing supplied fixture value");
+  if (value === undefined) {
+    throw new Error("Missing supplied fixture value");
+  }
   return value;
 }
+
+test("generated type receipts become stale when source exclusions are added or removed", async () => {
+  const f = fixture();
+  expect((await prepare(f)).complete).toBe(true);
+  f.context.policy.javascript.exclude = [".private/**"];
+  const excluded = await resolveJavascriptTypes(f.selected, f.controller.signal);
+  expect(await verifyJavascriptTypes(excluded)).toBe(false);
+  expect((await prepare(f)).complete).toBe(true);
+  expect(await verifyJavascriptTypes(excluded)).toBe(true);
+  f.context.policy.javascript.exclude = [];
+  const restored = await resolveJavascriptTypes(f.selected, f.controller.signal);
+  expect(await verifyJavascriptTypes(restored)).toBe(false);
+});

@@ -9,11 +9,7 @@ test("cost runner preserves actual child failure and full stdout/stderr", async 
   try {
     const log = join(root, "output.log");
     const result = await runCostStage(
-      [
-        process.execPath,
-        "-e",
-        "console.log('x'.repeat(150000)); console.error('failed'); process.exit(7)",
-      ],
+      [process.execPath, "-e", "console.log('x'.repeat(150000)); console.error('failed'); process.exit(7)"],
       root,
       process.env,
       log,

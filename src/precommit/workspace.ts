@@ -1,10 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join, posix, relative, resolve } from "node:path";
 import picomatch from "picomatch";
-import type {
-  PackagingStructure,
-  WorkspaceDeclaration,
-} from "../inspect/model";
+import { type PackagingStructure, type WorkspaceDeclaration } from "../inspect/model";
 import { readManifest } from "../inspect/readers/manifest";
 
 /** A workspace member may equal a gitlink or live inside it. A gitlink inside
@@ -16,32 +13,35 @@ export function workspaceIncludesGitlink(
   const member = posix.normalize(path);
   const dot = declaration.kind === "uv" || declaration.kind === "go";
   const excluded = (value: string) =>
-    declaration.excludes.some((pattern) =>
-      picomatch(posix.normalize(pattern), { dot })(value),
-    );
-  if (excluded(member)) return false;
+    declaration.excludes.some((pattern) => picomatch(posix.normalize(pattern), { dot })(value));
+  if (excluded(member)) {
+    return false;
+  }
   return declaration.includes.some((raw) => {
     const pattern = posix.normalize(raw);
-    if (declaration.kind === "go" || !pattern.includes("*"))
-      return (
-        !excluded(pattern) &&
-        (pattern === member || pattern.startsWith(`${member}/`))
-      );
+    if (declaration.kind === "go" || !pattern.includes("*")) {
+      return !excluded(pattern) && (pattern === member || pattern.startsWith(`${member}/`));
+    }
     const parts = pattern.split("/");
     const dirs = member === "." ? [] : member.split("/");
     const memo = new Map<string, boolean>();
     const match = (i: number, j: number): boolean => {
-      if (j === dirs.length) return true;
-      if (i === parts.length) return false;
+      if (j === dirs.length) {
+        return true;
+      }
+      if (i === parts.length) {
+        return false;
+      }
       const key = `${i}:${j}`;
       const cached = memo.get(key);
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) {
+        return cached;
+      }
       const part = parts[i] as string;
       const dir = dirs[j] as string;
       const result =
         part === "**"
-          ? match(i + 1, j) ||
-            ((dot || !dir.startsWith(".")) && match(i, j + 1))
+          ? match(i + 1, j) || ((dot || !dir.startsWith(".")) && match(i, j + 1))
           : picomatch(part, { dot })(dir) && match(i + 1, j + 1);
       memo.set(key, result);
       return result;
@@ -62,20 +62,16 @@ export async function assertWorkspaceBoundary(
       workspace.declaration,
       await readFile(join(root, workspace.declaration), "utf8"),
     ).workspace;
-    if (!declaration) continue;
+    if (!declaration) {
+      continue;
+    }
     for (const path of excluded) {
-      const member = relative(
-        resolve(root, declaration.path),
-        resolve(root, path),
-      );
-      if (
-        member &&
-        !member.startsWith("..") &&
-        workspaceIncludesGitlink(declaration, member)
-      )
+      const member = relative(resolve(root, declaration.path), resolve(root, path));
+      if (member && !member.startsWith("..") && workspaceIncludesGitlink(declaration, member)) {
         throw new Error(
           `Workspace ${workspace.declaration} includes submodule ${path}; native setup cannot exclude it safely`,
         );
+      }
     }
   }
 }

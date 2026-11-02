@@ -1,13 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import {
-  access,
-  mkdir,
-  readFile,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runProcess } from "../../../src/dependencies/runner";
 import { checkGoFormat, formatGo } from "../../../src/format/engines/go";
@@ -17,17 +10,14 @@ import { withGoEnvironment } from "../../../src/lint/go/environment";
 import { golangciPath } from "../../../src/lint/go/install";
 import { lintManagerContext } from "../../../src/lint/runtime";
 import { measureFixture } from "../../fixtures/cost-timing";
-import {
-  artifactTransport,
-  GO_LINT_VERSION,
-  goFixture,
-  officialArchive,
-} from "../../fixtures/lint/go/fixture";
+import { artifactTransport, GO_LINT_VERSION, goFixture, officialArchive } from "../../fixtures/lint/go/fixture";
 import { createGoProxy } from "../dependencies/managers/go-proxy";
 import { cleanups } from "./go-fixture";
 
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    await cleanup();
+  }
 });
 test("native Go setup is isolated and clean/format-only checks preserve project bytes", async () => {
   const f = await goFixture();
@@ -35,22 +25,13 @@ test("native Go setup is isolated and clean/format-only checks preserve project 
   await measureFixture("format.go.prepare", () => f.prepare());
   expect(await goLintAdapter.verify(await f.checkContext())).toBe(true);
   const before = await f.bytes();
-  expect(
-    (await goLintAdapter.check(await f.checkContext())).map((c) => c.status),
-  ).toEqual(["passed", "passed"]);
+  expect((await goLintAdapter.check(await f.checkContext())).map((c) => c.status)).toEqual(["passed", "passed"]);
   expect(await f.bytes()).toEqual(before);
-  await writeFile(
-    join(f.root, "main.go"),
-    "// Package main demonstrates lint.\npackage main\n\nfunc main(){}\n",
-  );
+  await writeFile(join(f.root, "main.go"), "// Package main demonstrates lint.\npackage main\n\nfunc main(){}\n");
   const unformatted = await f.bytes();
   const checks = await goLintAdapter.check(await f.checkContext());
   expect(checks.map((c) => c.status)).toEqual(["passed", "failed"]);
-  expect(
-    checks[1]?.diagnostics.every((d) =>
-      ["gofumpt", "goimports"].includes(d.rule ?? ""),
-    ),
-  ).toBe(true);
+  expect(checks[1]?.diagnostics.every((d) => ["gofumpt", "goimports"].includes(d.rule ?? ""))).toBe(true);
   expect(await f.bytes()).toEqual(unformatted);
   const context = await f.checkContext();
   const diff = await checkGoFormat(context, ["main.go"]);
@@ -86,55 +67,33 @@ test("go.work resolves imported members while selected package scope excludes ne
   const before = await f.bytes();
   const root = await goLintAdapter.check(await f.checkContext());
   expect(root[0]?.status, JSON.stringify(root)).toBe("passed");
-  expect(
-    root
-      .flatMap((c) => c.diagnostics)
-      .some((d) => d.path?.startsWith("child/")),
-  ).toBe(false);
+  expect(root.flatMap((c) => c.diagnostics).some((d) => d.path?.startsWith("child/"))).toBe(false);
   const child = await goLintAdapter.check(await f.checkContext(1));
   expect(
     child[0]?.diagnostics.some(
-      (d) =>
-        d.rule === "errcheck" &&
-        d.path === "child/child.go" &&
-        d.project_path === "child.go",
+      (d) => d.rule === "errcheck" && d.path === "child/child.go" && d.project_path === "child.go",
     ),
   ).toBe(true);
   expect(await f.bytes()).toEqual(before);
-  await writeFile(
-    join(f.root, "go.work"),
-    "go 1.25\nuse .\nreplace example.test/child => ./child\n",
-  );
-  await writeFile(
-    join(f.root, "go.mod"),
-    "module example.test/app\ngo 1.25\nrequire example.test/child v0.0.0\n",
-  );
+  await writeFile(join(f.root, "go.work"), "go 1.25\nuse .\nreplace example.test/child => ./child\n");
+  await writeFile(join(f.root, "go.mod"), "module example.test/app\ngo 1.25\nrequire example.test/child v0.0.0\n");
   const replaced = await f.bytes();
   const localReplacement = await goLintAdapter.check(await f.checkContext());
-  expect(localReplacement[0]?.status, JSON.stringify(localReplacement)).toBe(
-    "passed",
-  );
+  expect(localReplacement[0]?.status, JSON.stringify(localReplacement)).toBe("passed");
   expect(await f.bytes()).toEqual(replaced);
 }, 90000);
 test("missing module cache is a readiness failure and check does not fetch or write sums", async () => {
   const f = await goFixture();
   cleanups.push(f.dispose);
   await f.prepare();
-  await writeFile(
-    join(f.root, "go.mod"),
-    "module example.test/app\ngo 1.25\nrequire example.test/not-cached v1.0.0\n",
-  );
+  await writeFile(join(f.root, "go.mod"), "module example.test/app\ngo 1.25\nrequire example.test/not-cached v1.0.0\n");
   await writeFile(
     join(f.root, "main.go"),
     '// Package main demonstrates lint.\npackage main\nimport _ "example.test/not-cached"\nfunc main() {}\n',
   );
   const before = await f.bytes();
   const checks = await goLintAdapter.check(await f.checkContext());
-  expect(
-    checks.every(
-      (c) => c.status === "not-run" && c.reason?.includes("dependency_sync"),
-    ),
-  ).toBe(true);
+  expect(checks.every((c) => c.status === "not-run" && c.reason?.includes("dependency_sync"))).toBe(true);
   expect(await f.bytes()).toEqual(before);
 });
 test("absent manager and incompatible Go fail before publication", async () => {
@@ -143,14 +102,10 @@ test("absent manager and incompatible Go fail before publication", async () => {
   const target = (await f.checkContext()).target;
   const path = target.scope.env.PATH;
   target.scope.env.PATH = "";
-  await expect(goLintAdapter.preflight(f.context)).rejects.toThrow(
-    "not installed",
-  );
+  await expect(goLintAdapter.preflight(f.context)).rejects.toThrow("not installed");
   target.scope.env.PATH = path;
   await writeFile(join(f.root, "go.mod"), "module example.test/app\ngo 1.99\n");
-  await expect(goLintAdapter.preflight(f.context)).rejects.toThrow(
-    "requires Go",
-  );
+  await expect(goLintAdapter.preflight(f.context)).rejects.toThrow("requires Go");
   expect(f.context.changes).toEqual([]);
 });
 test("native schema failure and corrupt installed binary remain explicit", async () => {
@@ -158,13 +113,12 @@ test("native schema failure and corrupt installed binary remain explicit", async
   cleanups.push(f.dispose);
   await f.prepare();
   const ctx = await f.checkContext();
-  await writeFile(
-    ctx.projection.configs.lint,
-    "version: '2'\nunknown-option: 1\n",
-  );
+  await writeFile(ctx.projection.configs.lint, "version: '2'\nunknown-option: 1\n");
   expect(await goLintAdapter.verify(ctx)).toBe(false);
   const projected = ctx.projection.files[0];
-  if (!projected) throw new Error("missing projection");
+  if (!projected) {
+    throw new Error("missing projection");
+  }
   await writeFile(ctx.projection.configs.lint, projected.content);
   await writeFile(golangciPath(f.root, GO_LINT_VERSION), "broken");
   expect(await goLintAdapter.verify(ctx)).toBe(false);
@@ -177,32 +131,22 @@ test("workspace checksum completion stays in a transient workspace and preserves
     seed = join(f.root, ".cache/seed");
   await createGoProxy(proxy);
   await mkdir(seed, { recursive: true });
-  await writeFile(
-    join(seed, "go.mod"),
-    "module example.test/seed\ngo 1.25\nrequire example.test/lib v1.0.0\n",
-  );
+  await writeFile(join(seed, "go.mod"), "module example.test/seed\ngo 1.25\nrequire example.test/lib v1.0.0\n");
   const target = (await f.checkContext()).target;
   target.scope.env.GOMODCACHE = join(f.root, ".cache/modules");
-  const downloaded = await runProcess(
-    Bun.which("go") ?? "go",
-    ["mod", "download", "all"],
-    {
-      cwd: seed,
-      env: {
-        ...target.scope.env,
-        GOWORK: "off",
-        GOPROXY: `file://${proxy}`,
-        GOSUMDB: "off",
-        GOTOOLCHAIN: "local",
-        GOFLAGS: "",
-      },
+  const downloaded = await runProcess(Bun.which("go") ?? "go", ["mod", "download", "all"], {
+    cwd: seed,
+    env: {
+      ...target.scope.env,
+      GOWORK: "off",
+      GOPROXY: `file://${proxy}`,
+      GOSUMDB: "off",
+      GOTOOLCHAIN: "local",
+      GOFLAGS: "",
     },
-  );
+  });
   expect(downloaded.exit_code, downloaded.stderr).toBe(0);
-  await writeFile(
-    join(f.root, "go.mod"),
-    "module example.test/app\ngo 1.25\nrequire example.test/lib v1.0.0\n",
-  );
+  await writeFile(join(f.root, "go.mod"), "module example.test/app\ngo 1.25\nrequire example.test/lib v1.0.0\n");
   await writeFile(
     join(f.root, "main.go"),
     '// Package main demonstrates lint.\npackage main\n\nimport _ "example.test/lib"\n\nfunc main() {}\n',
@@ -247,18 +191,12 @@ test("native runner lock contention is reported and the external lock is left in
     await new Promise<void>((resolve, reject) => {
       holder.stdout.once("data", () => resolve());
       holder.once("error", reject);
-      holder.once("exit", () =>
-        reject(new Error("fixture lock holder exited")),
-      );
+      holder.once("exit", () => reject(new Error("fixture lock holder exited")));
     });
     const identity = (await stat(path)).ino;
     const checks = await goLintAdapter.check(await f.checkContext());
     expect(
-      checks.every(
-        (c) =>
-          c.status === "not-run" &&
-          c.reason?.includes("parallel golangci-lint"),
-      ),
+      checks.every((c) => c.status === "not-run" && c.reason?.includes("parallel golangci-lint")),
       JSON.stringify(checks),
     ).toBe(true);
     expect((await stat(path)).ino).toBe(identity);
@@ -288,9 +226,7 @@ test("a binary built with older Go is rejected before executable publication", a
   await writeFile(join(f.root, "go.mod"), "module example.test/app\ngo 1.99\n");
   const transport = artifactTransport(await officialArchive());
   try {
-    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toThrow(
-      "cannot analyze required Go",
-    );
+    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toThrow("cannot analyze required Go");
   } finally {
     transport.mockRestore();
   }

@@ -1,13 +1,10 @@
 import picomatch from "picomatch";
-import type { InspectionRules } from "../config/inspection/model";
+import { type InspectionRules } from "../config/inspection/model";
 
 import { validateRules } from "../config/inspection/validate";
 
 export function isInternalStatePath(path: string): boolean {
-  return (
-    /(?:^|\/)\.justomp(?:\/|$)/.test(path) ||
-    /(?:^|\/)\.justomp-projection-[^/]+\.tmp$/.test(path)
-  );
+  return /(?:^|\/)\.justomp(?:\/|$)/.test(path) || /(?:^|\/)\.justomp-projection-[^/]+\.tmp$/.test(path);
 }
 export function isInternalPath(path: string): boolean {
   return (
@@ -29,14 +26,11 @@ export interface InspectionMatcher {
 export function createMatcher(rules: InspectionRules): InspectionMatcher {
   validateRules(rules);
   const include = rules.include.map((p) => picomatch(p, { dot: true }));
-  const descendants = rules.include.map((p) =>
-    compileDescendantMatcher(p, true),
-  );
+  const descendants = rules.include.map((p) => compileDescendantMatcher(p, true));
   const exclude = rules.exclude.map((p) => picomatch(p, { dot: true }));
 
   const excluded = (p: string) =>
-    isInternalPath(p) ||
-    (p !== "." && ancestors(p).some((a) => exclude.some((m) => m(a))));
+    isInternalPath(p) || (p !== "." && ancestors(p).some((a) => exclude.some((m) => m(a))));
   const included = (p: string) =>
     !excluded(p) &&
     rules.include.length > 0 &&
@@ -52,13 +46,7 @@ export function createMatcher(rules: InspectionRules): InspectionMatcher {
       (p === "." || included(p) || descendants.some((matches) => matches(p))),
   };
 }
-export const MANIFEST_NAMES = new Set([
-  "package.json",
-  "pyproject.toml",
-  "go.mod",
-  "pnpm-workspace.yaml",
-  "go.work",
-]);
+export const MANIFEST_NAMES = new Set(["package.json", "pyproject.toml", "go.mod", "pnpm-workspace.yaml", "go.work"]);
 export const LOCK_MANAGERS: Readonly<Record<string, string>> = {
   "package-lock.json": "npm",
   "npm-shrinkwrap.json": "npm",
@@ -74,41 +62,36 @@ export const LOCK_MANAGERS: Readonly<Record<string, string>> = {
 };
 export function isDiscoveryInput(path: string): boolean {
   const name = path.split("/").at(-1) ?? "";
-  return (
-    !isInternalPath(path) &&
-    (MANIFEST_NAMES.has(name) || Object.hasOwn(LOCK_MANAGERS, name))
-  );
+  return !isInternalPath(path) && (MANIFEST_NAMES.has(name) || Object.hasOwn(LOCK_MANAGERS, name));
 }
 
 /** Whether an included path can exist below an ancestor, without traversing siblings. */
-export function patternMayContain(
-  pattern: string,
-  path: string,
-  dot = true,
-): boolean {
+export function patternMayContain(pattern: string, path: string, dot = true): boolean {
   return compileDescendantMatcher(pattern, dot)(path);
 }
-function compileDescendantMatcher(
-  pattern: string,
-  dot: boolean,
-): (path: string) => boolean {
+function compileDescendantMatcher(pattern: string, dot: boolean): (path: string) => boolean {
   const parts = pattern.replace(/^\.\//, "").split("/");
   const segments = parts.map((part) => picomatch(part, { dot }));
   return (path: string) => {
     const dirs = path === "." ? [] : path.split("/");
     const memo = new Map<string, boolean>();
     const match = (i: number, j: number): boolean => {
-      if (j === dirs.length) return true;
-      if (i === parts.length) return true;
+      if (j === dirs.length) {
+        return true;
+      }
+      if (i === parts.length) {
+        return true;
+      }
       const key = `${i}:${j}`;
       const cached = memo.get(key);
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) {
+        return cached;
+      }
       const part = parts[i] as string;
       const result =
         part === "**"
           ? match(i + 1, j) || match(i, j + 1)
-          : (segments[i] as (s: string) => boolean)(dirs[j] as string) &&
-            match(i + 1, j + 1);
+          : (segments[i] as (s: string) => boolean)(dirs[j] as string) && match(i + 1, j + 1);
       memo.set(key, result);
       return result;
     };

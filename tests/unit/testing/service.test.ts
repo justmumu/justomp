@@ -2,24 +2,18 @@ import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 import * as configModule from "../../../src/config/load";
-import {
-  resolveTestConfig,
-  testPolicyKey,
-} from "../../../src/config/test/resolve";
+import { resolveTestConfig, testPolicyKey } from "../../../src/config/test/resolve";
 import * as paths from "../../../src/dependencies/paths";
 import * as packaging from "../../../src/packaging/get-structure";
-import type {
-  NativeTestResult,
-  TestAdapter,
-} from "../../../src/testing/adapters";
+import { type NativeTestResult, type TestAdapter } from "../../../src/testing/adapters";
 import * as artifacts from "../../../src/testing/artifacts";
-import type { TestSuite } from "../../../src/testing/model";
+import { type TestSuite } from "../../../src/testing/model";
 import { preparationReport } from "../../../src/testing/prepare";
 import * as scopeModule from "../../../src/testing/scope";
 import { runTestTarget } from "../../../src/testing/service";
 import { TestStateStore } from "../../../src/testing/state";
-import type { TestTarget } from "../../../src/testing/targets";
 import * as targets from "../../../src/testing/targets";
+import { type TestTarget } from "../../../src/testing/targets";
 
 test("service preserves native and cleanup errors, rejects changed policy, and reports cancellation without invented counts", async () => {
   const policy = resolveTestConfig().policy,
@@ -58,7 +52,9 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     run: async () => {
       runs++;
       mutated = changedSuite !== undefined;
-      if (abort) controller.abort();
+      if (abort) {
+        controller.abort();
+      }
       return structuredClone(native);
     },
   };
@@ -81,20 +77,17 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     spyOn(packaging, "getPackagingStructure").mockResolvedValue({
       structure: target.structure,
     } as Awaited<ReturnType<typeof packaging.getPackagingStructure>>),
-    spyOn(targets, "resolveTestTarget").mockImplementation(
-      async (_structure, id) =>
-        id === "other"
-          ? {
-              ...target,
-              runner: "bun",
-              project: { ...target.project, project_id: id },
-            }
-          : target,
+    spyOn(targets, "resolveTestTarget").mockImplementation(async (_structure, id) =>
+      id === "other"
+        ? {
+            ...target,
+            runner: "bun",
+            project: { ...target.project, project_id: id },
+          }
+        : target,
     ),
     spyOn(paths, "safePath").mockImplementation(async (_root, path) => path),
-    spyOn(fs, "readFile").mockRejectedValue(
-      Object.assign(new Error("absent"), { code: "ENOENT" }),
-    ),
+    spyOn(fs, "readFile").mockRejectedValue(Object.assign(new Error("absent"), { code: "ENOENT" })),
     spyOn(scopeModule, "collectTestScope").mockResolvedValue({
       tests: ["a.test.ts"],
       selected: ["a.test.ts"],
@@ -104,7 +97,9 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     spyOn(artifacts, "testArtifacts").mockResolvedValue({
       path: "/reports/new",
       cleanup: async () => {
-        if (cleanupFails) throw new Error("cleanup");
+        if (cleanupFails) {
+          throw new Error("cleanup");
+        }
       },
     }),
     spyOn(TestStateStore, "load").mockResolvedValue({
@@ -143,11 +138,7 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
   try {
     cleanupFails = true;
     const failure = await run();
-    expect(failure.errors.map((e) => e.code)).toEqual([
-      "test-failed",
-      "invalid-report",
-      "cleanup-failed",
-    ]);
+    expect(failure.errors.map((e) => e.code)).toEqual(["test-failed", "invalid-report", "cleanup-failed"]);
     expect(failure.tests.total).toBe(2);
     expect(failure.complete).toBe(false);
     cleanupFails = false;
@@ -170,20 +161,16 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     const before = runs;
     target.structure.projects.push({ ...target.project, project_id: "new" });
     const discovered = await run();
-    expect(discovered.errors.map((e) => e.code)).toEqual([
-      "not-ready",
-      "coverage-unavailable",
-    ]);
+    expect(discovered.errors.map((e) => e.code)).toEqual(["not-ready", "coverage-unavailable"]);
     target.structure.projects.pop();
     const state = (await TestStateStore.load(target.root)).state;
     const wave = state.waves.vitest;
-    if (!wave) throw new Error("Missing fixture wave");
+    if (!wave) {
+      throw new Error("Missing fixture wave");
+    }
     wave.tools.vitest = "5.0.0";
     const mismatched = await run();
-    expect(mismatched.errors.map((e) => e.code)).toEqual([
-      "not-ready",
-      "coverage-unavailable",
-    ]);
+    expect(mismatched.errors.map((e) => e.code)).toEqual(["not-ready", "coverage-unavailable"]);
     expect(runs).toBe(before);
     wave.tools.vitest = "4.0.0";
     abort = true;
@@ -192,6 +179,8 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     expect(cancelled.tests.total).toBe(2);
     expect(cancelled.complete).toBe(false);
   } finally {
-    for (const mock of mocks.reverse()) mock.mockRestore();
+    for (const mock of mocks.reverse()) {
+      mock.mockRestore();
+    }
   }
 });

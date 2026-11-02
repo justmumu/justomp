@@ -42,13 +42,7 @@ export interface CoverageTotals {
   total: number;
 }
 export interface TestCoverage {
-  status:
-    | "disabled"
-    | "not-enforced-targeted"
-    | "passed"
-    | "below-threshold"
-    | "unavailable"
-    | "not-applicable";
+  status: "disabled" | "not-enforced-targeted" | "passed" | "below-threshold" | "unavailable" | "not-applicable";
   metric: "lines" | "statements";
   minimum: number;
   percentage: number | null;

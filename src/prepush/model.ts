@@ -1,9 +1,4 @@
-export type PushCheckStage =
-  | "dependency"
-  | "format"
-  | "lint"
-  | "typecheck"
-  | "unit";
+export type PushCheckStage = "dependency" | "format" | "lint" | "typecheck" | "unit";
 export interface PushStage {
   stage: string;
   project_id?: string;

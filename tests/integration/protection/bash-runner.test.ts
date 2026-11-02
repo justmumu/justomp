@@ -1,12 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  access,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runProtectedBash } from "../../../src/protection/bash";
@@ -60,9 +53,7 @@ test("foreground bash streams output, denies metadata writes and reaps on timeou
 });
 
 test("foreground exit terminates a background child holding the output pipes", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-bash-child-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-bash-child-")));
   const controller = new AbortController();
   const watchdog = setTimeout(() => controller.abort(), 1000);
   try {

@@ -1,6 +1,6 @@
-import type { JavascriptPolicy } from "../lint/model";
+import { type JavascriptPolicy } from "../lint/model";
 import { EXCLUDED_DIRECTORIES } from "../scope-defaults";
-import type { FormatPolicy } from "./model";
+import { type FormatPolicy } from "./model";
 export const PRETTIER_DEFAULTS: JavascriptPolicy["prettier"] = {
   printWidth: 120,
   tabWidth: 2,

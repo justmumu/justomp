@@ -2,17 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { inspectProject } from "../../src/inspect/scan";
-import {
-  closePackagingStructure,
-  getPackagingStatus,
-  getPackagingStructure,
-} from "../../src/packaging/get-structure";
+import { closePackagingStructure, getPackagingStatus, getPackagingStructure } from "../../src/packaging/get-structure";
 import { createLargeTree } from "../fixtures/generate-large-tree";
 
 const fixtures: Awaited<ReturnType<typeof createLargeTree>>[] = [];
 afterEach(async () => {
   await closePackagingStructure();
-  for (const fixture of fixtures.splice(0)) await fixture.cleanup();
+  for (const fixture of fixtures.splice(0)) {
+    await fixture.cleanup();
+  }
 });
 test("generated fixture has real counts and scanner reads only manifests with bounded IO", async () => {
   const fixture = await createLargeTree({
@@ -43,19 +41,18 @@ test("growing root and nested dependencies changes neither scan IO nor watcher s
     "project-00000/venv",
     "project-00000/.venv",
   ];
-  for (const path of excluded)
+  for (const path of excluded) {
     await mkdir(join(fixture.root, path), { recursive: true });
+  }
   await mkdir(join(fixture.root, ".justomp"));
   const initial = await getPackagingStructure(fixture.root);
   const status = getPackagingStatus(fixture.root);
   expect(status?.healthy).toBe(true);
   for (const path of excluded) {
     await mkdir(join(fixture.root, path, "nested"));
-    for (let i = 0; i < 25; i++)
-      await writeFile(
-        join(fixture.root, path, "nested", `${i}.json`),
-        "not a manifest",
-      );
+    for (let i = 0; i < 25; i++) {
+      await writeFile(join(fixture.root, path, "nested", `${i}.json`), "not a manifest");
+    }
     await writeFile(join(fixture.root, path, "nested/package.json"), "{bad");
   }
   await Bun.sleep(100);
@@ -65,18 +62,12 @@ test("growing root and nested dependencies changes neither scan IO nor watcher s
   const current = getPackagingStatus(fixture.root);
   expect(current?.revision).toBe(status?.revision);
   expect(
-    current?.watchedPaths.some((p) =>
-      p.split("/").some((s) => ["node_modules", "venv", ".venv"].includes(s)),
-    ),
+    current?.watchedPaths.some((p) => p.split("/").some((s) => ["node_modules", "venv", ".venv"].includes(s))),
   ).toBe(false);
   const refreshed = await getPackagingStructure(fixture.root, {
     refresh: true,
   });
-  expect(refreshed.structure.metrics.directoryEntries).toBe(
-    initial.structure.metrics.directoryEntries,
-  );
+  expect(refreshed.structure.metrics.directoryEntries).toBe(initial.structure.metrics.directoryEntries);
   expect(refreshed.structure.metrics.manifestReads).toBe(2);
-  expect(refreshed.structure.metrics.directories).toBe(
-    initial.structure.metrics.directories,
-  );
+  expect(refreshed.structure.metrics.directories).toBe(initial.structure.metrics.directories);
 });

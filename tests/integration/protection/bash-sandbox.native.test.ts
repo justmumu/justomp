@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  mkdtemp,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runProcess } from "../../../src/dependencies/runner";
@@ -16,9 +8,7 @@ import { createSandboxCommand } from "../../../src/protection/sandbox";
 // One native launch proves our argv/profile actually reaches the OS boundary.
 // No manager install, registry fixture, or upstream policy matrix is needed.
 test("native sandbox allows source/read and rejects protected child writes and replacement", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-sandbox-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-sandbox-")));
   const target = join(root, "package.json");
   let cleanup: (() => Promise<void>) | undefined;
   try {
@@ -40,15 +30,15 @@ for (const [name,operation] of [
 console.log(JSON.stringify({original,denied}));`,
     );
     const prepared = await createSandboxCommand({
-      command: [process.execPath, script]
-        .map((value) => `'${value.replaceAll("'", "'\\''")}'`)
-        .join(" "),
+      command: [process.execPath, script].map((value) => `'${value.replaceAll("'", "'\\''")}'`).join(" "),
       cwd: root,
       protectedPaths: [target],
     });
     cleanup = prepared.cleanup;
     const [executable, ...args] = prepared.argv;
-    if (!executable) throw new Error("Sandbox argv is empty");
+    if (!executable) {
+      throw new Error("Sandbox argv is empty");
+    }
     const result = await runProcess(executable, args, {
       cwd: root,
       env: prepared.env,
@@ -73,9 +63,7 @@ console.log(JSON.stringify({original,denied}));`,
 }, 15_000);
 
 test("missing-path cleanup preserves an outside writer's empty replacement", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-placeholder-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-placeholder-")));
   const lock = join(root, "go.sum");
   let cleanup: (() => Promise<void>) | undefined;
   try {
@@ -97,9 +85,7 @@ test("missing-path cleanup preserves an outside writer's empty replacement", asy
 });
 
 test("overlapping preparations retain missing mount points until their last owner exits", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-placeholder-owners-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-placeholder-owners-")));
   const lock = join(root, "generated", "uv.lock");
   const prepared: Array<Awaited<ReturnType<typeof createSandboxCommand>>> = [];
   try {

@@ -52,8 +52,9 @@ export function testGoFlags(input: string, suite: TestSuite = "unit"): string {
     let field: string, raw: string;
     if (quote === "'" || quote === '"') {
       const end = rest.indexOf(quote, 1);
-      if (end < 0)
+      if (end < 0) {
         throw new TestError("unsupported-config", "Unterminated GOFLAGS quote");
+      }
       field = rest.slice(1, end);
       raw = rest.slice(0, end + 1);
       rest = rest.slice(end + 1);
@@ -64,28 +65,28 @@ export function testGoFlags(input: string, suite: TestSuite = "unit"): string {
       rest = end < 0 ? "" : rest.slice(end);
     }
     const name = /^-([a-z]+)(?:=|$)/.exec(field)?.[1];
-    if (name && owned.has(name)) continue;
-    if (!name || !build.has(name))
-      throw new TestError(
-        "unsupported-config",
-        `Unsupported GOFLAGS control: ${field}`,
-      );
-    if (name === "tags")
+    if (name && owned.has(name)) {
+      continue;
+    }
+    if (!name || !build.has(name)) {
+      throw new TestError("unsupported-config", `Unsupported GOFLAGS control: ${field}`);
+    }
+    if (name === "tags") {
       tags = field
         .slice(field.indexOf("=") + 1)
         .split(/[ ,]+/)
         .filter(Boolean);
-    else fields.push(raw);
+    } else {
+      fields.push(raw);
+    }
   }
-  const effectiveTags = [
-    ...new Set((tags ?? []).filter((tag) => tag !== "integration")),
-  ];
-  if (suite === "integration") effectiveTags.push("integration");
+  const effectiveTags = [...new Set((tags ?? []).filter((tag) => tag !== "integration"))];
+  if (suite === "integration") {
+    effectiveTags.push("integration");
+  }
   return [
     ...fields,
-    ...(tags || effectiveTags.length
-      ? [`-tags=${effectiveTags.join(",")}`]
-      : []),
+    ...(tags || effectiveTags.length ? [`-tags=${effectiveTags.join(",")}`] : []),
     "-mod=readonly",
   ].join(" ");
 }

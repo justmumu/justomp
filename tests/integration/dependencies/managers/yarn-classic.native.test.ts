@@ -8,15 +8,11 @@ test("Yarn Classic native registry lifecycle respects constraints and exact down
     await f.operate(adapter, {
       operation: "add",
       group: { kind: "runtime" },
-      packages: [
-        { name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } },
-      ],
+      packages: [{ name: "u6-dep", version: "^1.0.0", source: { kind: "registry" } }],
     });
     const graph = await adapter.inventory(await f.context(), true);
     expect(graph.complete).toBe(true);
-    expect(
-      graph.dependencies.some((d) => d.name === "u6-child" && !d.direct),
-    ).toBe(true);
+    expect(graph.dependencies.some((d) => d.name === "u6-child" && !d.direct)).toBe(true);
     expect(await f.installed("u6-dep")).toBe("1.0.0");
     f.publish("2.0.0");
     await f.operate(adapter, {

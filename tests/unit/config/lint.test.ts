@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  lintPolicyKey,
-  resolveLintConfig,
-} from "../../../src/config/lint/resolve";
+import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 
 const pythonPolicy = {
   ruff: {
@@ -35,9 +32,7 @@ const pythonPolicy = {
         "F E W B BLE RET PLC PLE PLW UP I SIM C4 C90 PTH RUF S ASYNC ARG DTZ T20 LOG G PT TID TC PERF FBT N ANN T10 SLF TRY PIE ERA A PGH RSE FURB INP EXE D".split(
           " ",
         ),
-      ignore: "E501 COM812 ISC001 TRY003 EM101 EM102 TID252 S603 S607".split(
-        " ",
-      ),
+      ignore: "E501 COM812 ISC001 TRY003 EM101 EM102 TID252 S603 S607".split(" "),
       "per-file-ignores": {
         "tests/*": "S101 SLF001 ARG T201 PT011 ANN INP001 D".split(" "),
         "scripts/*": "INP001 T201 FBT001 FBT002".split(" "),
@@ -177,9 +172,19 @@ test("JS and Go defaults contain explicit strict checks and formatter options", 
   expect(go.golangci.linters.default).toBe("none");
   expect(go.golangci.linters.exclusions.presets).toEqual([]);
   expect(go.golangci.formatters.enable).toEqual(["gofumpt", "goimports"]);
-  expect(go.golangci.linters.settings.exhaustive.check).toEqual([
-    "switch",
-    "mapliteral",
-  ]);
+  expect(go.golangci.linters.settings.exhaustive.check).toEqual(["switch", "mapliteral"]);
   expect(go.golangci.severity).toEqual({ default: "error" });
+});
+
+test("JavaScript exclusions default empty, replace arrays and affect policy freshness", () => {
+  const defaults = resolveLintConfig();
+  expect(defaults.policy.javascript.exclude).toEqual([]);
+  const excluded = resolveLintConfig({ javascript: { exclude: [".private/**"] } });
+  expect(excluded.policy.javascript.exclude).toEqual([".private/**"]);
+  expect(resolveLintConfig(excluded.policy).missing).toBe(false);
+  expect(lintPolicyKey(excluded.policy)).not.toBe(lintPolicyKey(defaults.policy));
+  expect(resolveLintConfig({ javascript: { exclude: [] } }).policy.javascript.exclude).toEqual([]);
+  for (const exclude of [null, "**/*", [1]]) {
+    expect(() => resolveLintConfig({ javascript: { exclude } })).toThrow("lint.javascript.exclude");
+  }
 });

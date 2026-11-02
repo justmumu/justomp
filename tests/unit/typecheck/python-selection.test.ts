@@ -37,15 +37,9 @@ test("PyPI resolution uses one latest stable non-yanked exact target for the who
     ),
   );
   try {
-    expect(
-      Object.values(
-        await pythonAdapter.resolve(
-          f.targets,
-          f.context.policy,
-          f.context.signal,
-        ),
-      ),
-    ).toEqual(f.targets.map(() => ({ pyright: VERSION })));
+    expect(Object.values(await pythonAdapter.resolve(f.targets, f.context.policy, f.context.signal))).toEqual(
+      f.targets.map(() => ({ pyright: VERSION })),
+    );
     expect(requests).toBe(1);
   } finally {
     mocked.mockRestore();
@@ -60,9 +54,9 @@ test("registry failure keeps typecheck error identity", async () => {
     }),
   );
   try {
-    await expect(
-      pythonAdapter.resolve(f.targets, f.context.policy, f.context.signal),
-    ).rejects.toMatchObject({ code: "version-resolution-failed" });
+    await expect(pythonAdapter.resolve(f.targets, f.context.policy, f.context.signal)).rejects.toMatchObject({
+      code: "version-resolution-failed",
+    });
   } finally {
     mocked.mockRestore();
   }

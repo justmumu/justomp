@@ -7,18 +7,8 @@ import { pythonAdapter } from "./adapters/python";
 import { withReadyLintTarget } from "./coordinator";
 import { applyLintFix, pendingLintFix } from "./fix";
 import { BIOME_PACKAGE } from "./javascript/tools";
-import {
-  type LintCheck,
-  LintError,
-  type LintFix,
-  type LintPreparation,
-  type LintResult,
-} from "./model";
-import {
-  type PreparationReport,
-  preparationFailure,
-  prepareLint,
-} from "./prepare";
+import { type LintCheck, LintError, type LintFix, type LintPreparation, type LintResult } from "./model";
+import { type PreparationReport, preparationFailure, prepareLint } from "./prepare";
 import { lintResult } from "./result";
 import { LintStateStore } from "./state";
 import { type LintTarget, resolveLintTarget } from "./targets";
@@ -37,17 +27,11 @@ export async function prepareLintProjects(
   return prepareLint(root, lintAdapters, signal);
 }
 /** Resolves an ID without native commands or any config/snapshot publication. */
-export async function inspectLintProject(
-  root: string,
-  projectId: string,
-  signal?: AbortSignal,
-): Promise<LintTarget> {
-  if (typeof projectId !== "string" || !projectId.trim())
+export async function inspectLintProject(root: string, projectId: string, signal?: AbortSignal): Promise<LintTarget> {
+  if (typeof projectId !== "string" || !projectId.trim()) {
     throw new LintError("invalid-input", "project_id is required");
-  return resolveLintTarget(
-    (await getPackagingStructure(root, { signal, publish: false })).structure,
-    projectId,
-  );
+  }
+  return resolveLintTarget((await getPackagingStructure(root, { signal, publish: false })).structure, projectId);
 }
 export function lintFailure(error: unknown, signal?: AbortSignal) {
   return {
@@ -78,7 +62,9 @@ async function runLintTarget(
         errors: [],
       };
   // Overall setup effects remain visible; tool versions belong to the selected project.
-  if (report) preparation.tools = { ...report.projects[id]?.tools };
+  if (report) {
+    preparation.tools = { ...report.projects[id]?.tools };
+  }
   let checks: LintCheck[] = [],
     policyHash = "",
     failure: string | undefined;
@@ -86,17 +72,13 @@ async function runLintTarget(
   let selectedReady = report?.projects[id]?.complete ?? !report;
   try {
     signal.throwIfAborted();
-    if (fix && report && !report.projects[id]?.complete)
-      throw new LintError(
-        "preparation-incomplete",
-        "Selected project's preparation did not complete",
-      );
+    if (fix && report && !report.projects[id]?.complete) {
+      throw new LintError("preparation-incomplete", "Selected project's preparation did not complete");
+    }
     const policy = await loadConfig(target.root, { signal, flush: false });
     policyHash = lintPolicyKey(policy.lint[target.project.ecosystem]);
     if (!report) {
-      const receipt = (await LintStateStore.load(target.root)).state.projects[
-        id
-      ];
+      const receipt = (await LintStateStore.load(target.root)).state.projects[id];
       preparation.tools = { ...receipt?.tools };
     }
     await withReadyLintTarget(
@@ -104,41 +86,36 @@ async function runLintTarget(
       id,
       lintAdapters,
       async (context) => {
-        policyHash = lintPolicyKey(
-          context.policy[context.target.project.ecosystem],
-        );
+        policyHash = lintPolicyKey(context.policy[context.target.project.ecosystem]);
         preparation.tools = { ...context.versions };
-        if (!report)
+        if (!report) {
           preparation = {
             ...preparation,
             status: "ready",
             action: "already-ready",
             complete: true,
           };
+        }
         selectedReady = true;
         readyEntered = true;
-        if (fix)
-          await applyLintFix(
-            context,
-            lintAdapters[context.target.project.ecosystem],
-            fix,
-          );
+        if (fix) {
+          await applyLintFix(context, lintAdapters[context.target.project.ecosystem], fix);
+        }
         checks = await lintAdapters[target.project.ecosystem].check(context);
       },
       signal,
     );
     if (report?.projects[id] && !report.projects[id]?.complete) {
       selectedReady = false;
-      throw new LintError(
-        "preparation-incomplete",
-        "Selected project's preparation did not complete",
-      );
+      throw new LintError("preparation-incomplete", "Selected project's preparation did not complete");
     }
   } catch (error) {
     const issue = preparationFailure(error, id);
-    if (fix && readyEntered)
+    if (fix && readyEntered) {
       fix.errors.push({ code: issue.code, message: issue.message });
-    else preparation.errors.push(issue);
+    } else {
+      preparation.errors.push(issue);
+    }
     if (fix && signal.aborted && fix.status !== "completed") {
       fix.status = "cancelled";
       fix.cancelled = true;
@@ -146,13 +123,14 @@ async function runLintTarget(
     failure = issue.message;
     if (!checks.length && (!fix || !readyEntered)) {
       selectedReady = false;
-      if (!report)
+      if (!report) {
         preparation = {
           ...preparation,
           status: "failed",
           complete: false,
           cancelled: signal.aborted,
         };
+      }
     }
   }
   if (!checks.length) {
@@ -166,10 +144,7 @@ async function runLintTarget(
       kind,
       status: "not-run",
       tool: names[index] ?? "",
-      version:
-        preparation.tools[
-          names[index] === "biome" ? BIOME_PACKAGE : (names[index] ?? "")
-        ] ?? null,
+      version: preparation.tools[names[index] === "biome" ? BIOME_PACKAGE : (names[index] ?? "")] ?? null,
       exit_code: null,
       duration_ms: 0,
       diagnostics: [],
@@ -205,12 +180,7 @@ export async function fixLintTarget(
   signal: AbortSignal,
   report?: PreparationReport,
 ): Promise<LintResult> {
-  return runLintTarget(
-    target,
-    signal,
-    report,
-    pendingLintFix(target.project.ecosystem),
-  );
+  return runLintTarget(target, signal, report, pendingLintFix(target.project.ecosystem));
 }
 /** Read-only check: no installation, defaults flush, state save or snapshot publication. */
 export async function checkProjectLint(
@@ -218,18 +188,11 @@ export async function checkProjectLint(
   projectId: string,
   signal = new AbortController().signal,
 ): Promise<LintResult> {
-  return checkLintTarget(
-    await inspectLintProject(root, projectId, signal),
-    signal,
-  );
+  return checkLintTarget(await inspectLintProject(root, projectId, signal), signal);
 }
 
 /** Repository gate fixes first, formats next, then performs the final checks. */
-export async function fixProjectLintOnly(
-  root: string,
-  projectId: string,
-  signal: AbortSignal,
-): Promise<LintFix> {
+export async function fixProjectLintOnly(root: string, projectId: string, signal: AbortSignal): Promise<LintFix> {
   const target = await inspectLintProject(root, projectId, signal);
   const fix = pendingLintFix(target.project.ecosystem);
   try {
@@ -238,11 +201,7 @@ export async function fixProjectLintOnly(
       projectId,
       lintAdapters,
       async (context) => {
-        await applyLintFix(
-          context,
-          lintAdapters[context.target.project.ecosystem],
-          fix,
-        );
+        await applyLintFix(context, lintAdapters[context.target.project.ecosystem], fix);
       },
       signal,
     );

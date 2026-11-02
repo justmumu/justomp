@@ -1,6 +1,6 @@
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
-import type { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
+import { type Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import {
   applyPatchSchema,
   hashlineEditParamsSchema,
@@ -20,10 +20,7 @@ const schemas = {
 };
 
 /** Native metadata and inspection must use the same provider-qualified selector. */
-export function protectedEditMetadata(
-  settings: Settings,
-  model: ExtensionContext["model"],
-) {
+export function protectedEditMetadata(settings: Settings, model: ExtensionContext["model"]) {
   const mode = resolveEditMode({
     settings,
     getActiveModelString: () => (model ? formatModelString(model) : undefined),

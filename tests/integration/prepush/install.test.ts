@@ -30,24 +30,14 @@ test("push composes original argv/stdin once and gate failure preserves remote",
       'import { appendFile } from "node:fs/promises"; await appendFile("order","justomp"); process.exitCode = await Bun.file("reject-gate").exists() ? 1 : 0;',
     );
     const runtime = { cli, bun: process.execPath };
-    expect((await installPrepush(repo, undefined, runtime)).status).toBe(
-      "installed",
-    );
-    expect((await installPrepush(repo, undefined, runtime)).status).toBe(
-      "ready",
-    );
+    expect((await installPrepush(repo, undefined, runtime)).status).toBe("installed");
+    expect((await installPrepush(repo, undefined, runtime)).status).toBe("ready");
     // Each hook owns separate records; installing pre-commit preserves pre-push.
-    expect((await installPrecommit(repo, undefined, runtime)).status).toBe(
-      "installed",
-    );
+    expect((await installPrecommit(repo, undefined, runtime)).status).toBe("installed");
     const wrapper = await readFile(hook, "utf8");
     expect((await git(repo, ["push", "origin", "main"])).exit_code).toBe(0);
-    expect(await readFile(join(repo, "args"), "utf8")).toBe(
-      `origin\n${remote}\n`,
-    );
-    expect(await readFile(join(repo, "refs"), "utf8")).toMatch(
-      /^refs\/heads\/main [a-f0-9]+ refs\/heads\/main 0+\n$/,
-    );
+    expect(await readFile(join(repo, "args"), "utf8")).toBe(`origin\n${remote}\n`);
+    expect(await readFile(join(repo, "refs"), "utf8")).toMatch(/^refs\/heads\/main [a-f0-9]+ refs\/heads\/main 0+\n$/);
     expect(await readFile(join(repo, "order"), "utf8")).toBe("originaljustomp");
     const first = await gitText(remote, ["rev-parse", "main"]);
     await gitText(repo, ["commit", "--allow-empty", "-m", "test: next"]);
@@ -61,9 +51,7 @@ test("push composes original argv/stdin once and gate failure preserves remote",
     expect((await git(repo, ["push", "origin", "main"])).exit_code).not.toBe(0);
     expect(await readFile(join(repo, "order"), "utf8")).toBe("original");
     await writeFile(hook, `${wrapper}# user change\n`);
-    expect((await installPrepush(repo, undefined, runtime)).status).toBe(
-      "conflict",
-    );
+    expect((await installPrepush(repo, undefined, runtime)).status).toBe("conflict");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

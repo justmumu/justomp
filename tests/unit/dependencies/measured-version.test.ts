@@ -10,10 +10,6 @@ test("native fixture version guard rejects a mismatched launcher result", () => 
     cancelled: false,
     truncated: false,
   };
-  expect(() => measuredVersion("pnpm", "10.20.0", result)).toThrow(
-    "Native pnpm test requires 10.20.0; measured 0.0.0",
-  );
-  expect(
-    measuredVersion("pnpm", "10.20.0", { ...result, stdout: "10.20.0\n" }),
-  ).toBe("10.20.0");
+  expect(() => measuredVersion("pnpm", "10.20.0", result)).toThrow("Native pnpm test requires 10.20.0; measured 0.0.0");
+  expect(measuredVersion("pnpm", "10.20.0", { ...result, stdout: "10.20.0\n" })).toBe("10.20.0");
 });

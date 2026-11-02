@@ -2,12 +2,7 @@
 export interface TypecheckPolicyObject {
   [key: string]: unknown;
 }
-export type DiagnosticLevel =
-  | "none"
-  | "information"
-  | "warning"
-  | "error"
-  | boolean;
+export type DiagnosticLevel = "none" | "information" | "warning" | "error" | boolean;
 export interface PythonTypecheckPolicy extends TypecheckPolicyObject {
   pyright: TypecheckPolicyObject & {
     typeCheckingMode: "off" | "basic" | "standard" | "strict";
@@ -15,6 +10,7 @@ export interface PythonTypecheckPolicy extends TypecheckPolicyObject {
   };
 }
 export interface JavascriptTypecheckPolicy extends TypecheckPolicyObject {
+  exclude: string[];
   compilerOptions: TypecheckPolicyObject & {
     strict: boolean;
     allowJs: boolean;

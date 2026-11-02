@@ -31,7 +31,5 @@ import integrationExample from "../../../docs/integration-test-defaults.json";
 import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 
 test("documented integration policy matches code defaults", () => {
-  expect<unknown>(integrationExample.integration_test).toEqual(
-    resolveIntegrationTestConfig().policy,
-  );
+  expect<unknown>(integrationExample.integration_test).toEqual(resolveIntegrationTestConfig().policy);
 });

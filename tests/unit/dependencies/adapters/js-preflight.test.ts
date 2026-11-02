@@ -13,7 +13,7 @@ for (const [name, adapter] of [
   ["classic", yarnClassicAdapter],
   ["modern", yarnModernAdapter],
   ["bun", bunAdapter],
-] as const)
+] as const) {
   test(`${name} workspace names and exact registry updates cannot reinterpret sources`, async () => {
     const f = await fixture({
       dependencies: {
@@ -22,9 +22,7 @@ for (const [name, adapter] of [
       },
     });
     f.context.manager = name === "classic" || name === "modern" ? "yarn" : name;
-    const local = spyOn(paths, "localSource").mockResolvedValue(
-      `${f.root}/local`,
-    );
+    const local = spyOn(paths, "localSource").mockResolvedValue(`${f.root}/local`);
     f.write("local/package.json", '{"name":"local"}');
     try {
       await expect(
@@ -47,7 +45,7 @@ for (const [name, adapter] of [
           f.inventory,
         ),
       ).rejects.toMatchObject({ code: "source-name-mismatch" });
-      for (const dependency of ["local", "git"])
+      for (const dependency of ["local", "git"]) {
         await expect(
           adapter.plan(
             f.context,
@@ -59,11 +57,13 @@ for (const [name, adapter] of [
             f.inventory,
           ),
         ).rejects.toMatchObject({ code: "unsupported-source-operation" });
+      }
     } finally {
       local.mockRestore();
       await f.close();
     }
   });
+}
 for (const [name, adapter] of [
   ["classic", yarnClassicAdapter],
   ["modern", yarnModernAdapter],
@@ -72,13 +72,9 @@ for (const [name, adapter] of [
   test(`${name} rejects missing lock before sync`, async () => {
     const f = await fixture();
     try {
-      await expect(
-        adapter.plan(
-          f.context,
-          { operation: "sync", project_id: f.id },
-          f.inventory,
-        ),
-      ).rejects.toMatchObject({ code: "lockfile-required" });
+      await expect(adapter.plan(f.context, { operation: "sync", project_id: f.id }, f.inventory)).rejects.toMatchObject(
+        { code: "lockfile-required" },
+      );
     } finally {
       await f.close();
     }
@@ -106,7 +102,7 @@ for (const [name, adapter] of [
 for (const [name, adapter] of [
   ["classic", yarnClassicAdapter],
   ["modern", yarnModernAdapter],
-] as const)
+] as const) {
   test(`${name} refuses mutation of duplicate declaration groups`, async () => {
     const f = await fixture({
       dependencies: { foo: "1.0.0" },
@@ -120,9 +116,7 @@ for (const [name, adapter] of [
             operation: "add",
             project_id: f.id,
             group: { kind: "dev" },
-            packages: [
-              { name: "foo", version: "2.0.0", source: { kind: "registry" } },
-            ],
+            packages: [{ name: "foo", version: "2.0.0", source: { kind: "registry" } }],
           },
           f.inventory,
         ),
@@ -143,6 +137,7 @@ for (const [name, adapter] of [
       await f.close();
     }
   });
+}
 test("Classic rejects nonruntime workspace addition", async () => {
   const f = await fixture();
   try {

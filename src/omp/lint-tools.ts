@@ -1,28 +1,18 @@
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import type { LintCoordinator } from "../lint/coordinator";
+import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type LintCoordinator } from "../lint/coordinator";
 import { pendingLintFix } from "../lint/fix";
-import type { PreparationReport } from "../lint/prepare";
-import {
-  checkLintTarget,
-  fixLintTarget,
-  inspectLintProject,
-  lintFailure,
-} from "../lint/service";
-import type { WithSessionRoot } from "./dependency-tools";
+import { type PreparationReport } from "../lint/prepare";
+import { checkLintTarget, fixLintTarget, inspectLintProject, lintFailure } from "../lint/service";
+import { type WithSessionRoot } from "./dependency-tools";
 
 function response<T extends object>(result: T) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
     details: result,
-    ...("success" in result && result.success === false
-      ? { isError: true }
-      : {}),
+    ...("success" in result && result.success === false ? { isError: true } : {}),
   };
 }
-async function waitForPreparation(
-  job: Promise<PreparationReport>,
-  signal: AbortSignal,
-): Promise<PreparationReport> {
+async function waitForPreparation(job: Promise<PreparationReport>, signal: AbortSignal): Promise<PreparationReport> {
   signal.throwIfAborted();
   let onAbort = () => {};
   const abort = new Promise<never>((_resolve, reject) => {
@@ -38,23 +28,15 @@ async function waitForPreparation(
 export function registerLintTools(
   pi: ExtensionAPI,
   withRoot: WithSessionRoot,
-  coordinatorFor: (
-    root: string,
-    ctx: ExtensionContext,
-  ) => Promise<LintCoordinator>,
+  coordinatorFor: (root: string, ctx: ExtensionContext) => Promise<LintCoordinator>,
 ): void {
   const parameters = pi.zod
     .object({
-      project_id: pi.zod
-        .string()
-        .min(1)
-        .describe("Stable project_id from list_projects."),
+      project_id: pi.zod.string().min(1).describe("Stable project_id from list_projects."),
       fix: pi.zod
         .boolean()
         .optional()
-        .describe(
-          "Apply supported lint fixes before checking; defaults to false. Formatting remains check-only.",
-        ),
+        .describe("Apply supported lint fixes before checking; defaults to false. Formatting remains check-only."),
     })
     .strict();
   pi.registerTool({
@@ -72,17 +54,15 @@ export function registerLintTools(
         requestedFix = fix;
         return await withRoot(ctx.cwd, signal, async (root, activeSignal) => {
           effectiveSignal = activeSignal;
-          const target = await inspectLintProject(
-            root,
-            project_id,
-            activeSignal,
-          );
+          const target = await inspectLintProject(root, project_id, activeSignal);
           const coordinator = await coordinatorFor(root, ctx);
           let observed: PreparationReport | undefined;
           // subscribe replays the last completed job; it is not evidence for this wait.
           let replay = true;
           const stopReport = coordinator.subscribe((report) => {
-            if (!replay) observed = report;
+            if (!replay) {
+              observed = report;
+            }
           });
           replay = false;
           const stopProgress = coordinator.subscribeProgress((progress) => {
@@ -100,19 +80,18 @@ export function registerLintTools(
                 },
               }),
             );
-            report = await waitForPreparation(
-              coordinator.reconcile(),
-              activeSignal,
-            );
-            if (waited) report = { ...report, action: "waited" };
+            report = await waitForPreparation(coordinator.reconcile(), activeSignal);
+            if (waited) {
+              report = { ...report, action: "waited" };
+            }
           } catch (error) {
-            if (!activeSignal.aborted) throw error;
+            if (!activeSignal.aborted) {
+              throw error;
+            }
             report = {
               ...(observed ?? {
                 tools: {},
-                affected_projects: target.structure.projects.map(
-                  (p) => p.project_id,
-                ),
+                affected_projects: target.structure.projects.map((p) => p.project_id),
                 changes: [],
                 projects: {},
                 errors: [],
@@ -134,17 +113,13 @@ export function registerLintTools(
             stopReport();
             stopProgress();
           }
-          return response(
-            await (fix ? fixLintTarget : checkLintTarget)(
-              target,
-              activeSignal,
-              report,
-            ),
-          );
+          return response(await (fix ? fixLintTarget : checkLintTarget)(target, activeSignal, report));
         });
       } catch (error) {
         const failure = lintFailure(error, effectiveSignal);
-        if (!requestedFix) return response(failure);
+        if (!requestedFix) {
+          return response(failure);
+        }
         const fix = pendingLintFix();
         fix.errors.push(failure.error);
         if (failure.cancelled) {

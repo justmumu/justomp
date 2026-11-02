@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,11 +14,11 @@ test("effect ledger detects drift and excludes ignored untracked outputs", async
     await writeFile(join(root, "ignored.txt"), "generated\n");
     await writeFile(join(root, "changed.txt"), "changed\n");
     const context = await gitContext(root);
-    if (!context) throw new Error("No Git context");
+    if (!context) {
+      throw new Error("No Git context");
+    }
     const ledger = new EffectLedger(context);
-    await expect(ledger.observe(["../outside.txt"])).rejects.toThrow(
-      "Invalid effect path",
-    );
+    await expect(ledger.observe(["../outside.txt"])).rejects.toThrow("Invalid effect path");
     await symlink(tmpdir(), join(root, "outside"));
     await expect(ledger.observe(["outside/escaped.txt"])).rejects.toThrow();
     expect(ledger.paths).toEqual([]);
@@ -48,17 +40,14 @@ test("git commit --only uses its temporary index in a linked worktree", async ()
     await gitText(root, ["init", "-q"]);
     await gitText(root, ["config", "user.name", "Test"]);
     await gitText(root, ["config", "user.email", "test@example.invalid"]);
-    for (const path of ["a.txt", "b.txt"])
+    for (const path of ["a.txt", "b.txt"]) {
       await writeFile(join(root, path), "initial\n");
+    }
     await gitText(root, ["add", "--", "a.txt", "b.txt"]);
     await gitText(root, ["commit", "-qm", "test: initial"]);
     await gitText(root, ["worktree", "add", "-qb", "feature", worktree]);
-    const module = fileURLToPath(
-      new URL("../../../src/precommit/staging.ts", import.meta.url),
-    );
-    const gitModule = fileURLToPath(
-      new URL("../../../src/precommit/git.ts", import.meta.url),
-    );
+    const module = fileURLToPath(new URL("../../../src/precommit/staging.ts", import.meta.url));
+    const gitModule = fileURLToPath(new URL("../../../src/precommit/git.ts", import.meta.url));
     const script = join(root, "hook.ts");
     await writeFile(
       script,
@@ -66,10 +55,7 @@ test("git commit --only uses its temporary index in a linked worktree", async ()
     );
     const hook = join(root, ".git/hooks/pre-commit");
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    await writeFile(
-      hook,
-      `#!/bin/sh\nexec ${quote(process.execPath)} --no-install ${quote(script)}\n`,
-    );
+    await writeFile(hook, `#!/bin/sh\nexec ${quote(process.execPath)} --no-install ${quote(script)}\n`);
     await chmod(hook, 0o755);
     await writeFile(join(worktree, "a.txt"), "unformatted\n");
     await writeFile(join(worktree, "b.txt"), "keep staged\n");
@@ -77,14 +63,7 @@ test("git commit --only uses its temporary index in a linked worktree", async ()
     await mkdir(join(worktree, "nested"));
     const context = await gitContext(join(worktree, "nested"));
     expect(context?.gitDirectory).toContain("worktrees");
-    await gitText(worktree, [
-      "commit",
-      "--only",
-      "-m",
-      "test: selected",
-      "--",
-      "a.txt",
-    ]);
+    await gitText(worktree, ["commit", "--only", "-m", "test: selected", "--", "a.txt"]);
     expect(await gitText(worktree, ["show", "HEAD:a.txt"])).toBe("formatted\n");
     expect(await gitText(worktree, ["show", "HEAD:b.txt"])).toBe("initial\n");
     expect(await gitText(worktree, ["show", ":b.txt"])).toBe("keep staged\n");

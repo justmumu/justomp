@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import type {
-  LintCheck,
-  LintFix,
-  LintPreparation,
-} from "../../../src/lint/model";
+import { type LintCheck, type LintFix, type LintPreparation } from "../../../src/lint/model";
 import { lintResult } from "../../../src/lint/result";
 
 const project = {
@@ -11,12 +7,7 @@ const project = {
   path: ".",
   ecosystem: "python" as const,
 };
-function result(
-  status: LintCheck["status"],
-  truncated = false,
-  fix?: LintFix,
-  failure?: string,
-) {
+function result(status: LintCheck["status"], truncated = false, fix?: LintFix, failure?: string) {
   const preparation: LintPreparation = {
     status: "ready",
     action: "already-ready",
@@ -39,13 +30,14 @@ function result(
     cancelled: false,
   }));
   const first = checks[0];
-  if (truncated && first)
+  if (truncated && first) {
     checks[0] = {
       ...first,
       status: "not-run",
       truncated: true,
       exit_code: 1,
     };
+  }
   return lintResult(
     project,
     {
@@ -75,9 +67,7 @@ test("truncated lint leaves formatting evidence and an incomplete public result"
     incomplete_stages: ["lint"],
   });
   expect(value.checks[1]).toMatchObject({ status: "passed", exit_code: 0 });
-  expect(
-    value.remediation.some((message) => message.includes("truncated")),
-  ).toBe(true);
+  expect(value.remediation.some((message) => message.includes("truncated"))).toBe(true);
 });
 
 function fix(overrides: Partial<LintFix> = {}): LintFix {
@@ -102,19 +92,12 @@ test("completed fixes report edits and remaining violations without calling them
   expect(result("passed")).not.toHaveProperty("fix");
 });
 test("unsupported Go fixes and empty scope keep ordinary check semantics", () => {
+  expect(result("passed", false, fix({ supported: false, status: "unsupported", changed_files: [] }))).toMatchObject({
+    complete: true,
+    success: true,
+  });
   expect(
-    result(
-      "passed",
-      false,
-      fix({ supported: false, status: "unsupported", changed_files: [] }),
-    ),
-  ).toMatchObject({ complete: true, success: true });
-  expect(
-    result(
-      "no-sources",
-      false,
-      fix({ status: "not-run", reason: "no-sources", changed_files: [] }),
-    ),
+    result("no-sources", false, fix({ status: "not-run", reason: "no-sources", changed_files: [] })),
   ).toMatchObject({ complete: true, success: false });
 });
 test("native fix failures retain partial writes even if supplied checks passed", () => {
@@ -133,12 +116,15 @@ test("native fix failures retain partial writes even if supplied checks passed",
     partial_change: true,
     incomplete_stages: ["fix"],
   });
-  expect(
-    result("passed", false, fix({ status: "cancelled", cancelled: true })),
-  ).toMatchObject({ complete: false, cancelled: true, partial_change: true });
-  expect(
-    result("passed", false, fix({ status: "failed", truncated: true })),
-  ).toMatchObject({ complete: false, truncated: true });
+  expect(result("passed", false, fix({ status: "cancelled", cancelled: true }))).toMatchObject({
+    complete: false,
+    cancelled: true,
+    partial_change: true,
+  });
+  expect(result("passed", false, fix({ status: "failed", truncated: true }))).toMatchObject({
+    complete: false,
+    truncated: true,
+  });
 });
 test("incomplete observation and final verification preserve known source effects", () => {
   const observed = result(

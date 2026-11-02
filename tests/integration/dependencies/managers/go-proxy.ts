@@ -4,9 +4,7 @@ import { join } from "node:path";
 export async function createGoProxy(directory: string) {
   const modules = ["example.test/lib", "example.test/transitive"];
   for (const module of modules) {
-    const versions = module.endsWith("lib")
-      ? ["v1.0.0", "v1.1.0", "v1.2.0"]
-      : ["v1.0.0"];
+    const versions = module.endsWith("lib") ? ["v1.0.0", "v1.1.0", "v1.2.0"] : ["v1.0.0"];
     const folder = join(directory, module, "@v");
     await mkdir(folder, { recursive: true });
     await writeFile(join(folder, "list"), versions.join("\n"));
@@ -33,8 +31,9 @@ export async function createGoProxy(directory: string) {
         ],
         { encoding: "utf8" },
       );
-      if (zip.status !== 0)
+      if (zip.status !== 0) {
         throw new Error(`fixture zip failed: ${zip.stderr}`);
+      }
     }
     await writeFile(
       join(folder, "feature.info"),

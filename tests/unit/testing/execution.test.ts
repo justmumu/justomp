@@ -5,9 +5,7 @@ test("one monotonic deadline covers every native phase and distinguishes caller 
   let now = 1000,
     fire = () => {};
   const times = spyOn(performance, "now").mockImplementation(() => now);
-  const timers = spyOn(globalThis, "setTimeout").mockImplementation(((
-    fn: () => void,
-  ) => {
+  const timers = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
     fire = fn;
     return 1;
   }) as typeof setTimeout);

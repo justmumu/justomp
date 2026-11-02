@@ -1,17 +1,13 @@
 import { posix } from "node:path";
 import { INSPECTION_DEFAULTS } from "../../../src/config/inspection/defaults";
-import type { InspectionRules } from "../../../src/config/inspection/model";
+import { type InspectionRules } from "../../../src/config/inspection/model";
 import { assembleInspection } from "../../../src/inspect/assemble";
+import { createMatcher, LOCK_MANAGERS, MANIFEST_NAMES } from "../../../src/inspect/exclusions";
 import {
-  createMatcher,
-  LOCK_MANAGERS,
-  MANIFEST_NAMES,
-} from "../../../src/inspect/exclusions";
-import type {
-  GoReplace,
-  PackagingStructure,
-  ParsedProject,
-  WorkspaceDeclaration,
+  type GoReplace,
+  type PackagingStructure,
+  type ParsedProject,
+  type WorkspaceDeclaration,
 } from "../../../src/inspect/model";
 import { readManifest } from "../../../src/inspect/readers/manifest";
 
@@ -53,29 +49,36 @@ export function inspectDocuments({
   const matcher = createMatcher(rules);
   for (const [path, text] of Object.entries(files)) {
     const pieces = path.split("/");
-    const excluded = pieces
-      .map((_, i) => pieces.slice(0, i + 1).join("/"))
-      .find((p) => matcher.excludes(p));
+    const excluded = pieces.map((_, i) => pieces.slice(0, i + 1).join("/")).find((p) => matcher.excludes(p));
     if (excluded) {
-      if (!report.excluded.some((e) => e.path === excluded))
+      if (!report.excluded.some((e) => e.path === excluded)) {
         report.excluded.push({ path: excluded, reason: "rule" });
+      }
       continue;
     }
-    if (!matcher.includes(path)) continue;
+    if (!matcher.includes(path)) {
+      continue;
+    }
     const name = posix.basename(path),
       directory = posix.dirname(path);
     const manager = LOCK_MANAGERS[name];
-    if (manager)
-      locks.set(directory, [
-        ...(locks.get(directory) ?? []),
-        { file: path, manager },
-      ]);
-    if (!MANIFEST_NAMES.has(name)) continue;
+    if (manager) {
+      locks.set(directory, [...(locks.get(directory) ?? []), { file: path, manager }]);
+    }
+    if (!MANIFEST_NAMES.has(name)) {
+      continue;
+    }
     const value = readManifest(path, text);
     report.diagnostics.push(...value.diagnostics);
-    if (value.project) parsed.push(value.project);
-    if (value.workspace) declarations.push(value.workspace);
-    if (value.replaces) workReplaces.set(path, value.replaces);
+    if (value.project) {
+      parsed.push(value.project);
+    }
+    if (value.workspace) {
+      declarations.push(value.workspace);
+    }
+    if (value.replaces) {
+      workReplaces.set(path, value.replaces);
+    }
   }
   assembleInspection({
     report,

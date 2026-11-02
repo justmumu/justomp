@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  evaluateCost,
-  readGateReports,
-  readTestReport,
-} from "../../scripts/test-cost-report";
+import { evaluateCost, readGateReports, readTestReport } from "../../scripts/test-cost-report";
 
 const xml =
   '<testsuites tests="1" failures="0" skipped="0"><testsuite><testcase file="tests/integration/example.native.test.ts" name="native boundary" classname="" time="1.2" /></testsuite></testsuites>';
@@ -25,8 +21,9 @@ test("missing, truncated or incomplete reports cannot prove a faster complete ru
     xml.replace("</testsuites>", ""),
     xml.replace('tests="1"', 'tests="2"'),
     xml.replace('time="1.2"', 'time="NaN"'),
-  ])
+  ]) {
     expect(() => readTestReport(bad)).toThrow();
+  }
 });
 test("cost acceptance requires successful gates, no skips and both requested targets", () => {
   const counts = { tests: 1, failures: 0, errors: 0, skipped: 0 };
@@ -42,8 +39,9 @@ test("cost acceptance requires successful gates, no skips and both requested tar
     { ...counts, failures: 1 },
     { ...counts, errors: 1 },
     { ...counts, tests: 0 },
-  ])
+  ]) {
     expect(evaluateCost(1, modified, [0, 0], 1000).complete).toBe(false);
+  }
   expect(evaluateCost(1, counts, [0, 1], 1000).complete).toBe(false);
   expect(evaluateCost(1, counts, [0], 1000).complete).toBe(false);
   expect(evaluateCost(1, counts, [0, 0]).reduction).toBeNull();

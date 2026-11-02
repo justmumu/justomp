@@ -1,4 +1,4 @@
-import type { TestRunContext } from "../../../src/testing/adapters";
+import { type TestRunContext } from "../../../src/testing/adapters";
 export function context(mode: "full" | "targeted" = "full"): TestRunContext {
   return {
     tools: {},

@@ -16,6 +16,10 @@ These are three separate `project_lint` calls. The tool requires `project_id` an
 
 OMP registers the tool at the `exec` approval tier. Its JSON result appears in model-readable `content` and in `details`. Denying the tool prevents its body from running. It does not prevent the separately enabled session-start lifecycle from preparing tools.
 
+`lint.javascript.exclude` accepts an array of project-relative glob patterns, including dot paths, and defaults to `[]`. For example, `[".private/**"]` omits unimported private archives from selected JS/TS source entries. Explicit arrays replace the default; `[]` restores the ordinary owned-source scope. Changing exclusions requires preparation and invalidates the corresponding readiness evidence.
+
+Lint and typecheck exclusions are independent. They do not change test selection or coverage ownership, and cannot include dependency directories, generated state, symlinks or child projects excluded by ordinary ownership rules. They are source-entry filters, not filesystem or import-security boundaries: TypeScript may still analyze an excluded file imported by selected code. Diagnostics are not hidden after checking.
+
 ## Applying lint fixes
 
 ```json
@@ -144,11 +148,11 @@ For example, this partial input keeps Python's ignore list empty and receives th
 
 The [inspection and lint default example](lint-defaults.json) records those sections of the root config. [Typecheck defaults](typecheck-defaults.json) occupy the same file’s `typecheck` section. A test compares this example with the code defaults. It includes the strict Ruff rule families, Google docstring convention, import rules and visible test/script exceptions. JS/TS defaults use explicit Biome base/typed rules, import organization, cognitive complexity 10, conditional React hooks/accessibility and Next rules, plus separate Prettier formatting. Go enables `govet`, `staticcheck`, `unused`, `errcheck`, `errorlint`, `gosec`, `bodyclose`, `contextcheck`, `exhaustive`, `revive`, `gocritic` and `cyclop`, with gofumpt/goimports formatting. Defaults use error severity; an explicit user warning retains the native tool's warning semantics.
 
-| Project | Managed native configuration |
-| --- | --- |
-| Python | Ruff tables in `pyproject.toml`; unrelated TOML fields, comments and formatting are preserved |
-| JS/TS | `biome.justomp.jsonc` and `prettier.justomp.json` in the project directory |
-| Go | `golangci.justomp.yml` in the module directory |
+| Project | Managed native configuration                                                                  |
+| ------- | --------------------------------------------------------------------------------------------- |
+| Python  | Ruff tables in `pyproject.toml`; unrelated TOML fields, comments and formatting are preserved |
+| JS/TS   | `biome.justomp.jsonc` and `prettier.justomp.json` in the project directory                    |
+| Go      | `golangci.justomp.yml` in the module directory                                                |
 
 Python source-layout and target-version metadata may remain local. Other existing Ruff options, such as `exclude`, `include`, `extend` or `preview`, must be represented in the shared `lint.python.ruff` policy. If a local option is absent there, preparation reports a conflict without erasing it: move the option to the root policy or remove it from the project. Explicit root values, including `exclude: []`, are projected normally. This also applies when removing an extra option from the root policy leaves its previous native value behind.
 
@@ -202,12 +206,12 @@ The [pre-commit](precommit.md) and [pre-push](prepush.md) hooks call the same sh
 
 The fixed native test matrix uses these tool sets:
 
-| Ecosystem | Exact tools |
-| --- | --- |
-| Python | uv 0.11.6; Ruff 0.17.2 and 0.17.3 |
-| JS/TS | Biome 2.6.3; application TypeScript 7.0.2; bundled Prettier 3.9.10 |
+| Ecosystem           | Exact tools                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| Python              | uv 0.11.6; Ruff 0.17.2 and 0.17.3                                                        |
+| JS/TS               | Biome 2.6.3; application TypeScript 7.0.2; bundled Prettier 3.9.10                       |
 | JS managers/runtime | npm 11.12.1; pnpm 10.20.0; Yarn Classic 1.22.22; Yarn PnP 4.12.0; Bun 1.4.2; Node 26.0.0 |
-| Go | Go 1.25.6; golangci-lint 2.15.0 |
+| Go                  | Go 1.25.6; golangci-lint 2.15.0                                                          |
 
 Managed Biome 2.6.3 was verified on macOS arm64 and Linux arm64 through npm, Yarn PnP and custom pnpm layouts. The npm workspace witness uses TypeScript 7.0.2; the Yarn 4.12 PnP witness uses JavaScript because that Yarn release's built-in TypeScript 7 patch fails independently of linting. Process cancellation and bounded output were also exercised on Linux in a disposable container with an init process. The Go installer accepts darwin/linux on x64/arm64; x64 remains unverified. Windows Go installation is explicitly unsupported. Other Windows runner/manager combinations remain unverified. Accepted manager families and provisioning are listed in [dependency test setup](dependencies.md#reproducing-native-tests).
 
@@ -222,13 +226,13 @@ bun run test:integration
 
 The mixed-repository fixture combines root Python, `apps/web` TypeScript and `services/api` Go. It checks independent source scope, unchanged file hashes, registry-free repeated checks, new-Python partial failure/retry, shared policy repair and unrelated ecosystem failure. It is a behavior test, not a lint performance benchmark. Inspection-only measurements in [inspection documentation](inspection.md#measured-local-results) do not measure native lint or typed analysis costs.
 
-| Acceptance behavior | Test evidence |
-| --- | --- |
-| AE1: field defaults and empty replacements | `tests/unit/config/lint.test.ts`, `tests/integration/config.test.ts` |
-| AE2: new Python wave, empty folder ignored | `tests/integration/omp/lint.test.ts`, `tests/integration/lint/mixed-repository.test.ts` |
-| AE3: partial native effects and same-target retry | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/mixed-repository.test.ts` |
+| Acceptance behavior                                          | Test evidence                                                                                                   |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| AE1: field defaults and empty replacements                   | `tests/unit/config/lint.test.ts`, `tests/integration/config.test.ts`                                            |
+| AE2: new Python wave, empty folder ignored                   | `tests/integration/omp/lint.test.ts`, `tests/integration/lint/mixed-repository.test.ts`                         |
+| AE3: partial native effects and same-target retry            | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/mixed-repository.test.ts`               |
 | Selected scope, Biome diagnostics and native package layouts | `tests/integration/lint/javascript.native.test.ts`, `tests/integration/lint/javascript-outcomes.native.test.ts` |
-| AE5: format-only failure without source writes | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/go.test.ts` |
-| Application TypeScript remains unchanged by lint preparation | `tests/integration/lint/javascript.native.test.ts`, `tests/unit/checks/javascript-preparation.test.ts` |
-| AE7: shared resource ordering and process cancellation | `tests/integration/lint/concurrency.test.ts`, `tests/integration/omp/lint.test.ts` |
-| AE8: independent readonly API/CLI | `tests/integration/lint/cli.test.ts`, `tests/integration/omp/installed-smoke.native.test.ts` |
+| AE5: format-only failure without source writes               | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/go.test.ts`                             |
+| Application TypeScript remains unchanged by lint preparation | `tests/integration/lint/javascript.native.test.ts`, `tests/unit/checks/javascript-preparation.test.ts`          |
+| AE7: shared resource ordering and process cancellation       | `tests/integration/lint/concurrency.test.ts`, `tests/integration/omp/lint.test.ts`                              |
+| AE8: independent readonly API/CLI                            | `tests/integration/lint/cli.test.ts`, `tests/integration/omp/installed-smoke.native.test.ts`                    |

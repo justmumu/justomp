@@ -5,11 +5,7 @@ import { pnpmAdapter } from "../../../../src/dependencies/adapters/pnpm";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
 import { yarnClassicAdapter } from "../../../../src/dependencies/adapters/yarn-classic";
 import { yarnModernAdapter } from "../../../../src/dependencies/adapters/yarn-modern";
-import type {
-  Adapter,
-  Group,
-  Inventory,
-} from "../../../../src/dependencies/model";
+import { type Adapter, type Group, type Inventory } from "../../../../src/dependencies/model";
 import { memoryContext } from "../memory";
 import { uvFixture } from "./uv-fixture";
 
@@ -21,9 +17,11 @@ const managers: [string, Adapter, string, string][] = [
   ["bun", bunAdapter, "bun", "1.4.2"],
 ];
 const groups = ["runtime", "dev", "optional", "peer"] as const;
-for (const [name, adapter, manager, version] of managers)
+for (const [name, adapter, manager, version] of managers) {
   for (const kind of groups) {
-    if (name === "pnpm" && kind === "peer") continue; // Unsupported peer operation has its own rejection test.
+    if (name === "pnpm" && kind === "peer") {
+      continue;
+    } // Unsupported peer operation has its own rejection test.
     test(`${name} translates ${kind} add/remove and preserves untargeted declarations`, async () => {
       const f = memoryContext({ manager, managerCandidates: [manager] });
       f.context.version = version;
@@ -87,15 +85,20 @@ for (const [name, adapter, manager, version] of managers)
           peer: "peerDependencies",
         }[kind];
         let removal: string[][];
-        if (name === "npm")
+        if (name === "npm") {
           removal = [["pkg", "delete", `${field}[pkg]`], ["install"]];
-        else if (name === "bun")
+        } else if (name === "bun") {
           removal = [["pm", "pkg", "delete", `${field}.pkg`], ["install"]];
-        else if (name === "pnpm") removal = [["remove", "pkg", ...flags]];
-        else removal = [["remove", "pkg"]];
+        } else if (name === "pnpm") {
+          removal = [["remove", "pkg", ...flags]];
+        } else {
+          removal = [["remove", "pkg"]];
+        }
         expect(remove.steps.map((step) => step.args)).toEqual(removal);
         const selected = after.dependencies[0];
-        if (!selected) throw new Error("missing supplied dependency");
+        if (!selected) {
+          throw new Error("missing supplied dependency");
+        }
         const sibling = {
           ...selected,
           name: "unrelated",
@@ -107,21 +110,20 @@ for (const [name, adapter, manager, version] of managers)
           dependencies: [...after.dependencies, sibling],
         });
         await expect(
-          Promise.resolve().then(() =>
-            adapter.verify?.(f.context, request, before, after),
-          ),
+          Promise.resolve().then(() => adapter.verify?.(f.context, request, before, after)),
         ).rejects.toMatchObject({ code: "postcondition-failed" });
       } finally {
         f.close();
       }
     });
   }
+}
 for (const [group, flags] of [
   [{ kind: "runtime" }, []],
   [{ kind: "dev" }, ["--dev"]],
   [{ kind: "named", name: "test" }, ["--group", "test"]],
   [{ kind: "extra", name: "speed" }, ["--optional", "speed"]],
-] as [Group, string[]][])
+] as [Group, string[]][]) {
   test(`uv translates ${JSON.stringify(group)} without installing an environment`, async () => {
     const f = await uvFixture("");
     const before = await uvAdapter.inventory(f.context, false);
@@ -171,3 +173,4 @@ for (const [group, flags] of [
       f.close();
     }
   });
+}

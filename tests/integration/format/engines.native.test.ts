@@ -10,26 +10,11 @@ test("bundled Prettier/TOML loads in a target without Node dependencies and igno
   const root = await mkdtemp(join(tmpdir(), "justomp-format-api-"));
   try {
     await measureFixture("format.prettier.prepare", async () => {
-      await writeFile(
-        join(root, "pyproject.toml"),
-        '[project]\nname="sample"\n',
-      );
-      await writeFile(
-        join(root, ".prettierrc"),
-        '{"singleQuote":false,"semi":false}',
-      );
-      await writeFile(
-        join(root, ".editorconfig"),
-        "root=true\n[*]\nindent_size=8\n",
-      );
-      await writeFile(
-        join(root, "taplo.toml"),
-        "[formatting]\nreorder_keys=false\ncolumn_width=1\n",
-      );
-      await writeFile(
-        join(root, "tombi.toml"),
-        "[format.rules]\nline-width=1\n",
-      );
+      await writeFile(join(root, "pyproject.toml"), '[project]\nname="sample"\n');
+      await writeFile(join(root, ".prettierrc"), '{"singleQuote":false,"semi":false}');
+      await writeFile(join(root, ".editorconfig"), "root=true\n[*]\nindent_size=8\n");
+      await writeFile(join(root, "taplo.toml"), "[formatting]\nreorder_keys=false\ncolumn_width=1\n");
+      await writeFile(join(root, "tombi.toml"), "[format.rules]\nline-width=1\n");
     });
     const policy = resolveFormatConfig({
       prettier: {
@@ -69,8 +54,6 @@ test("bundled Prettier/TOML loads in a target without Node dependencies and igno
       "tombi.toml",
     ]);
   } finally {
-    await measureFixture("format.prettier.cleanup", () =>
-      rm(root, { recursive: true, force: true }),
-    );
+    await measureFixture("format.prettier.cleanup", () => rm(root, { recursive: true, force: true }));
   }
 });

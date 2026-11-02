@@ -19,7 +19,7 @@ test("npm rejects add that would move another group's declaration", async () => 
 });
 test("npm ambiguous update and missing direct targets fail before native work", async () => {
   const ctx = context("npm");
-  for (const before of [inventory("runtime", "dev"), inventory()])
+  for (const before of [inventory("runtime", "dev"), inventory()]) {
     await expect(
       npmAdapter.plan(
         ctx,
@@ -31,6 +31,7 @@ test("npm ambiguous update and missing direct targets fail before native work", 
         before,
       ),
     ).rejects.toThrow();
+  }
 });
 test("npm group removal covers shared metadata and reports all lock owners", async () => {
   const ctx = context("npm"),
@@ -44,13 +45,7 @@ test("npm group removal covers shared metadata and reports all lock owners", asy
       },
       inventory("runtime", "dev"),
     );
-  expect(plan.steps[0]?.args).toEqual([
-    "pkg",
-    "delete",
-    "devDependencies[fixture-dep]",
-    "--workspace",
-    "packages/a",
-  ]);
+  expect(plan.steps[0]?.args).toEqual(["pkg", "delete", "devDependencies[fixture-dep]", "--workspace", "packages/a"]);
   expect(plan.steps[1]?.args).toEqual(["install", "--workspace", "packages/a"]);
   expect(plan.metadata).toEqual(
     expect.arrayContaining([
@@ -61,15 +56,14 @@ test("npm group removal covers shared metadata and reports all lock owners", asy
       ".npmrc",
     ]),
   );
-  expect(plan.affectedProjects).toEqual([
-    "javascript:packages/a/package.json",
-    "javascript:packages/b/package.json",
-  ]);
+  expect(plan.affectedProjects).toEqual(["javascript:packages/a/package.json", "javascript:packages/b/package.json"]);
 });
 test("npm rejects exact replacement of a Git selector before native work", async () => {
   const ctx = context("npm"),
     before = inventory("runtime");
-  if (!before.dependencies[0]) throw new Error("Missing fixture dependency");
+  if (!before.dependencies[0]) {
+    throw new Error("Missing fixture dependency");
+  }
   before.dependencies[0].source = { kind: "git" };
   await expect(
     npmAdapter.plan(
@@ -87,11 +81,15 @@ test("npm postcondition detects an unintended other-group declaration change", a
   const ctx = context("npm"),
     before = inventory("runtime", "dev"),
     after = inventory("runtime");
-  if (!after.dependencies[0]) throw new Error("Missing fixture dependency");
+  if (!after.dependencies[0]) {
+    throw new Error("Missing fixture dependency");
+  }
   after.dependencies[0].declared_specifier = "^2.0.0";
   await expect(
     Promise.resolve().then(() => {
-      if (!npmAdapter.verify) throw new Error("missing postcondition");
+      if (!npmAdapter.verify) {
+        throw new Error("missing postcondition");
+      }
       return npmAdapter.verify(
         ctx,
         {

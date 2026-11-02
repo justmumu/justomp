@@ -1,39 +1,24 @@
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import {
-  type TypecheckCoordinator,
-  waitForTypecheckPreparation,
-} from "../typecheck/coordinator";
-import type { PreparationReport } from "../typecheck/prepare";
-import {
-  checkTypecheckTarget,
-  inspectTypecheckProject,
-  typecheckFailure,
-} from "../typecheck/service";
-import type { WithSessionRoot } from "./dependency-tools";
+import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type TypecheckCoordinator, waitForTypecheckPreparation } from "../typecheck/coordinator";
+import { type PreparationReport } from "../typecheck/prepare";
+import { checkTypecheckTarget, inspectTypecheckProject, typecheckFailure } from "../typecheck/service";
+import { type WithSessionRoot } from "./dependency-tools";
 
 function response<T extends object>(result: T) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(result) }],
     details: result,
-    ...("success" in result && result.success === false
-      ? { isError: true }
-      : {}),
+    ...("success" in result && result.success === false ? { isError: true } : {}),
   };
 }
 export function registerTypecheckTools(
   pi: ExtensionAPI,
   withRoot: WithSessionRoot,
-  coordinatorFor: (
-    root: string,
-    ctx: ExtensionContext,
-  ) => Promise<TypecheckCoordinator>,
+  coordinatorFor: (root: string, ctx: ExtensionContext) => Promise<TypecheckCoordinator>,
 ): void {
   const parameters = pi.zod
     .object({
-      project_id: pi.zod
-        .string()
-        .min(1)
-        .describe("Stable project_id from list_projects."),
+      project_id: pi.zod.string().min(1).describe("Stable project_id from list_projects."),
     })
     .strict();
   pi.registerTool({
@@ -47,17 +32,15 @@ export function registerTypecheckTools(
       try {
         const { project_id } = parameters.parse(input);
         return await withRoot(ctx.cwd, signal, async (root, activeSignal) => {
-          const target = await inspectTypecheckProject(
-            root,
-            project_id,
-            activeSignal,
-          );
+          const target = await inspectTypecheckProject(root, project_id, activeSignal);
           const coordinator = await coordinatorFor(root, ctx);
           let observed: PreparationReport | undefined;
           // subscribe replays the last completed job; it is not evidence for this wait.
           let replay = true;
           const stopReport = coordinator.subscribe((report) => {
-            if (!replay) observed = report;
+            if (!replay) {
+              observed = report;
+            }
           });
           replay = false;
           const stopProgress = coordinator.subscribeProgress((progress) => {
@@ -75,19 +58,18 @@ export function registerTypecheckTools(
                 },
               }),
             );
-            report = await waitForTypecheckPreparation(
-              coordinator,
-              activeSignal,
-            );
-            if (waited) report = { ...report, action: "waited" };
+            report = await waitForTypecheckPreparation(coordinator, activeSignal);
+            if (waited) {
+              report = { ...report, action: "waited" };
+            }
           } catch (error) {
-            if (!activeSignal.aborted) throw error;
+            if (!activeSignal.aborted) {
+              throw error;
+            }
             report = {
               ...(observed ?? {
                 tools: {},
-                affected_projects: target.structure.projects.map(
-                  (p) => p.project_id,
-                ),
+                affected_projects: target.structure.projects.map((p) => p.project_id),
                 changes: [],
                 diagnostics: [],
                 projects: {},
@@ -110,9 +92,7 @@ export function registerTypecheckTools(
             stopReport();
             stopProgress();
           }
-          return response(
-            await checkTypecheckTarget(target, activeSignal, report, "prepare"),
-          );
+          return response(await checkTypecheckTarget(target, activeSignal, report, "prepare"));
         });
       } catch (error) {
         return response(typecheckFailure(error, signal));

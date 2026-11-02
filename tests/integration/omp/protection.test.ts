@@ -1,32 +1,20 @@
 import { expect, test } from "bun:test";
-import {
-  access,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool } from "@oh-my-pi/pi-agent-core";
-import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type AgentTool } from "@oh-my-pi/pi-agent-core";
+import { type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { formatModelString } from "@oh-my-pi/pi-coding-agent/config/model-resolver";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
 import { EditTool } from "@oh-my-pi/pi-coding-agent/edit";
-import {
-  cfgEditMode,
-  cfgEditModelVariants,
-} from "@oh-my-pi/pi-coding-agent/edit/settings";
+import { cfgEditMode, cfgEditModelVariants } from "@oh-my-pi/pi-coding-agent/edit/settings";
 import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import { registerProtection } from "../../../src/omp/protection";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { createHost } from "./host";
 
 test("real OMP delegation gates every patch target, allows source writes and trusted custom updates", async () => {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-protection-omp-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-protection-omp-")));
   const settings = Settings.isolated({
     "tools.approvalMode": "yolo",
     "edit.mode": "apply_patch",
@@ -44,10 +32,7 @@ test("real OMP delegation gates every patch target, allows source writes and tru
   const nativeWrite = new WriteTool(session);
   const nativePatch = new EditTool(session, "apply_patch");
   const nativeEdit = new EditTool(session);
-  await writeFile(
-    join(root, "package.json"),
-    '{"name":"proof","packageManager":"bun@1.4.2"}',
-  );
+  await writeFile(join(root, "package.json"), '{"name":"proof","packageManager":"bun@1.4.2"}');
   const h = await createHost(
     root,
     undefined,
@@ -118,7 +103,9 @@ test("real OMP delegation gates every patch target, allows source writes and tru
     },
   );
   const runnerSettings = h.runner.sessionSettings;
-  if (!runnerSettings) throw new Error("Fixture needs session settings");
+  if (!runnerSettings) {
+    throw new Error("Fixture needs session settings");
+  }
   runnerSettings.writeValue(cfgEditMode, "apply_patch", "override");
   const createContext = h.runner.createContext.bind(h.runner);
   h.runner.createContext = (...args) => {
@@ -139,20 +126,15 @@ test("real OMP delegation gates every patch target, allows source writes and tru
           : undefined,
   );
   const call = (name: string, params: Record<string, unknown>) =>
-    h.runner.runScoped(() =>
-      h.getTool(name).execute(crypto.randomUUID(), params),
-    );
+    h.runner.runScoped(() => h.getTool(name).execute(crypto.randomUUID(), params));
   try {
     await h.runner.emit({ type: "session_start" });
     await call("write", { path: "source.txt", content: "source" });
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe("source");
-    await expect(
-      call("write", { path: "package.json", content: "wrong" }),
-    ).rejects.toThrow("protected");
+    await expect(call("write", { path: "package.json", content: "wrong" })).rejects.toThrow("protected");
     await expect(
       call("apply_patch", {
-        input:
-          "*** Begin Patch\n*** Add File: untouched.txt\n+new\n*** Delete File: package.json\n*** End Patch",
+        input: "*** Begin Patch\n*** Add File: untouched.txt\n+new\n*** Delete File: package.json\n*** End Patch",
       }),
     ).rejects.toThrow("protected");
     await expect(access(join(root, "untouched.txt"))).rejects.toThrow();
@@ -167,19 +149,9 @@ test("real OMP delegation gates every patch target, allows source writes and tru
       new_string: "updated",
     });
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe("updated");
-    settings.writeValue(
-      cfgEditModelVariants,
-      { "openai/gpt": "apply_patch" },
-      "override",
-    );
-    runnerSettings.writeValue(
-      cfgEditModelVariants,
-      { "openai/gpt": "apply_patch" },
-      "override",
-    );
-    model = { provider: "openai", id: "gpt-5" } as NonNullable<
-      ExtensionContext["model"]
-    >;
+    settings.writeValue(cfgEditModelVariants, { "openai/gpt": "apply_patch" }, "override");
+    runnerSettings.writeValue(cfgEditModelVariants, { "openai/gpt": "apply_patch" }, "override");
+    model = { provider: "openai", id: "gpt-5" } as NonNullable<ExtensionContext["model"]>;
     expect(edit.parameters).toBe(nativeEdit.parameters);
     await expect(
       call("edit", {
@@ -191,22 +163,16 @@ test("real OMP delegation gates every patch target, allows source writes and tru
     ).rejects.toThrow("protected");
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe("updated");
     await call("trusted_update", {});
-    expect(await readFile(join(root, "package.json"), "utf8")).toBe(
-      '{"name":"custom"}',
-    );
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe('{"name":"custom"}');
     const denied = await call("bash", {
       command: "printf wrong > package.json",
     });
     expect(denied.isError).toBe(true);
-    expect(await readFile(join(root, "package.json"), "utf8")).toBe(
-      '{"name":"custom"}',
-    );
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe('{"name":"custom"}');
     const ok = await call("bash", { command: "printf source2 > second.txt" });
     expect(ok.isError).not.toBe(true);
     expect(await readFile(join(root, "second.txt"), "utf8")).toBe("source2");
-    await expect(
-      call("bash", { command: "true", async: true }),
-    ).rejects.toThrow("foreground");
+    await expect(call("bash", { command: "true", async: true })).rejects.toThrow("foreground");
   } finally {
     await h.close();
     await closePackagingStructure(root);

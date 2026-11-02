@@ -1,12 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,12 +17,7 @@ test("cancelled Git push terminates a running hook descendant", async () => {
     await gitText(repo, ["init", "-q", "-b", "main"]);
     await gitText(repo, ["config", "user.name", "Test"]);
     await gitText(repo, ["config", "user.email", "test@example.invalid"]);
-    await gitText(repo, [
-      "commit",
-      "--allow-empty",
-      "-m",
-      "test: cancellation",
-    ]);
+    await gitText(repo, ["commit", "--allow-empty", "-m", "test: cancellation"]);
     await gitText(root, ["init", "--bare", "-q", remote]);
     await gitText(repo, ["remote", "add", "origin", remote]);
     const cli = join(root, "cli.ts");
@@ -37,23 +25,20 @@ test("cancelled Git push terminates a running hook descendant", async () => {
       cli,
       'const child = Bun.spawn(["sleep","30"]); await Bun.write("child-pid",String(child.pid)); await child.exited;',
     );
-    expect(
-      (await installPrepush(repo, undefined, { cli, bun: process.execPath }))
-        .status,
-    ).toBe("installed");
+    expect((await installPrepush(repo, undefined, { cli, bun: process.execPath })).status).toBe("installed");
     running = git(repo, ["push", "origin", "main"], controller.signal);
     const marker = join(repo, "child-pid"),
       deadline = Date.now() + 10000;
     while (!(await Bun.file(marker).exists())) {
-      if (Date.now() > deadline) throw new Error("Hook child did not start");
+      if (Date.now() > deadline) {
+        throw new Error("Hook child did not start");
+      }
       await Bun.sleep(10);
     }
     const pid = Number(await readFile(marker, "utf8"));
     controller.abort();
     expect((await running).cancelled).toBe(true);
-    expect(
-      (await git(remote, ["rev-parse", "--verify", "main"])).exit_code,
-    ).not.toBe(0);
+    expect((await git(remote, ["rev-parse", "--verify", "main"])).exit_code).not.toBe(0);
     const reaped = Date.now() + 2000;
     for (;;) {
       try {
@@ -61,8 +46,9 @@ test("cancelled Git push terminates a running hook descendant", async () => {
       } catch {
         break;
       }
-      if (Date.now() > reaped)
+      if (Date.now() > reaped) {
         throw new Error("Push hook child survived cancellation");
+      }
       await Bun.sleep(10);
     }
   } finally {
@@ -82,10 +68,7 @@ test("real CLI forwards SIGTERM to detached native command and reports incomplet
       join(root, "pyproject.toml"),
       '[project]\nname = "cancel-fixture"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n',
     );
-    await writeFile(
-      join(root, "uv.lock"),
-      'version = 1\nrequires-python = ">=3.11"\n',
-    );
+    await writeFile(join(root, "uv.lock"), 'version = 1\nrequires-python = ">=3.11"\n');
     const bin = join(root, ".bin");
     await mkdir(bin);
     const uv = join(bin, "uv");
@@ -94,9 +77,7 @@ test("real CLI forwards SIGTERM to detached native command and reports incomplet
       '#!/bin/sh\nif [ "$1" = "--version" ]; then echo "uv 0.11.6"; exit 0; fi\nprintf "%s" "$$" > blocked-native\nexec sleep 30\n',
     );
     await chmod(uv, 0o755);
-    const cli = fileURLToPath(
-      new URL("../../../src/prepush/cli.ts", import.meta.url),
-    );
+    const cli = fileURLToPath(new URL("../../../src/prepush/cli.ts", import.meta.url));
     const spawned = Bun.spawn([process.execPath, cli], {
       cwd: root,
       env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
@@ -109,10 +90,9 @@ test("real CLI forwards SIGTERM to detached native command and reports incomplet
     const marker = join(root, "blocked-native"),
       deadline = Date.now() + 10000;
     while (!(await Bun.file(marker).exists())) {
-      if (Date.now() > deadline || child.exitCode !== null)
-        throw new Error(
-          `Native command did not start (exit ${child.exitCode})`,
-        );
+      if (Date.now() > deadline || child.exitCode !== null) {
+        throw new Error(`Native command did not start (exit ${child.exitCode})`);
+      }
       await Bun.sleep(10);
     }
     nativePid = Number(await readFile(marker, "utf8"));
@@ -128,7 +108,9 @@ test("real CLI forwards SIGTERM to detached native command and reports incomplet
     expect(() => process.kill(nativePid as number, 0)).toThrow();
   } finally {
     child?.kill("SIGTERM");
-    if (child) await child.exited;
+    if (child) {
+      await child.exited;
+    }
     if (nativePid) {
       try {
         process.kill(nativePid, "SIGKILL");

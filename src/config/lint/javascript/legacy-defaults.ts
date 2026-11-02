@@ -1,4 +1,4 @@
-import type { RuleMap } from "../model";
+import { type RuleMap } from "../model";
 
 /** Frozen pre-Biome policy, used only to distinguish shipped settings from customization. */
 export const LEGACY_ESLINT_DEFAULTS: {
@@ -269,10 +269,7 @@ export const LEGACY_ESLINT_DEFAULTS: {
       },
     ],
     "no-return-await": "off",
-    "@typescript-eslint/return-await": [
-      "error",
-      "error-handling-correctness-only",
-    ],
+    "@typescript-eslint/return-await": ["error", "error-handling-correctness-only"],
     "@typescript-eslint/triple-slash-reference": "error",
     "@typescript-eslint/unbound-method": "error",
     "@typescript-eslint/unified-signatures": "error",
@@ -304,15 +301,7 @@ export const LEGACY_ESLINT_DEFAULTS: {
     "jsx-a11y/control-has-associated-label": [
       "off",
       {
-        ignoreElements: [
-          "audio",
-          "canvas",
-          "embed",
-          "input",
-          "textarea",
-          "tr",
-          "video",
-        ],
+        ignoreElements: ["audio", "canvas", "embed", "input", "textarea", "tr", "video"],
         ignoreRoles: [
           "grid",
           "listbox",

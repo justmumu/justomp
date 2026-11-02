@@ -3,7 +3,7 @@ import picomatch from "picomatch";
 import { TestError } from "../../testing/model";
 import { GO_DEFAULTS } from "./go/defaults";
 import { JAVASCRIPT_DEFAULTS } from "./javascript/defaults";
-import type { TestPolicy } from "./model";
+import { type TestPolicy } from "./model";
 import { PYTHON_DEFAULTS } from "./python/defaults";
 
 const defaults: TestPolicy = {
@@ -29,7 +29,9 @@ export function resolveTestPolicy(
       return structuredClone(fallback);
     }
     if (Array.isArray(fallback)) {
-      if (!Array.isArray(input)) invalid(path);
+      if (!Array.isArray(input)) {
+        invalid(path);
+      }
       for (const item of input) {
         if (
           typeof item !== "string" ||
@@ -40,8 +42,9 @@ export function resolveTestPolicy(
           item.split("/").includes("..") ||
           item.startsWith("!") ||
           item.includes("\0")
-        )
+        ) {
           invalid(path);
+        }
         try {
           picomatch.makeRe(item, { strictBrackets: true });
         } catch {
@@ -51,40 +54,41 @@ export function resolveTestPolicy(
       return [...input];
     }
     if (fallback && typeof fallback === "object") {
-      if (!input || typeof input !== "object" || Array.isArray(input))
+      if (!input || typeof input !== "object" || Array.isArray(input)) {
         invalid(path);
+      }
       const supplied = input as Record<string, unknown>,
         result = structuredClone(supplied);
-      for (const [key, entry] of Object.entries(fallback))
-        result[key] = merge(
-          Object.hasOwn(supplied, key) ? supplied[key] : undefined,
-          entry,
-          `${path}.${key}`,
-        );
+      for (const [key, entry] of Object.entries(fallback)) {
+        result[key] = merge(Object.hasOwn(supplied, key) ? supplied[key] : undefined, entry, `${path}.${key}`);
+      }
       return result;
     }
-    if (typeof input !== typeof fallback) invalid(path);
+    if (typeof input !== typeof fallback) {
+      invalid(path);
+    }
     if (
       typeof fallback === "number" &&
-      (typeof input !== "number" ||
-        !Number.isFinite(input) ||
-        input < 0 ||
-        input > 100)
-    )
+      (typeof input !== "number" || !Number.isFinite(input) || input < 0 || input > 100)
+    ) {
       invalid(path);
+    }
     return input;
   }
   return { policy: merge(value, defaults, label) as TestPolicy, missing };
 }
 export function testPolicyKey(policy: unknown): string {
   function canonical(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonical);
-    if (value && typeof value === "object")
+    if (Array.isArray(value)) {
+      return value.map(canonical);
+    }
+    if (value && typeof value === "object") {
       return Object.fromEntries(
         Object.entries(value)
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([k, v]) => [k, canonical(v)]),
       );
+    }
     return value;
   }
   return createHash("sha256")

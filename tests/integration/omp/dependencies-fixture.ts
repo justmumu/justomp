@@ -11,7 +11,7 @@ export async function fixture(empty = false) {
     join(root, ".npmrc"),
     `cache=${join(root, ".npm-cache")}\naudit=false\nfund=false\nignore-scripts=false\n`,
   );
-  if (!empty)
+  if (!empty) {
     await writeFile(
       join(root, "package.json"),
       JSON.stringify({
@@ -20,6 +20,7 @@ export async function fixture(empty = false) {
         packageManager: "npm@11.12.1",
       }),
     );
+  }
   return root;
 }
 export async function host(root: string, deny: string[] = []) {
@@ -32,16 +33,19 @@ export function json(result: { content: { type: string; text?: string }[] }) {
   return JSON.parse(text ?? "null");
 }
 export async function lockFixture(root: string) {
-  const child = Bun.spawn(
-    ["npm", "install", "--package-lock-only", "--ignore-scripts"],
-    { cwd: root, stdout: "pipe", stderr: "pipe" },
-  );
+  const child = Bun.spawn(["npm", "install", "--package-lock-only", "--ignore-scripts"], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [code, output, error] = await Promise.all([
     child.exited,
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  if (code !== 0) throw new Error(`Fixture lock failed: ${output} ${error}`);
+  if (code !== 0) {
+    throw new Error(`Fixture lock failed: ${output} ${error}`);
+  }
 }
 export async function blockingFixture() {
   const root = await fixture();
@@ -65,8 +69,9 @@ export async function waitStarted(root: string) {
   const started = join(root, "started");
   const deadline = Date.now() + 10_000;
   while (!(await Bun.file(started).exists())) {
-    if (Date.now() > deadline)
+    if (Date.now() > deadline) {
       throw new Error("Native lifecycle process did not start");
+    }
     await Bun.sleep(20);
   }
   return Number(await readFile(started, "utf8"));

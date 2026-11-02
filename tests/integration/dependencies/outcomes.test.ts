@@ -1,15 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { Adapter } from "../../../src/dependencies/model";
+import { type Adapter } from "../../../src/dependencies/model";
 import { executeDependency } from "../../../src/dependencies/service";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { fixture, roots } from "./outcomes-fixture";
 
 afterEach(async () => {
   await closePackagingStructure();
-  for (const root of roots.splice(0))
+  for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
+  }
 });
 test("cancelled native list cannot become successful incomplete inventory", async () => {
   const root = await fixture();
@@ -21,10 +22,7 @@ test("cancelled native list cannot become successful incomplete inventory", asyn
       scripts: { wait: "node wait.cjs" },
     }),
   );
-  await writeFile(
-    join(root, "wait.cjs"),
-    'require("node:fs").writeFileSync("ready","yes");setInterval(()=>{},1000);',
-  );
+  await writeFile(join(root, "wait.cjs"), 'require("node:fs").writeFileSync("ready","yes");setInterval(()=>{},1000);');
   const controller = new AbortController();
   const adapter: Adapter = {
     groups: ["runtime"],
@@ -50,7 +48,9 @@ test("cancelled native list cannot become successful incomplete inventory", asyn
   try {
     const deadline = Date.now() + 10000;
     while (!(await Bun.file(join(root, "ready")).exists())) {
-      if (Date.now() > deadline) throw new Error("native graph did not start");
+      if (Date.now() > deadline) {
+        throw new Error("native graph did not start");
+      }
       await Bun.sleep(10);
     }
     controller.abort();

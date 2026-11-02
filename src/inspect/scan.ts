@@ -3,15 +3,10 @@ import { constants } from "node:fs";
 import { lstat, open, opendir, realpath } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { INSPECTION_DEFAULTS } from "../config/inspection/defaults";
-import type { InspectionRules } from "../config/inspection/model";
+import { type InspectionRules } from "../config/inspection/model";
 import { assembleInspection } from "./assemble";
 import { createMatcher, LOCK_MANAGERS, MANIFEST_NAMES } from "./exclusions";
-import type {
-  GoReplace,
-  PackagingStructure,
-  ParsedProject,
-  WorkspaceDeclaration,
-} from "./model";
+import { type GoReplace, type PackagingStructure, type ParsedProject, type WorkspaceDeclaration } from "./model";
 import { readManifest } from "./readers/manifest";
 export interface InspectOptions {
   root: string;
@@ -60,13 +55,12 @@ export async function inspectProject({
   while (directories.length) {
     signal?.throwIfAborted();
     const relative = directories.pop() as string;
-    if (
-      excludedRoots.some(
-        (path) => path === relative || relative.startsWith(`${path}/`),
-      )
-    )
+    if (excludedRoots.some((path) => path === relative || relative.startsWith(`${path}/`))) {
       continue;
-    if (!matcher.mayTraverse(relative)) continue;
+    }
+    if (!matcher.mayTraverse(relative)) {
+      continue;
+    }
     const absolute = join(canonical, relative);
     try {
       const stats = await lstat(absolute);
@@ -74,8 +68,9 @@ export async function inspectProject({
         report.excluded.push({ path: relative, reason: "symlink" });
         continue;
       }
-      if (!stats.isDirectory())
+      if (!stats.isDirectory()) {
         throw new Error("Directory changed type during inspection");
+      }
       const directory = await opendir(absolute);
       report.metrics.directories++;
       for await (const entry of directory) {
@@ -91,11 +86,16 @@ export async function inspectProject({
           continue;
         }
         if (entry.isDirectory()) {
-          if (matcher.mayTraverse(path)) directories.push(path);
-          else report.excluded.push({ path, reason: "outside-scope" });
+          if (matcher.mayTraverse(path)) {
+            directories.push(path);
+          } else {
+            report.excluded.push({ path, reason: "outside-scope" });
+          }
           continue;
         }
-        if (!matcher.includes(path)) continue;
+        if (!matcher.includes(path)) {
+          continue;
+        }
         if (Object.hasOwn(LOCK_MANAGERS, entry.name)) {
           const found = locks.get(relative) ?? [];
           found.push({
@@ -104,7 +104,9 @@ export async function inspectProject({
           });
           locks.set(relative, found);
         }
-        if (!MANIFEST_NAMES.has(entry.name)) continue;
+        if (!MANIFEST_NAMES.has(entry.name)) {
+          continue;
+        }
         if (!entry.isFile()) {
           report.complete = false;
           report.diagnostics.push({
@@ -122,8 +124,9 @@ export async function inspectProject({
           let source: string;
           try {
             const stats = await file.stat();
-            if (!stats.isFile())
+            if (!stats.isFile()) {
               throw new Error("Manifest changed type during inspection");
+            }
             source = await file.readFile({ encoding: "utf8", signal });
           } finally {
             await file.close();
@@ -134,9 +137,15 @@ export async function inspectProject({
           try {
             const result = readManifest(path, source);
             report.diagnostics.push(...result.diagnostics);
-            if (result.project) parsed.push(result.project);
-            if (result.workspace) declarations.push(result.workspace);
-            if (result.replaces) workReplaces.set(path, result.replaces);
+            if (result.project) {
+              parsed.push(result.project);
+            }
+            if (result.workspace) {
+              declarations.push(result.workspace);
+            }
+            if (result.replaces) {
+              workReplaces.set(path, result.replaces);
+            }
           } finally {
             report.metrics.parseMs += performance.now() - start;
           }
