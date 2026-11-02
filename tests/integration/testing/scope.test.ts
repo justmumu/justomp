@@ -1,60 +1,39 @@
 import { expect, test } from "bun:test";
-import {
-  mkdir,
-  mkdtemp,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JAVASCRIPT_DEFAULTS as INTEGRATION_DEFAULTS } from "../../../src/config/integration-test/javascript/defaults";
+import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { JAVASCRIPT_DEFAULTS } from "../../../src/config/test/javascript/defaults";
-import {
-  closePackagingStructure,
-  getPackagingStructure,
-} from "../../../src/packaging/get-structure";
+import { planProjection } from "../../../src/lint/projection";
+import { collectLintScope } from "../../../src/lint/scope";
+import { closePackagingStructure, getPackagingStructure } from "../../../src/packaging/get-structure";
 import { collectTestScope } from "../../../src/testing/scope";
 import { resolveTestTarget } from "../../../src/testing/targets";
+import { collectTypecheckScope } from "../../../src/typecheck/scope";
 
 test("test scope retains literal names while excluding nested projects and symlinks", async () => {
   const root = await mkdtemp(join(tmpdir(), "justomp-test-scope-"));
   const outside = await mkdtemp(join(tmpdir(), "justomp-test-config-outside-"));
   try {
-    for (const dir of [
-      "tests/unit",
-      "tests/integration",
-      "child",
-      "node_modules",
-      "src",
-    ])
+    for (const dir of ["tests/unit", "tests/integration", "child", "node_modules", "src", ".private"]) {
       await mkdir(join(root, dir), { recursive: true });
-    await writeFile(
-      join(root, "package.json"),
-      JSON.stringify({ name: "root", packageManager: "npm@10.9.0" }),
-    );
-    await writeFile(
-      join(root, "child/package.json"),
-      JSON.stringify({ name: "child" }),
-    );
+    }
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "root", packageManager: "npm@10.9.0" }));
+    await writeFile(join(root, "child/package.json"), JSON.stringify({ name: "child" }));
     for (const file of [
       "tests/unit/a[1].test.ts",
       "tests/integration/a.test.ts",
       "child/a.ts",
       "node_modules/no.ts",
       "src/a.ts",
-    ])
+      ".private/archive.ts",
+    ]) {
       await writeFile(join(root, file), "export {};\n");
-    await symlink(
-      join(root, "src/a.ts"),
-      join(root, "tests/unit/link.test.ts"),
-    );
+    }
+    await symlink(join(root, "src/a.ts"), join(root, "tests/unit/link.test.ts"));
     const { structure } = await getPackagingStructure(root, { publish: false });
-    const target = await resolveTestTarget(
-      structure,
-      "javascript:package.json",
-    );
+    const target = await resolveTestTarget(structure, "javascript:package.json");
     const policies = {
       unit: JAVASCRIPT_DEFAULTS,
       integration: INTEGRATION_DEFAULTS,
@@ -63,16 +42,32 @@ test("test scope retains literal names while excluding nested projects and symli
     const scope = await collectTestScope(target, policies);
     expect(scope.integration).toEqual(["tests/integration/a.test.ts"]);
     expect(scope.tests).toEqual(["tests/unit/a[1].test.ts"]);
-    expect(scope.sources).toEqual(["src/a.ts"]);
-    await expect(
-      collectTestScope(target, policies, ["tests/unit/link.test.ts"]),
-    ).rejects.toThrow("not an owned unit test");
+    expect(scope.sources).toEqual([".private/archive.ts", "src/a.ts"]);
+    for (const collect of [collectLintScope, collectTypecheckScope]) {
+      expect((await collect(target, [".private/**"])).files).toEqual([
+        "src/a.ts",
+        "tests/integration/a.test.ts",
+        "tests/unit/a[1].test.ts",
+      ]);
+      expect((await collect(target, [])).files).toContain(".private/archive.ts");
+    }
+    expect((await collectTestScope(target, policies)).sources).toContain(".private/archive.ts");
+    const lint = resolveLintConfig().policy;
+    const all = await planProjection(target, lint, { "@biomejs/biome": "2.6.3" });
+    lint.javascript.exclude = [".private/**"];
+    const filtered = await planProjection(target, lint, { "@biomejs/biome": "2.6.3" });
+    expect(filtered.files[0]?.content).toContain("!!.private/archive.ts");
+    expect(filtered.files[0]?.content).not.toBe(all.files[0]?.content);
+    lint.javascript.exclude = [];
+    expect((await planProjection(target, lint, { "@biomejs/biome": "2.6.3" })).files[0]?.content).toBe(
+      all.files[0]?.content,
+    );
+    await expect(collectTestScope(target, policies, ["tests/unit/link.test.ts"])).rejects.toThrow(
+      "not an owned unit test",
+    );
     const configName = "integration config.ts";
     await writeFile(join(root, configName), "export default {};\n");
-    await writeFile(
-      join(root, "child/vitest.config.ts"),
-      "export default {};\n",
-    );
+    await writeFile(join(root, "child/vitest.config.ts"), "export default {};\n");
     await writeFile(join(outside, "config.ts"), "export default {};\n");
     await symlink(join(outside, "config.ts"), join(root, "external-config.ts"));
     const setConfig = async (path: string) => {
@@ -86,29 +81,14 @@ test("test scope retains literal names while excluding nested projects and symli
       );
     };
     await setConfig(configName);
-    expect(
-      (
-        await resolveTestTarget(
-          structure,
-          "javascript:package.json",
-          "integration",
-        )
-      ).configFile,
-    ).toBe(await realpath(join(root, configName)));
-    for (const invalid of [
-      "child/vitest.config.ts",
-      "external-config.ts",
-      "../config.ts",
-    ]) {
+    expect((await resolveTestTarget(structure, "javascript:package.json", "integration")).configFile).toBe(
+      await realpath(join(root, configName)),
+    );
+    for (const invalid of ["child/vitest.config.ts", "external-config.ts", "../config.ts"]) {
       await setConfig(invalid);
-      await expect(
-        resolveTestTarget(structure, "javascript:package.json", "integration"),
-      ).rejects.toThrow();
+      await expect(resolveTestTarget(structure, "javascript:package.json", "integration")).rejects.toThrow();
       // Integration-only metadata cannot break an otherwise valid unit target.
-      expect(
-        (await resolveTestTarget(structure, "javascript:package.json", "unit"))
-          .configFile,
-      ).toBeUndefined();
+      expect((await resolveTestTarget(structure, "javascript:package.json", "unit")).configFile).toBeUndefined();
     }
   } finally {
     await closePackagingStructure(root);

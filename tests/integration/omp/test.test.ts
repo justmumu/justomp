@@ -16,12 +16,11 @@ test("OMP project_test validates before setup, reports results and joins executi
   await mkdir(join(root, "tests/unit"), { recursive: true });
   await writeFile(join(root, "tests/unit/test_app.py"), "# test fixture");
   await mkdir(join(root, "tests/integration"));
-  await writeFile(
-    join(root, "tests/integration/test_api.py"),
-    "# integration fixture",
-  );
+  await writeFile(join(root, "tests/integration/test_api.py"), "# integration fixture");
   let blocked = false,
-    entered = () => {},
+    entered = () => {
+      /* This supplied callback intentionally has no side effects. */
+    },
     joined = false;
   const mocks = [
     spyOn(pythonTestAdapter, "resolve").mockResolvedValue({
@@ -34,11 +33,13 @@ test("OMP project_test validates before setup, reports results and joins executi
       if (blocked) {
         entered();
         await new Promise<void>((resolve) => {
-          if (ctx.signal.aborted) resolve();
-          else
+          if (ctx.signal.aborted) {
+            resolve();
+          } else {
             ctx.signal.addEventListener("abort", () => resolve(), {
               once: true,
             });
+          }
         });
         joined = true;
       }
@@ -75,15 +76,10 @@ test("OMP project_test validates before setup, reports results and joins executi
       project_id: "python:pyproject.toml",
     });
     expect(result.isError, JSON.stringify(result.details)).not.toBe(true);
-    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(
-      result.details,
-    );
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(result.details);
     expect((result.details as { success: boolean }).success).toBe(true);
     const integrationTool = host.getTool("project_integration_test");
-    expect(
-      host.runner.getRegisteredTool("project_integration_test")?.definition
-        .approval,
-    ).toBe("exec");
+    expect(host.runner.getRegisteredTool("project_integration_test")?.definition.approval).toBe("exec");
     const integration = await integrationTool.execute("integration", {
       project_id: "python:pyproject.toml",
     });
@@ -92,9 +88,7 @@ test("OMP project_test validates before setup, reports results and joins executi
       success: true,
       coverage: { status: "disabled" },
     });
-    expect(
-      JSON.parse((integration.content[0] as { text: string }).text),
-    ).toEqual(integration.details);
+    expect(JSON.parse((integration.content[0] as { text: string }).text)).toEqual(integration.details);
     const invalid = await integrationTool.execute("invalid", {
       project_id: "python:pyproject.toml",
       test_files: ["tests/unit/test_app.py"],
@@ -119,7 +113,9 @@ test("OMP project_test validates before setup, reports results and joins executi
     expect(joined).toBe(true);
   } finally {
     await host.close();
-    for (const mock of mocks.reverse()) mock.mockRestore();
+    for (const mock of mocks.reverse()) {
+      mock.mockRestore();
+    }
     await rm(root, { recursive: true, force: true });
     await rm(other, { recursive: true, force: true });
   }

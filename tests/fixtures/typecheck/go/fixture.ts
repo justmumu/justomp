@@ -1,6 +1,6 @@
 import { resolveTypecheckConfig } from "../../../../src/config/typecheck/resolve";
 import { goAdapter } from "../../../../src/typecheck/adapters/go";
-import type { TypecheckOperationContext } from "../../../../src/typecheck/adapters/types";
+import { type TypecheckOperationContext } from "../../../../src/typecheck/adapters/types";
 import { goFixture as nativeFixture } from "../../lint/go/fixture";
 
 export async function goFixture(workspace = false) {
@@ -19,7 +19,9 @@ export async function goFixture(workspace = false) {
     context,
     async checkContext(index = 0) {
       const target = native.targets[index];
-      if (!target) throw new Error("Missing Go fixture target");
+      if (!target) {
+        throw new Error("Missing Go fixture target");
+      }
       return {
         target,
         policy,

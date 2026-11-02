@@ -10,9 +10,7 @@ test("Python projection preserves unrelated bytes including quoted and multiline
   const output = projectPython(before, policy);
   expect(output).toContain(before.slice(0, before.indexOf('[tool."ruff"]')));
   expect(output).toContain('src = [ "lib" ] # keep\r\n');
-  expect(output).toContain(
-    '[build-system]\r\nrequires = [ "hatchling" ] # keep\r\n',
-  );
+  expect(output).toContain('[build-system]\r\nrequires = [ "hatchling" ] # keep\r\n');
   expect((parse(output).tool as { ruff: unknown }).ruff).toEqual({
     ...policy.ruff,
     src: ["lib"],
@@ -22,10 +20,7 @@ test("Python projection preserves unrelated bytes including quoted and multiline
 
 test("Python narrow editing rejects ambiguous inline containers without mutation", () => {
   expect(() =>
-    projectPython(
-      '[tool]\nruff = { src = ["lib"], line-length = 80 }\n',
-      resolveLintConfig().policy.python,
-    ),
+    projectPython('[tool]\nruff = { src = ["lib"], line-length = 80 }\n', resolveLintConfig().policy.python),
   ).toThrow("Inline");
 });
 
@@ -34,17 +29,15 @@ for (const [key, value] of [
   ["include", '["only.py"]'],
   ["extend", '"../other/ruff.toml"'],
   ["preview", "true"],
-])
+]) {
   test(`Python projection rejects project-local ${key} outside the shared policy`, () => {
     const before = `[project]\nname="example"\n[tool.ruff]\n${key}=${value}\n`;
-    expect(() =>
-      projectPython(before, resolveLintConfig().policy.python),
-    ).toThrow("lint.python.ruff");
+    expect(() => projectPython(before, resolveLintConfig().policy.python)).toThrow("lint.python.ruff");
   });
+}
 
 test("Python root policy owns explicit extra options while source metadata remains local", () => {
-  const before =
-    '[tool.ruff]\nsrc = [ "lib" ] # keep layout\ntarget-version = "py311" # keep runtime\nexclude=["*"]\n';
+  const before = '[tool.ruff]\nsrc = [ "lib" ] # keep layout\ntarget-version = "py311" # keep runtime\nexclude=["*"]\n';
   const policy = resolveLintConfig().policy.python;
   policy.ruff.exclude = [];
   const projected = projectPython(before, policy);

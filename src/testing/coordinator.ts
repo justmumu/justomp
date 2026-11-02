@@ -5,7 +5,7 @@ import {
   retainPackagingStructure,
   subscribePackagingStructure,
 } from "../packaging/get-structure";
-import type { TestAdapters } from "./adapters";
+import { type TestAdapters } from "./adapters";
 import { TestError, type TestPreparation } from "./model";
 import { preparationReport, prepareTests, testIssue } from "./prepare";
 
@@ -19,10 +19,10 @@ host[key] ??= new Map();
 const registry = host[key];
 export class TestCoordinator {
   private controller = new AbortController();
-  private job?: Promise<TestPreparation>;
-  private dirty = false;
+  private job: Promise<TestPreparation> | undefined;
+  private dirty: boolean = false;
   private stopped?: Promise<void>;
-  private closed = false;
+  private closed: boolean = false;
   private unsubscribe?: () => void;
   private releasePackaging?: () => Promise<void>;
   private listeners = new Set<(report: TestPreparation) => void>();
@@ -35,7 +35,7 @@ export class TestCoordinator {
     return this.closed;
   }
   get preparing() {
-    return !!this.job;
+    return this.job !== undefined;
   }
   subscribe(fn: (report: TestPreparation) => void) {
     this.listeners.add(fn);
@@ -49,21 +49,16 @@ export class TestCoordinator {
       this.progressListeners.delete(fn);
     };
   }
-  private emit(
-    listeners: Set<(report: TestPreparation) => void>,
-    report: TestPreparation,
-  ) {
-    for (const fn of listeners)
+  private emit(listeners: Set<(report: TestPreparation) => void>, report: TestPreparation) {
+    for (const fn of listeners) {
       try {
         fn(structuredClone(report));
       } catch {
         /* Observers do not control preparation. */
       }
+    }
   }
-  static async create(
-    root: string,
-    adapters: TestAdapters,
-  ): Promise<TestCoordinator> {
+  static async create(root: string, adapters: TestAdapters): Promise<TestCoordinator> {
     const c = new TestCoordinator(root, adapters);
     c.releasePackaging = await retainPackagingStructure(root);
     try {
@@ -72,9 +67,14 @@ export class TestCoordinator {
         publish: false,
       });
       c.unsubscribe = await subscribePackagingStructure(root, () => {
-        if (c.closed) return;
-        if (c.job) c.dirty = true;
-        else void c.reconcile().catch(() => undefined);
+        if (c.closed) {
+          return;
+        }
+        if (c.job !== undefined) {
+          c.dirty = true;
+        } else {
+          void c.reconcile().catch(() => undefined);
+        }
       });
       return c;
     } catch (error) {
@@ -94,11 +94,12 @@ export class TestCoordinator {
     return JSON.stringify([structure.projects, config.testingKey]);
   }
   reconcile(): Promise<TestPreparation> {
-    if (this.closed)
-      return Promise.reject(
-        new TestError("closed", "Test preparation is closed"),
-      );
-    if (this.job) return this.job;
+    if (this.closed) {
+      return Promise.reject(new TestError("closed", "Test preparation is closed"));
+    }
+    if (this.job !== undefined) {
+      return this.job;
+    }
     const job = (async () => {
       let result = preparationReport();
       const changes: TestPreparation["changes"] = [];
@@ -107,16 +108,14 @@ export class TestCoordinator {
         for (;;) {
           this.dirty = false;
           const before = await this.inputKey();
-          result = await prepareTests(
-            this.root,
-            this.adapters,
-            this.controller.signal,
-            (r) => this.emit(this.progressListeners, r),
+          result = await prepareTests(this.root, this.adapters, this.controller.signal, (r) =>
+            this.emit(this.progressListeners, r),
           );
           changes.push(...result.changes);
           prepared ||= result.action === "prepared";
-          if (!this.dirty || this.closed || (await this.inputKey()) === before)
+          if (!this.dirty || this.closed || (await this.inputKey()) === before) {
             break;
+          }
         }
       } catch (error) {
         result = {
@@ -128,25 +127,29 @@ export class TestCoordinator {
         };
       }
       result.changes = changes;
-      if (prepared) result.action = "prepared";
+      if (prepared) {
+        result.action = "prepared";
+      }
       this.emit(this.listeners, result);
       return result;
     })();
     this.job = job;
     void job
       .finally(() => {
-        if (this.job === job) this.job = undefined;
+        if (this.job === job) {
+          this.job = undefined;
+        }
       })
       .catch(() => undefined);
     return job;
   }
   shutdown(): Promise<void> {
-    if (this.stopped) return this.stopped;
+    if (this.stopped !== undefined) {
+      return this.stopped;
+    }
     this.closed = true;
     this.unsubscribe?.();
-    this.controller.abort(
-      new TestError("cancelled", "Last test session closed"),
-    );
+    this.controller.abort(new TestError("cancelled", "Last test session closed"));
     this.stopped = (async () => {
       try {
         await this.job;
@@ -178,12 +181,12 @@ export async function retainTestCoordinator(
     try {
       coordinator = await selected.promise;
     } catch (error) {
-      if (registry.get(canonical) === selected) registry.delete(canonical);
+      removeEntry(canonical, selected);
       throw error;
     }
     if (coordinator.isClosed) {
       await coordinator.shutdown();
-      if (registry.get(canonical) === selected) registry.delete(canonical);
+      removeEntry(canonical, selected);
       continue;
     }
     selected.owners++;
@@ -191,14 +194,15 @@ export async function retainTestCoordinator(
     return {
       coordinator,
       release: async () => {
-        if (released) return;
+        if (released) {
+          return;
+        }
         released = true;
         if (--selected.owners === 0) {
           try {
             await coordinator.shutdown();
           } finally {
-            if (registry.get(canonical) === selected)
-              registry.delete(canonical);
+            removeEntry(canonical, selected);
           }
         }
       },
@@ -206,18 +210,21 @@ export async function retainTestCoordinator(
   }
 }
 /** Cancellation only detaches this waiter; the session still owns the job. */
-export function waitForTestPreparation(
-  coordinator: TestCoordinator,
-  signal?: AbortSignal,
-): Promise<TestPreparation> {
+export function waitForTestPreparation(coordinator: TestCoordinator, signal?: AbortSignal): Promise<TestPreparation> {
   signal?.throwIfAborted();
   const job = coordinator.reconcile();
-  if (!signal) return job;
+  if (!signal) {
+    return job;
+  }
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
     signal.addEventListener("abort", abort, { once: true });
-    void job
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener("abort", abort));
+    void job.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
   });
+}
+
+function removeEntry(canonical: string, selected: Entry): void {
+  if (registry.get(canonical) === selected) {
+    registry.delete(canonical);
+  }
 }

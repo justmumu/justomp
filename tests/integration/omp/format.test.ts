@@ -10,10 +10,7 @@ import { createHost } from "./host";
 // Real OMP registration, approval wrapper and session teardown. No native installations.
 async function fixture(deny: string[] = []) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "omp-format-")));
-  await writeFile(
-    join(root, "pyproject.toml"),
-    '[project]\nname="demo"\nversion="0.1.0"\n[tool.uv]\npackage=false\n',
-  );
+  await writeFile(join(root, "pyproject.toml"), '[project]\nname="demo"\nversion="0.1.0"\n[tool.uv]\npackage=false\n');
   const host = await createHost(root, undefined, deny, registerInspection);
   return {
     root,
@@ -38,8 +35,9 @@ test("OMP format has strict ID/files exec schema and trusted manifest writes ret
       { project_id: "x", files: [] },
       { project_id: "x", cwd: "/tmp" },
       { project_id: "x", ecosystem: "python" },
-    ])
+    ]) {
       expect(schema.safeParse(input).success).toBe(false);
+    }
     const response = await f.host.getTool("project_format").execute("format", {
       project_id: "python:pyproject.toml",
       files: ["pyproject.toml"],
@@ -47,12 +45,8 @@ test("OMP format has strict ID/files exec schema and trusted manifest writes ret
     const parsed = JSON.parse((response.content[0] as { text: string }).text);
     expect(parsed).toEqual(response.details);
     expect(parsed.success, JSON.stringify(parsed)).toBe(true);
-    expect(parsed.files).toEqual([
-      { path: "pyproject.toml", engine: "prettier", status: "changed" },
-    ]);
-    expect(await readFile(join(f.root, "pyproject.toml"), "utf8")).toContain(
-      'name = "demo"',
-    );
+    expect(parsed.files).toEqual([{ path: "pyproject.toml", engine: "prettier", status: "changed" }]);
+    expect(await readFile(join(f.root, "pyproject.toml"), "utf8")).toContain('name = "demo"');
     const invalid = await f.host.getTool("project_format").execute("invalid", {
       project_id: "python:pyproject.toml",
       files: ["missing.md"],
@@ -64,13 +58,9 @@ test("OMP format has strict ID/files exec schema and trusted manifest writes ret
   const denied = await fixture(["project_format"]);
   try {
     await expect(
-      denied.host
-        .getTool("project_format")
-        .execute("deny", { project_id: "python:pyproject.toml" }),
+      denied.host.getTool("project_format").execute("deny", { project_id: "python:pyproject.toml" }),
     ).rejects.toThrow();
-    expect(
-      await Bun.file(join(denied.root, ".justomp/config.json")).exists(),
-    ).toBe(false);
+    expect(await Bun.file(join(denied.root, ".justomp/config.json")).exists()).toBe(false);
   } finally {
     await denied.close();
   }
@@ -78,21 +68,23 @@ test("OMP format has strict ID/files exec schema and trusted manifest writes ret
 test("OMP shutdown waits for active formatting cleanup and prevents a late publish", async () => {
   const f = await fixture();
   await writeFile(join(f.root, "README.md"), "before\n");
-  let enter = () => {};
+  let enter = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const entered = new Promise<void>((resolve) => {
     enter = resolve;
   });
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const format = spyOn(prettier, "formatPrettier").mockImplementation(
-    async () => {
-      enter();
-      await gate;
-      return "after\n";
-    },
-  );
+  const format = spyOn(prettier, "formatPrettier").mockImplementation(async () => {
+    enter();
+    await gate;
+    return "after\n";
+  });
   try {
     const running = f.host.getTool("project_format").execute("active", {
       project_id: "python:pyproject.toml",
@@ -100,11 +92,9 @@ test("OMP shutdown waits for active formatting cleanup and prevents a late publi
     });
     await entered;
     let closed = false;
-    const closing = f.host.runner
-      .emit({ type: "session_shutdown" })
-      .then(() => {
-        closed = true;
-      });
+    const closing = f.host.runner.emit({ type: "session_shutdown" }).then(() => {
+      closed = true;
+    });
     await Bun.sleep(20);
     expect(closed).toBe(false);
     release();

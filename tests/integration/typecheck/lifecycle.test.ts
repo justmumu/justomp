@@ -2,29 +2,17 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getPackagingStructure } from "../../../src/packaging/get-structure";
-import {
-  TypecheckSession,
-  withReadyTypecheckTarget,
-} from "../../../src/typecheck/coordinator";
+import { TypecheckSession, withReadyTypecheckTarget } from "../../../src/typecheck/coordinator";
 import { fixture } from "./fixture";
 
 test("getter and unprepared check are read-only; empty directories do not resolve versions", async () => {
   const f = await fixture();
   await getPackagingStructure(f.root, { publish: false });
+  await expect(readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8")).rejects.toThrow();
   await expect(
-    readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8"),
-  ).rejects.toThrow();
-  await expect(
-    withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("not ready");
-  await expect(
-    readFile(join(f.root, ".justomp/config.json"), "utf8"),
-  ).rejects.toThrow();
+  await expect(readFile(join(f.root, ".justomp/config.json"), "utf8")).rejects.toThrow();
   expect(f.counts()).toEqual({ resolves: 0, prepares: 0 });
   const coordinator = await f.start();
   await coordinator.reconcile();
@@ -42,28 +30,16 @@ test("unrelated ecosystem policy does not stale Python; unsupported ecosystem fa
   config.typecheck.go.build_tags = ["custom"];
   await writeFile(path, JSON.stringify(config));
   expect(
-    await withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    await withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).toBe(true);
   await mkdir(join(f.root, "js"));
-  await writeFile(
-    join(f.root, "js/package.json"),
-    '{"name":"js","packageManager":"npm@11.0.0"}',
-  );
+  await writeFile(join(f.root, "js/package.json"), '{"name":"js","packageManager":"npm@11.0.0"}');
   const result = await coordinator.reconcile();
   expect(result.complete).toBe(false);
-  expect(result.projects["python:a/pyproject.toml"]?.complete).toBe(true);
+  const projects: Partial<typeof result.projects> = result.projects;
+  expect(projects["python:a/pyproject.toml"]?.complete).toBe(true);
   expect(
-    await withReadyTypecheckTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    await withReadyTypecheckTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).toBe(true);
 });
 

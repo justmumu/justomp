@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DependencyError } from "../../../src/dependencies/model";
 import * as paths from "../../../src/dependencies/paths";
 import { validateExistingSources } from "../../../src/dependencies/source-boundaries";
+import { suppliedResponse } from "../../response";
 import { memoryContext } from "./memory";
 
 function fixture(ecosystem: "javascript" | "python" = "javascript") {
@@ -12,29 +13,22 @@ function fixture(ecosystem: "javascript" | "python" = "javascript") {
     manifest: ecosystem === "python" ? "pyproject.toml" : "package.json",
     manager: ecosystem === "python" ? "uv" : "npm",
   });
-  const canonical = spyOn(fs, "realpath").mockImplementation((async (
-    path: unknown,
-  ) => String(path)) as typeof fs.realpath);
+  const canonical = spyOn(fs, "realpath").mockImplementation((async (path: unknown) =>
+    String(path)) as typeof fs.realpath);
   const checked: string[] = [];
-  const safe = spyOn(paths, "safePath").mockImplementation(
-    async (_root, path) => {
+  const safe = spyOn(paths, "safePath").mockImplementation((_root, path) => {
+    return suppliedResponse(() => {
       checked.push(path);
-      if (
-        path === join(f.root, "linked") ||
-        path === join(f.root, "escape;segment")
-      )
-        throw new DependencyError(
-          "outside-root",
-          "Supplied canonical destination is outside root",
-        );
+      if (path === join(f.root, "linked") || path === join(f.root, "escape;segment")) {
+        throw new DependencyError("outside-root", "Supplied canonical destination is outside root");
+      }
       return path;
-    },
-  );
+    });
+  });
   return {
     ...f,
     checked,
-    validate: () =>
-      validateExistingSources(f.root, f.context.project, f.context.structure),
+    validate: () => validateExistingSources(f.root, f.context.project, f.context.structure),
     close() {
       safe.mockRestore();
       canonical.mockRestore();
@@ -42,17 +36,14 @@ function fixture(ecosystem: "javascript" | "python" = "javascript") {
     },
   };
 }
-for (const protocol of ["link:", "portal:", "file:", "workspace:", "file://"])
+for (const protocol of ["link:", "portal:", "file:", "workspace:", "file://"]) {
   test(`source validation routes ${protocol} declarations through canonical containment`, async () => {
     const f = fixture();
     f.write(
       "package.json",
       JSON.stringify({
         dependencies: {
-          linked:
-            protocol === "file://"
-              ? `file://${f.root}/linked`
-              : `${protocol}./linked`,
+          linked: protocol === "file://" ? `file://${f.root}/linked` : `${protocol}./linked`,
         },
       }),
     );
@@ -65,13 +56,11 @@ for (const protocol of ["link:", "portal:", "file:", "workspace:", "file://"])
       f.close();
     }
   });
-for (const field of ["overrides", "resolutions", "catalog", "catalogs"])
+}
+for (const field of ["overrides", "resolutions", "catalog", "catalogs"]) {
   test(`source validation checks nested root ${field} entries`, async () => {
     const f = fixture();
-    f.write(
-      "package.json",
-      JSON.stringify({ [field]: { nested: { linked: "file:./linked" } } }),
-    );
+    f.write("package.json", JSON.stringify({ [field]: { nested: { linked: "file:./linked" } } }));
     try {
       await expect(f.validate()).rejects.toMatchObject({
         code: "outside-root",
@@ -81,6 +70,7 @@ for (const field of ["overrides", "resolutions", "catalog", "catalogs"])
       f.close();
     }
   });
+}
 test("pnpm catalog paths use workspace owner rather than selected member", async () => {
   const f = fixture();
   f.context.project.manager = "pnpm";
@@ -89,14 +79,8 @@ test("pnpm catalog paths use workspace owner rather than selected member", async
     path: "app",
   });
   f.write("package.json", JSON.stringify({ name: "owner" }));
-  f.write(
-    "app/package.json",
-    JSON.stringify({ dependencies: { linked: "catalog:" } }),
-  );
-  f.write(
-    "pnpm-workspace.yaml",
-    'packages: ["app"]\ncatalog:\n  linked: "file:./linked"\n',
-  );
+  f.write("app/package.json", JSON.stringify({ dependencies: { linked: "catalog:" } }));
+  f.write("pnpm-workspace.yaml", 'packages: ["app"]\ncatalog:\n  linked: "file:./linked"\n');
   try {
     await expect(f.validate()).rejects.toMatchObject({ code: "outside-root" });
     expect(f.checked).toContain(join(f.root, "linked"));

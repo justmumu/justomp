@@ -1,7 +1,7 @@
 import { relative } from "node:path";
 import { type FileSnapshot, publishProjectionFile } from "../lint/files";
-import type { PreparationChange } from "./model";
-import type { TypecheckTarget } from "./targets";
+import { type PreparationChange } from "./model";
+import { type TypecheckTarget } from "./targets";
 export interface ProjectionFile {
   path: string;
   before: FileSnapshot;
@@ -21,13 +21,10 @@ export async function applyProjection(
   changes: PreparationChange[] = [],
 ): Promise<PreparationChange[]> {
   for (const file of plan.files) {
-    if (!file.changed) continue;
-    await publishProjectionFile(
-      plan.target.root,
-      file.path,
-      file.before,
-      file.content,
-    );
+    if (!file.changed) {
+      continue;
+    }
+    await publishProjectionFile(plan.target.root, file.path, file.before, file.content);
     changes.push({
       project_id: plan.target.project.project_id,
       path: relative(plan.target.root, file.path).replaceAll("\\", "/"),

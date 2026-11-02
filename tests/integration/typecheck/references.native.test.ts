@@ -2,16 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
-import {
-  resolveJavascriptTypes,
-  withJavascriptTypes,
-} from "../../../src/typecheck/javascript/prepare-types";
+import { resolveJavascriptTypes, withJavascriptTypes } from "../../../src/typecheck/javascript/prepare-types";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { generatedFixture } from "../../fixtures/typecheck/generated/fixture";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) await cleanup();
+  for (const cleanup of cleanups.splice(0)) {
+    await cleanup();
+  }
 });
 async function fixture() {
   const f = await generatedFixture();
@@ -26,9 +25,7 @@ async function fixture() {
       version: "1.0.0",
       type: "module",
       types: "types/index.d.ts",
-      ...(dependency
-        ? { dependencies: { [`@fixture/${dependency}`]: "*" } }
-        : {}),
+      ...(dependency ? { dependencies: { [`@fixture/${dependency}`]: "*" } } : {}),
     });
     await f.write(`packages/${name}/tsconfig.json`, {
       compilerOptions: {
@@ -45,9 +42,7 @@ async function fixture() {
     });
     await f.write(
       `packages/${name}/src/index.ts`,
-      dependency
-        ? `export { value } from "@fixture/${dependency}";\n`
-        : 'export const value: string = "ok";\n',
+      dependency ? `export { value } from "@fixture/${dependency}";\n` : 'export const value: string = "ok";\n',
     );
   }
   await f.write("apps/web/package.json", {
@@ -68,6 +63,7 @@ async function fixture() {
   await f.write(".justomp/config.json", {
     typecheck: {
       javascript: {
+        exclude: ["src/extra.js", "src/archive/**"],
         compilerOptions: {
           noCheck: true,
           noEmit: false,
@@ -76,19 +72,15 @@ async function fixture() {
       },
     },
   });
-  const config = JSON.parse(
-    await readFile(join(f.root, "packages/core/tsconfig.json"), "utf8"),
-  );
+  const config = JSON.parse(await readFile(join(f.root, "packages/core/tsconfig.json"), "utf8"));
   Object.assign(config.compilerOptions, { allowJs: false, checkJs: false });
   await f.write("packages/core/tsconfig.json", config);
-  await f.write(
-    "packages/core/src/extra.js",
-    "/** @type {number} */\nexport const extra = 42;\n",
-  );
+  await f.write("packages/core/src/extra.js", "/** @type {number} */\nexport const extra = 42;\n");
   await f.write(
     "packages/core/src/index.ts",
     'export const value: string = "ok";\nexport {extra} from "./extra.js";\n',
   );
+  await f.write("packages/core/src/archive/unused.ts", "export const unused: string = 42;\n");
   await f.install();
   const context = await f.ready("javascript:apps/web/package.json");
   return {
@@ -101,10 +93,7 @@ async function fixture() {
         "javascript:apps/web/package.json",
         { javascript: javascriptAdapter },
         "prepare",
-        (ctx) =>
-          measureFixture("typecheck.native-check", () =>
-            javascriptAdapter.check(ctx),
-          ),
+        (ctx) => measureFixture("typecheck.native-check", () => javascriptAdapter.check(ctx)),
         f.signal,
       );
     },
@@ -119,13 +108,11 @@ test("native declaration chain emits only required types and preserves earlier e
     "javascript:packages/ui/package.json",
   ]);
   expect(
-    plan.declarations.find(
-      (step) =>
-        step.target.project.project_id ===
-        "javascript:packages/core/package.json",
-    )?.outputs,
+    plan.declarations.find((step) => step.target.project.project_id === "javascript:packages/core/package.json")
+      ?.outputs,
   ).toContain(join(f.root, "packages/core/types/extra.d.ts"));
   const first = await f.run();
+  expect(first.preparation.errors).toEqual([]);
   expect(first.ready).toBe(true);
   expect(first.value?.[0]?.status).toBe("passed");
   expect(first.preparation.affected_projects).toEqual([
@@ -138,32 +125,18 @@ test("native declaration chain emits only required types and preserves earlier e
     path: "apps/web/tsconfig.justomp.0.json",
     kind: "updated",
   });
-  expect(
-    first.preparation.changes.some(
-      (c) => c.path === "packages/core/types/index.d.ts",
-    ),
-  ).toBe(true);
-  expect(
-    await Bun.file(
-      join(f.root, "packages/unrelated/types/index.d.ts"),
-    ).exists(),
-  ).toBe(false);
-  expect(
-    await Bun.file(join(f.root, "packages/core/lib/index.js")).exists(),
-  ).toBe(false);
+  expect(first.preparation.changes.some((c) => c.path === "packages/core/types/index.d.ts")).toBe(true);
+  expect(await Bun.file(join(f.root, "packages/unrelated/types/index.d.ts")).exists()).toBe(false);
+  expect(await Bun.file(join(f.root, "packages/core/lib/index.js")).exists()).toBe(false);
   expect(first.preparation.changes).toContainEqual({
     project_id: "javascript:packages/core/package.json",
     path: "packages/core/types/extra.d.ts",
     kind: "created",
   });
-  expect(
-    await Bun.file(join(f.root, "packages/core/lib/extra.js")).exists(),
-  ).toBe(false);
+  expect(await Bun.file(join(f.root, "packages/core/lib/extra.js")).exists()).toBe(false);
+  expect(await Bun.file(join(f.root, "packages/core/types/archive/unused.d.ts")).exists()).toBe(false);
   await unlink(join(f.root, "packages/core/types/index.d.ts"));
-  await f.write(
-    "packages/ui/src/index.ts",
-    "export const broken: string = 42;\n",
-  );
+  await f.write("packages/ui/src/index.ts", "export const broken: string = 42;\n");
   const failed = await f.run();
   expect(failed.ready).toBe(false);
   expect(failed.value).toBeUndefined();
@@ -178,7 +151,5 @@ test("native declaration chain emits only required types and preserves earlier e
     path: "packages/core/types/index.d.ts",
     kind: "created",
   });
-  expect(
-    await readFile(join(f.root, "packages/core/types/index.d.ts"), "utf8"),
-  ).toContain("value");
+  expect(await readFile(join(f.root, "packages/core/types/index.d.ts"), "utf8")).toContain("value");
 }, 90000);

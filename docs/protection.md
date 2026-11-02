@@ -25,6 +25,8 @@ JavaScript protects `package.json`, detected manager locks (including configured
 pnpm lock directories) and workspace metadata;
 Go protects module/workspace metadata and checksum files. Justomp's shared config,
 inspection/preparation state and generated lint/typecheck configs are protected.
+This includes `biome.justomp.jsonc` and `prettier.justomp.json` before creation;
+the legacy owned ESLint projection stays protected during migration.
 Newly discovered projects enter the next call's target list. Incomplete inspection
 or an unsafe path fails the call instead of returning an old allow decision.
 
@@ -35,7 +37,7 @@ single shell argument, never evaluated by a host shell first. There is no native
 OMP shell-snapshot or direnv preflight outside the sandbox.
 
 ```json
-{"command":"git status --short","cwd":"apps/api","timeout":30}
+{ "command": "git status --short", "cwd": "apps/api", "timeout": 30 }
 ```
 
 `cwd` defaults to the session root and relative values resolve from it. Timeout
@@ -97,7 +99,7 @@ Pure tests cover our metadata selection, target extraction and policy argv.
 Small native tests cover our process launch/deny handoff, cancellation and Linux
 placeholder ownership. The OMP test covers native delegation, mixed-patch
 rejection and the trusted-custom-tool distinction. These tests join the existing
-`bun run check` and `bun run test:integration` gates; upstream language/tool rule
+`bun run check` and `bun run check:integration` gates; upstream language/tool rule
 matrices are not duplicated.
 
 ## Pre-push

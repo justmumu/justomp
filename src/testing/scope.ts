@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { EcosystemTestPolicy } from "../config/test/model";
+import { type EcosystemTestPolicy } from "../config/test/model";
 import { collectLintScope } from "../lint/scope";
-import type { TestSuite } from "./model";
+import { type TestSuite } from "./model";
 import { partitionSuites, selectTestFiles } from "./selection";
-import type { TestTarget } from "./targets";
+import { type TestTarget } from "./targets";
 export interface TestScope {
   tests: string[];
   sources: string[];
@@ -35,9 +35,7 @@ export async function collectTestScope(
   const hash = createHash("sha256");
   for (let offset = 0; offset < owned.files.length; offset += 8) {
     const batch = owned.files.slice(offset, offset + 8);
-    const contents = await Promise.all(
-      batch.map((file) => readFile(resolve(target.scope.cwd, file))),
-    );
+    const contents = await Promise.all(batch.map((file) => readFile(resolve(target.scope.cwd, file))));
     for (const [i, file] of batch.entries()) {
       hash.update(JSON.stringify([file, contents[i]?.length]));
       hash.update(contents[i] as Buffer);

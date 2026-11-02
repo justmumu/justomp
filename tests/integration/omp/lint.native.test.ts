@@ -6,7 +6,9 @@ import { VERSION } from "../../fixtures/lint/python/fixture";
 import { cleanups, fixture, json, registry, until } from "./lint-fixture";
 
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).reverse()) {
+    await cleanup();
+  }
 });
 test("OMP native lint exposes setup effects and the same diagnostics as readonly API", async () => {
   const { f, h } = await fixture();
@@ -15,52 +17,31 @@ test("OMP native lint exposes setup effects and the same diagnostics as readonly
     const updates: unknown[] = [];
     const first = await h
       .getTool("project_lint")
-      .execute(
-        "prepare",
-        { project_id: "python:pyproject.toml" },
-        undefined,
-        (result) => updates.push(result),
-      );
+      .execute("prepare", { project_id: "python:pyproject.toml" }, undefined, (result) => updates.push(result));
     const result = json(first);
     expect(result.success, JSON.stringify(result)).toBe(true);
     expect(result.preparation.tools).toEqual({ ruff: VERSION });
-    expect(
-      result.preparation.changes.some(
-        (c: { path: string }) => c.path === "pyproject.toml",
-      ),
-    ).toBe(true);
+    expect(result.preparation.changes.some((c: { path: string }) => c.path === "pyproject.toml")).toBe(true);
     expect(updates.length).toBeGreaterThan(0);
   } finally {
     network.mockRestore();
   }
-  await writeFile(
-    join(f.root, "module.py"),
-    '"""Example module."""\n\nvalue=unknown\n',
-  );
+  await writeFile(join(f.root, "module.py"), '"""Example module."""\n\nvalue=unknown\n');
   const bytes = await f.bytes();
   const direct = await checkProjectLint(f.root, "python:pyproject.toml");
-  const tool = json(
-    await h
-      .getTool("project_lint")
-      .execute("check", { project_id: "python:pyproject.toml" }),
-  );
+  const tool = json(await h.getTool("project_lint").execute("check", { project_id: "python:pyproject.toml" }));
   expect(tool.diagnostics).toEqual(direct.diagnostics);
-  expect(tool.checks.map((c: { status: string }) => c.status)).toEqual([
-    "failed",
-    "failed",
-  ]);
+  expect(tool.checks.map((c: { status: string }) => c.status)).toEqual(["failed", "failed"]);
   expect(await f.bytes()).toEqual(bytes);
-  expect(
-    JSON.parse(await readFile(join(f.root, ".justomp/config.json"), "utf8"))
-      .lint,
-  ).toBeDefined();
+  expect(JSON.parse(await readFile(join(f.root, ".justomp/config.json"), "utf8")).lint).toBeDefined();
 }, 30000);
 for (const transition of ["shutdown", "root change"] as const) {
   test(`session ${transition} cancels and joins actual background setup subprocess`, async () => {
     const { f, h } = await fixture();
     const actualUv = Bun.which("uv");
-    if (!actualUv)
+    if (!actualUv) {
       throw new Error("uv required for native setup lifecycle test");
+    }
     const bin = join(f.root, ".fixture-bin");
     await mkdir(bin);
     const started = join(f.root, "started"),
@@ -75,13 +56,11 @@ for (const transition of ["shutdown", "root change"] as const) {
     const network = registry();
     try {
       await h.runner.emit({ type: "session_start" });
-      await until(
-        () => Bun.file(started).exists(),
-        "native setup child did not start",
-      );
+      await until(() => Bun.file(started).exists(), "native setup child did not start");
       const pid = Number(await readFile(started, "utf8"));
-      if (transition === "shutdown") await h.close();
-      else {
+      if (transition === "shutdown") {
+        await h.close();
+      } else {
         const next = join(f.root, ".new-root");
         await mkdir(next);
         await h.session.moveTo(next, join(next, ".host/sessions"));

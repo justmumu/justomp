@@ -1,4 +1,4 @@
-import type { PythonTypecheckPolicy } from "../model";
+import { type PythonTypecheckPolicy } from "../model";
 
 export const PYTHON_DEFAULTS: PythonTypecheckPolicy = {
   pyright: {

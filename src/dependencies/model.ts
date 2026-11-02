@@ -1,5 +1,5 @@
-import type { Evidence, PackagingStructure, Project } from "../inspect/model";
-import type { DependencyRequest, Group, Source } from "./schemas";
+import { type Evidence, type PackagingStructure, type Project } from "../inspect/model";
+import { type DependencyRequest, type Group, type Source } from "./schemas";
 
 export type { DependencyRequest, Group, Source } from "./schemas";
 export class DependencyError extends Error {
@@ -50,7 +50,7 @@ export interface AdapterContext {
   owner: string;
   manager: string;
   version: string;
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   run(step: NativeStep): Promise<ProcessResult>;
 }
 export interface NativePlan {
@@ -74,45 +74,36 @@ export interface Adapter {
   ): Promise<void>;
 }
 export function sameGroup(a: Group, b: Group): boolean {
-  return (
-    a.kind === b.kind &&
-    ("name" in a ? "name" in b && a.name === b.name : !("name" in b))
-  );
+  return a.kind === b.kind && ("name" in a ? "name" in b && a.name === b.name : !("name" in b));
 }
-export function selectDependency(
-  inventory: Inventory,
-  name: string,
-  group?: Group,
-): Dependency {
+export function selectDependency(inventory: Inventory, name: string, group?: Group): Dependency {
   const matches = inventory.dependencies.filter(
-    (d) =>
-      (d.direct || d.evidence.field === "require") &&
-      d.name === name &&
-      (!group || sameGroup(d.group, group)),
+    (d) => (d.direct || d.evidence.field === "require") && d.name === name && (!group || sameGroup(d.group, group)),
   );
-  if (matches.length !== 1 || matches[0]?.ambiguous)
+  if (matches.length !== 1 || matches[0]?.ambiguous) {
     throw new DependencyError(
       matches.length ? "ambiguous-dependency" : "dependency-not-found",
       `Select one declaration of ${name} using its group; conditional sources may require manual native management`,
     );
+  }
   return matches[0] as Dependency;
 }
 export function redact(value: string): string {
   return value
     .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]*)?@/g, "$1[redacted]@")
-    .replace(
-      /((?:token|password|_authToken|authorization)\s*[=:]\s*)[^\s,;]+/gi,
-      "$1[redacted]",
-    );
+    .replace(/((?:token|password|_authToken|authorization)\s*[=:]\s*)[^\s,;]+/gi, "$1[redacted]");
 }
 
 /** Sanitize response data without parsing text that redaction may have changed. */
 export function redactValues<T>(value: T): T {
-  if (typeof value === "string") return redact(value) as T;
-  if (Array.isArray(value)) return value.map(redactValues) as T;
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, redactValues(item)]),
-    ) as T;
+  if (typeof value === "string") {
+    return redact(value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map(redactValues) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValues(item)])) as T;
+  }
   return value;
 }

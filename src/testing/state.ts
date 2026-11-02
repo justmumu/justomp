@@ -1,11 +1,7 @@
 import { join } from "node:path";
-import {
-  type FileSnapshot,
-  publishProjectionFile,
-  readProjectionFile,
-} from "../lint/files";
+import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "../lint/files";
 import { toolMembership } from "../packaging/tool-membership";
-import type { TestTools } from "./adapters";
+import { type TestTools } from "./adapters";
 import { TestError, type TestRunner } from "./model";
 export interface TestWave {
   projects: string[];
@@ -33,9 +29,7 @@ function validTools(value: unknown): value is TestTools {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).length > 0 &&
-    Object.values(value).every(
-      (v) => typeof v === "string" && /^\d+\.\d+(?:\.\d+)?$/.test(v),
-    )
+    Object.values(value).every((v) => typeof v === "string" && /^\d+\.\d+(?:\.\d+)?$/.test(v))
   );
 }
 export class TestStateStore {
@@ -46,13 +40,11 @@ export class TestStateStore {
     readonly recovery?: string,
   ) {}
   static async load(root: string): Promise<TestStateStore> {
-    const snapshot = await readProjectionFile(
-      root,
-      join(root, ".justomp/test_state.json"),
-    );
+    const snapshot = await readProjectionFile(root, join(root, ".justomp/test_state.json"));
     const empty: TestState = { schema: 1, projects: {}, waves: {} };
-    if (snapshot.text === null)
+    if (snapshot.text === null) {
       return new TestStateStore(root, empty, snapshot);
+    }
     try {
       const state = JSON.parse(snapshot.text) as TestState;
       if (
@@ -61,30 +53,10 @@ export class TestStateStore {
         Array.isArray(state.projects) ||
         !state.waves ||
         Array.isArray(state.waves)
-      )
+      ) {
         throw new Error("schema");
-      for (const item of Object.values(state.projects))
-        if (
-          !item ||
-          !["pytest", "vitest", "bun", "go"].includes(item.runner) ||
-          !validTools(item.tools) ||
-          typeof item.ready !== "boolean" ||
-          typeof item.policy_hash !== "string"
-        )
-          throw new Error("receipt");
-      for (const [name, wave] of Object.entries(state.waves))
-        if (
-          !["pytest", "vitest", "bun", "go"].includes(name) ||
-          !wave ||
-          !validTools(wave.tools) ||
-          typeof wave.complete !== "boolean" ||
-          !Array.isArray(wave.projects) ||
-          !Array.isArray(wave.pending) ||
-          ![...wave.projects, ...wave.pending].every(
-            (v) => typeof v === "string",
-          )
-        )
-          throw new Error("wave");
+      }
+      validateReceipts(state);
       return new TestStateStore(root, state, snapshot);
     } catch {
       return new TestStateStore(
@@ -97,21 +69,40 @@ export class TestStateStore {
   }
   async save(): Promise<void> {
     const content = `${JSON.stringify(this.state, null, 2)}\n`;
-    if (content === this.snapshot.text) return;
-    await publishProjectionFile(
-      this.root,
-      join(this.root, ".justomp/test_state.json"),
-      this.snapshot,
-      content,
-    );
-    this.snapshot = await readProjectionFile(
-      this.root,
-      join(this.root, ".justomp/test_state.json"),
-    );
-    if (this.snapshot.text !== content)
-      throw new TestError(
-        "state-conflict",
-        "Test state changed during publication",
-      );
+    if (content === this.snapshot.text) {
+      return;
+    }
+    await publishProjectionFile(this.root, join(this.root, ".justomp/test_state.json"), this.snapshot, content);
+    this.snapshot = await readProjectionFile(this.root, join(this.root, ".justomp/test_state.json"));
+    if (this.snapshot.text !== content) {
+      throw new TestError("state-conflict", "Test state changed during publication");
+    }
+  }
+}
+
+function validateReceipts(state: TestState): void {
+  for (const item of Object.values(state.projects)) {
+    if (
+      !item ||
+      !["pytest", "vitest", "bun", "go"].includes(item.runner) ||
+      !validTools(item.tools) ||
+      typeof item.ready !== "boolean" ||
+      typeof item.policy_hash !== "string"
+    ) {
+      throw new Error("receipt");
+    }
+  }
+  for (const [name, wave] of Object.entries(state.waves)) {
+    if (
+      !["pytest", "vitest", "bun", "go"].includes(name) ||
+      !wave ||
+      !validTools(wave.tools) ||
+      typeof wave.complete !== "boolean" ||
+      !Array.isArray(wave.projects) ||
+      !Array.isArray(wave.pending) ||
+      ![...wave.projects, ...wave.pending].every((v) => typeof v === "string")
+    ) {
+      throw new Error("wave");
+    }
   }
 }

@@ -11,6 +11,7 @@
       }
     },
     "javascript": {
+      "exclude": [],
       "compilerOptions": {
         "strict": true,
         "allowJs": true,

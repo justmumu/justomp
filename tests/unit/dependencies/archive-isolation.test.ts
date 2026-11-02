@@ -8,7 +8,9 @@ test("shared archive payloads do not share mutable bytes or registry maps", () =
   const second = copyArchivePayloads(payloads);
   const mutable = first.get(key);
   const independent = second.get(key);
-  if (!mutable || !independent) throw new Error("Missing fixture archive");
+  if (!mutable || !independent) {
+    throw new Error("Missing fixture archive");
+  }
   const original = independent[0];
   mutable[0] = (mutable[0] ?? 0) ^ 0xff;
   first.delete(key);

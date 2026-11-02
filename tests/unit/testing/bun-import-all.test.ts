@@ -13,15 +13,13 @@ test("imports exactly approved URLs with bounded concurrency and filename failur
       seen.push(url);
       await Promise.resolve();
       active--;
-      if (url.endsWith("/b.ts")) throw new Error("broken");
+      if (url.endsWith("/b.ts")) {
+        throw new Error("broken");
+      }
     },
     2,
   );
   expect(maximum).toBe(2);
-  expect(seen).toEqual([
-    "file:///project/a.ts",
-    "file:///project/b.ts",
-    "file:///project/c.ts",
-  ]);
+  expect(seen).toEqual(["file:///project/a.ts", "file:///project/b.ts", "file:///project/c.ts"]);
   expect(errors).toEqual([{ file: "b.ts", message: "broken" }]);
 });

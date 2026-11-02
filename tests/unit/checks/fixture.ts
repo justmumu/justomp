@@ -1,7 +1,7 @@
-import type { ProcessResult } from "../../../src/dependencies/model";
-import type { Project } from "../../../src/inspect/model";
-import type { LintScope } from "../../../src/lint/scope";
-import type { LintTarget } from "../../../src/lint/targets";
+import { type ProcessResult } from "../../../src/dependencies/model";
+import { type Project } from "../../../src/inspect/model";
+import { type LintScope } from "../../../src/lint/scope";
+import { type LintTarget } from "../../../src/lint/targets";
 
 /** In-memory adapter inputs. No inspection, files, installs or child processes. */
 export function target(ecosystem: Project["ecosystem"]): LintTarget {

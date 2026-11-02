@@ -5,11 +5,10 @@ import { npmAdapter } from "../../dependencies/adapters/npm";
 import { pnpmAdapter } from "../../dependencies/adapters/pnpm";
 import { yarnClassicAdapter } from "../../dependencies/adapters/yarn-classic";
 import { yarnModernAdapter } from "../../dependencies/adapters/yarn-modern";
-import type { AdapterContext, ProcessResult } from "../../dependencies/model";
-import { redact } from "../../dependencies/model";
+import { type AdapterContext, type ProcessResult, redact } from "../../dependencies/model";
 import { runProcess } from "../../dependencies/runner";
 import { LintError } from "../model";
-import type { LintTarget } from "../targets";
+import { type LintTarget } from "../targets";
 
 export function nativeAdapter(context: AdapterContext) {
   switch (context.manager) {
@@ -20,27 +19,23 @@ export function nativeAdapter(context: AdapterContext) {
     case "bun":
       return bunAdapter;
     case "yarn":
-      return context.version.startsWith("1.")
-        ? yarnClassicAdapter
-        : yarnModernAdapter;
+      return context.version.startsWith("1.") ? yarnClassicAdapter : yarnModernAdapter;
     default:
-      throw new LintError(
-        "unsupported-manager",
-        `Unsupported JavaScript manager: ${context.manager}`,
-      );
+      throw new LintError("unsupported-manager", `Unsupported JavaScript manager: ${context.manager}`);
   }
 }
 export function succeeded(result: ProcessResult) {
   return result.exit_code === 0 && !result.truncated && !result.cancelled;
 }
 export function assertNative(result: ProcessResult, label: string): void {
-  if (!succeeded(result))
+  if (!succeeded(result)) {
     throw new LintError(
       result.cancelled ? "cancelled" : "native-preparation-failed",
       redact(
         `${label}: ${result.stderr || `exit ${result.exit_code}`}${result.truncated ? " (output truncated)" : ""}`,
       ),
     );
+  }
 }
 /** Resolve only package metadata, never execute package exports during preflight. */
 const RESOLVE_PACKAGE = `
@@ -94,18 +89,17 @@ export async function nodeRun(
     native.manager === "yarn" &&
     !native.version.startsWith("1.") &&
     (args[0] !== "-p" || (await hasYarnEnvironment(native.owner)))
-  )
+  ) {
     return native.run({
       args: ["node", ...args],
       label: "Run local Node tool",
       cwd: target.scope.cwd,
     });
-  const node = Bun.which("node", { PATH: target.scope.env.PATH });
-  if (!node)
-    throw new LintError(
-      "runtime-unavailable",
-      "Node is not installed; install a compatible runtime explicitly",
-    );
+  }
+  const node = Bun.which("node", target.scope.env.PATH === undefined ? {} : { PATH: target.scope.env.PATH });
+  if (!node) {
+    throw new LintError("runtime-unavailable", "Node is not installed; install a compatible runtime explicitly");
+  }
   return runProcess(node, args, {
     cwd: target.scope.cwd,
     env: {
@@ -113,12 +107,7 @@ export async function nodeRun(
       NODE_PATH:
         native.manager === "pnpm" && target.scope.pnpm
           ? [...new Set([native.cwd, native.owner])]
-              .map((directory) =>
-                join(
-                  directory,
-                  target.scope.pnpm?.modulesDirectory ?? "node_modules",
-                ),
-              )
+              .map((directory) => join(directory, target.scope.pnpm?.modulesDirectory ?? "node_modules"))
               .join(delimiter)
           : undefined,
     },
@@ -132,7 +121,9 @@ export async function installedPackages(
   signal: AbortSignal,
 ): Promise<Record<string, Record<string, unknown>>> {
   if (native.manager === "yarn" && !native.version.startsWith("1.")) {
-    if (!(await hasYarnEnvironment(native.owner))) return {};
+    if (!(await hasYarnEnvironment(native.owner))) {
+      return {};
+    }
   }
   const result = await nodeRun(
     target,
@@ -141,16 +132,14 @@ export async function installedPackages(
       "-e",
       `${RESOLVE_PACKAGE}\nconst result = {}; for (const name of process.argv.slice(3)) { try { result[name] = pkg(name).data; } catch {} } console.log(JSON.stringify(result));`,
       packageRoots(target, native),
-      native.manager === "yarn" && !native.version.startsWith("1.")
-        ? "pnp"
-        : "local",
+      native.manager === "yarn" && !native.version.startsWith("1.") ? "pnp" : "local",
       ...names,
     ],
     signal,
   );
   assertNative(result, "Read installed package metadata");
   const line = result.stdout.split("\n").find((value) => value.startsWith("{"));
-  return JSON.parse(line ?? "{}");
+  return JSON.parse(line ?? "{}") as Record<string, Record<string, unknown>>;
 }
 export async function localTool(
   target: LintTarget,
@@ -159,16 +148,14 @@ export async function localTool(
   args: string[],
   signal: AbortSignal,
 ) {
-  return nodeRun(
+  return await nodeRun(
     target,
     native,
     [
       "-e",
-      `${RESOLVE_PACKAGE}\nconst name = process.argv[3], binary = process.argv[4]; const {file, data} = pkg(name); const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[binary]; if (!bin) throw new Error('Missing local binary for ' + name); const entry = path.resolve(path.dirname(file), bin); if (!fs.existsSync(entry)) throw new Error('Missing local binary for ' + name); process.argv = [process.execPath, entry, ...process.argv.slice(5)]; if (entry.endsWith('.cjs') || (data.type !== 'module' && !entry.endsWith('.mjs'))) require(entry); else import(require('node:url').pathToFileURL(entry).href);`,
+      `${RESOLVE_PACKAGE}\nconst name = process.argv[3], binary = process.argv[4]; if (name === '@biomejs/biome') { delete process.env.BIOME_BINARY; delete process.env.BIOME_CONFIG_PATH; delete process.env.BIOME_LOG_FILE; delete process.env.BIOME_LOG_LEVEL; } const {file, data} = pkg(name); const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[binary]; if (!bin) throw new Error('Missing local binary for ' + name); const entry = path.resolve(path.dirname(file), bin); if (!fs.existsSync(entry)) throw new Error('Missing local binary for ' + name); process.argv = [process.execPath, entry, ...process.argv.slice(5)]; if (entry.endsWith('.cjs') || (data.type !== 'module' && !entry.endsWith('.mjs'))) require(entry); else import(require('node:url').pathToFileURL(entry).href);`,
       packageRoots(target, native),
-      native.manager === "yarn" && !native.version.startsWith("1.")
-        ? "pnp"
-        : "local",
+      native.manager === "yarn" && !native.version.startsWith("1.") ? "pnp" : "local",
       tool.package,
       tool.binary,
       ...args,

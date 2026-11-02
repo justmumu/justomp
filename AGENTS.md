@@ -1,9 +1,21 @@
 # Development
 
-Use the Bun scripts in package.json. `bun run check` checks types, formatting,
-lint and unit tests; `bun run test:integration` runs all real integration
-boundaries. Feature aliases are for focused work and overlap: do not combine
-them as the full gate.
+Use the Bun scripts in package.json. Bootstrap with `bun install --frozen-lockfile`
+and run `bun run setup` to prepare tools and install the owned Git hooks. OMP
+is not required. `bun run check` calls the managed pre-push gate: dependency
+consistency, formatting, lint, strict typing and unit tests with coverage.
+`bun run lint-fix`, `bun run format` and `bun run typecheck` use the same services
+as the extension. Run managed tests with `bun scripts/development.ts test` or
+`bun scripts/development.ts integration`; `--test-file` accepts exact relative
+paths and `--timeout-seconds` sets the execution budget. Feature aliases overlap;
+do not combine them as the full gate. `bun run test:cost` runs both lanes once.
+
+The tracked `.justomp/config.json` owns this repo's policy. Generated configs and
+runtime receipts are ignored. Keep the repo-only `.private/**` exclusions and
+`skipLibCheck` exception; do not weaken shared rules or the 70% unit threshold.
+Hooks own routine verification; do not repeat a passing full gate without new
+changes or an unresolved failure. Setup preserves hook conflicts and may report
+partial installation. It does not add a commit-msg hook.
 
 Before adding or reviewing tests, read
 [the test evidence and cost rule](compound-packs/testing/test-evidence-and-cost.md).

@@ -15,8 +15,9 @@ async function command(cwd: string, args: string[]) {
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
   ]);
-  if (code !== 0)
+  if (code !== 0) {
     throw new Error(`${args.join(" ")} exited ${code}\n${out}\n${error}`);
+  }
   return out;
 }
 
@@ -25,14 +26,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
   try {
     const checkout = new URL("../../../", import.meta.url).pathname;
     const archive = join(temporary, "justomp.tgz");
-    await command(checkout, [
-      "pm",
-      "pack",
-      "--filename",
-      archive,
-      "--ignore-scripts",
-      "--quiet",
-    ]);
+    await command(checkout, ["pm", "pack", "--filename", archive, "--ignore-scripts", "--quiet"]);
     const installation = join(temporary, "installation"),
       project = join(temporary, "project");
     await mkdir(installation);
@@ -52,11 +46,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         'import * as api from "justomp/typecheck"; import * as root from "justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof root[name] === "function").sort()));',
       ]),
     );
-    expect(exported).toEqual([
-      "checkProjectTypecheck",
-      "prepareProjectTypecheck",
-      "typecheckProject",
-    ]);
+    expect(exported).toEqual(["checkProjectTypecheck", "prepareProjectTypecheck", "typecheckProject"]);
     const testingExports = JSON.parse(
       await command(installation, [
         "-e",
@@ -71,6 +61,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/protection.md",
       "src/protection/sandbox.ts",
       "docs/lint.md",
+      "docs/lint-migration.md",
       "docs/format.md",
       "docs/precommit.md",
       "docs/prepush.md",
@@ -82,28 +73,14 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "src/testing/go/inventory.go",
       "src/testing/python/managed_pytest.py",
       "src/testing/javascript/bun-import-all.ts",
-      "src/lint/javascript/formatter.cjs",
-    ])
-      expect(
-        await Bun.file(
-          join(installation, "node_modules/justomp", path),
-        ).exists(),
-      ).toBe(true);
-    const api = await import(
-      join(installation, "node_modules/justomp/src/dependencies/index.ts")
-    );
-    expect(Object.keys(api.adapters).sort()).toEqual([
-      "bun",
-      "go",
-      "npm",
-      "pnpm",
-      "uv",
-      "yarn-classic",
-      "yarn-modern",
-    ]);
-    const lintApi = await import(
-      join(installation, "node_modules/justomp/src/lint/index.ts")
-    );
+      "src/lint/javascript/result.ts",
+      "src/config/lint/javascript/migrate.ts",
+    ]) {
+      expect(await Bun.file(join(installation, "node_modules/justomp", path)).exists()).toBe(true);
+    }
+    const api = await import(join(installation, "node_modules/justomp/src/dependencies/index.ts"));
+    expect(Object.keys(api.adapters).sort()).toEqual(["bun", "go", "npm", "pnpm", "uv", "yarn-classic", "yarn-modern"]);
+    const lintApi = await import(join(installation, "node_modules/justomp/src/lint/index.ts"));
     expect(typeof lintApi.checkProjectLint).toBe("function");
     expect(typeof lintApi.prepareLintProjects).toBe("function");
     const host = await createHost(project, entry);
@@ -125,21 +102,21 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         "dependency_remove",
         "dependency_update",
         "dependency_sync",
-      ])
+      ]) {
         expect(host.runner.getRegisteredTool(name)).toBeDefined();
+      }
       for (const [tool, label] of [
         ["precommit", "Pre-commit"],
         ["prepush", "Pre-push"],
       ]) {
-        const child = Bun.spawn(
-          [join(installation, "node_modules/.bin", `justomp-${tool}`)],
-          { cwd: project, stdout: "pipe", stderr: "pipe" },
-        );
+        const child = Bun.spawn([join(installation, "node_modules/.bin", `justomp-${tool}`)], {
+          cwd: project,
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         const output = await new Response(child.stdout).text();
         expect(await child.exited).toBe(2);
-        expect(JSON.parse(output).errors).toContain(
-          `${label} requires a Git working tree`,
-        );
+        expect(JSON.parse(output).errors).toContain(`${label} requires a Git working tree`);
       }
       for (const tool of ["lint", "typecheck"]) {
         const child = Bun.spawn(
@@ -166,24 +143,14 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         join(project, "pyproject.toml"),
         '[project]\nname="packed"\nversion="0.1.0"\n[tool.uv]\npackage=false\n',
       );
-      const formatted = await host
-        .getTool("project_format")
-        .execute("installed-format", {
-          project_id: "python:pyproject.toml",
-          files: ["pyproject.toml"],
-        });
-      expect(formatted.details.success, JSON.stringify(formatted.details)).toBe(
-        true,
-      );
-      expect(await Bun.file(join(project, "pyproject.toml")).text()).toContain(
-        'name = "packed"',
-      );
-      expect(await Bun.file(join(project, "package.json")).exists()).toBe(
-        false,
-      );
-      expect(await Bun.file(join(project, "package-lock.json")).exists()).toBe(
-        false,
-      );
+      const formatted = await host.getTool("project_format").execute("installed-format", {
+        project_id: "python:pyproject.toml",
+        files: ["pyproject.toml"],
+      });
+      expect(formatted.details.success, JSON.stringify(formatted.details)).toBe(true);
+      expect(await Bun.file(join(project, "pyproject.toml")).text()).toContain('name = "packed"');
+      expect(await Bun.file(join(project, "package.json")).exists()).toBe(false);
+      expect(await Bun.file(join(project, "package-lock.json")).exists()).toBe(false);
     } finally {
       await host.close();
     }

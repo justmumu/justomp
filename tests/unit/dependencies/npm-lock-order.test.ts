@@ -36,21 +36,16 @@ test("npm lock declaration equality ignores native key ordering", async () => {
   });
   expect(result.diagnostics).toEqual([]);
   expect(result.complete).toBe(true);
-  expect(
-    result.dependencies.every((item) => item.resolutions?.length === 1),
-  ).toBe(true);
+  expect(result.dependencies.every((item) => item.resolutions?.length === 1)).toBe(true);
 });
 const staleDeclarations: Record<string, Record<string, string>> = {
   changed: { "@types/node": "24.10.1", typescript: "5.9.3" },
   missing: { typescript: "7.0.2" },
   extra: { "@types/node": "24.10.1", typescript: "7.0.2", extra: "1.0.0" },
 };
-for (const [name, declarations] of Object.entries(staleDeclarations))
+for (const [name, declarations] of Object.entries(staleDeclarations)) {
   test(`npm lock still rejects ${name} declarations`, async () => {
     const result = await lockedInventory(declarations);
-    expect(
-      result.diagnostics.some((item) =>
-        item.message.includes("npm lock declarations are stale"),
-      ),
-    ).toBe(true);
+    expect(result.diagnostics.some((item) => item.message.includes("npm lock declarations are stale"))).toBe(true);
   });
+}

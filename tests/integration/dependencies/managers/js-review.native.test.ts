@@ -9,10 +9,7 @@ test("modern Yarn mixed native update keeps default registry constraints and Git
   const git = await gitSource(f.root);
   try {
     await mkdir(join(f.root, "local"));
-    await writeFile(
-      join(f.root, "local/package.json"),
-      JSON.stringify({ name: "u6-local", version: "1.0.0" }),
-    );
+    await writeFile(join(f.root, "local/package.json"), JSON.stringify({ name: "u6-local", version: "1.0.0" }));
     await f.operate(yarnModernAdapter, {
       operation: "add",
       group: { kind: "runtime" },
@@ -27,12 +24,7 @@ test("modern Yarn mixed native update keeps default registry constraints and Git
     f.publish("2.0.0");
     await f.operate(yarnModernAdapter, {
       operation: "update",
-      packages: [
-        { name: "u6-dep", version: "2.0.0" },
-        { name: "u6-other" },
-        { name: "u6-local" },
-        { name: "u6-git" },
-      ],
+      packages: [{ name: "u6-dep", version: "2.0.0" }, { name: "u6-other" }, { name: "u6-local" }, { name: "u6-git" }],
     });
     const after = (await f.manifest()).dependencies;
     expect(after).toEqual({ ...before, "u6-dep": "2.0.0" });

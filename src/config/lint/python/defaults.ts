@@ -1,4 +1,4 @@
-import type { PythonPolicy } from "../model";
+import { type PythonPolicy } from "../model";
 
 /** Frozen policy from KTD3, excluding the template-specific src setting. */
 export const PYTHON_DEFAULTS: PythonPolicy = {
@@ -73,28 +73,9 @@ export const PYTHON_DEFAULTS: PythonPolicy = {
         "EXE",
         "D",
       ],
-      ignore: [
-        "E501",
-        "COM812",
-        "ISC001",
-        "TRY003",
-        "EM101",
-        "EM102",
-        "TID252",
-        "S603",
-        "S607",
-      ],
+      ignore: ["E501", "COM812", "ISC001", "TRY003", "EM101", "EM102", "TID252", "S603", "S607"],
       "per-file-ignores": {
-        "tests/*": [
-          "S101",
-          "SLF001",
-          "ARG",
-          "T201",
-          "PT011",
-          "ANN",
-          "INP001",
-          "D",
-        ],
+        "tests/*": ["S101", "SLF001", "ARG", "T201", "PT011", "ANN", "INP001", "D"],
         "scripts/*": ["INP001", "T201", "FBT001", "FBT002"],
       },
       isort: { "combine-as-imports": true },

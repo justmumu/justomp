@@ -1,5 +1,5 @@
 import { realpath } from "node:fs/promises";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { loadConfig } from "../config/load";
 import { retainLintCoordinator } from "../lint/coordinator";
 import { lintAdapters } from "../lint/service";
@@ -28,11 +28,11 @@ interface Scope {
   controller: AbortController;
   release: () => Promise<void>;
   pending: Set<Promise<unknown>>;
-  lint?: Promise<Awaited<ReturnType<typeof retainLintCoordinator>>>;
+  lint?: Promise<Awaited<ReturnType<typeof retainLintCoordinator>>> | undefined;
   unsubscribeLint?: () => void;
-  typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>>;
+  typecheck?: Promise<Awaited<ReturnType<typeof retainTypecheckCoordinator>>> | undefined;
   unsubscribeTypecheck?: () => void;
-  testing?: Promise<Awaited<ReturnType<typeof retainTestCoordinator>>>;
+  testing?: Promise<Awaited<ReturnType<typeof retainTestCoordinator>>> | undefined;
   unsubscribeTesting?: () => void;
 }
 function describeError(error: unknown) {
@@ -45,9 +45,7 @@ function describeError(error: unknown) {
   return {
     code,
     message: error instanceof Error ? error.message : String(error),
-    ...(error instanceof Error && "partial" in error && error.partial
-      ? { partial: error.partial }
-      : {}),
+    ...(error instanceof Error && "partial" in error && error.partial ? { partial: error.partial } : {}),
   };
 }
 export default function registerInspection(pi: ExtensionAPI): void {
@@ -62,7 +60,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
     return job;
   }
   async function releaseScope(active: Scope | undefined): Promise<void> {
-    if (!active) return;
+    if (!active) {
+      return;
+    }
     // Release all owners before joining: either job may be waiting on the other's lease.
     const released = await Promise.allSettled([
       active.lint?.then(
@@ -83,93 +83,63 @@ export default function registerInspection(pi: ExtensionAPI): void {
     active.unsubscribeTesting?.();
     await Promise.allSettled([...active.pending]);
     await active.release();
-    const errors = released.filter(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (errors.length)
+    const errors = released.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (errors.length) {
       throw new AggregateError(
         errors.map((result) => result.reason),
         "Native preparation shutdown failed",
       );
+    }
   }
 
   async function lintCoordinator(root: string, ctx: ExtensionContext) {
     const active = scope;
-    if (!active || active.root !== root || active.controller.signal.aborted)
-      throw new StructureError(
-        "root-changed",
-        "Session root changed before lint preparation",
-      );
+    if (!active || active.root !== root || active.controller.signal.aborted) {
+      throw new StructureError("root-changed", "Session root changed before lint preparation");
+    }
     if (!active.lint) {
-      active.lint = retainLintCoordinator(root, lintAdapters).then(
-        async (owned) => {
-          if (active.controller.signal.aborted) {
-            await owned.release();
-            throw active.controller.signal.reason;
-          }
-          const progress = owned.coordinator.subscribeProgress((value) =>
-            reportPreparation(
-              ctx,
-              "lint",
-              { root, preparation: value },
-              "info",
-            ),
-          );
-          const reports = owned.coordinator.subscribe((value) => {
-            if (!value.complete || value.changes.length)
-              reportPreparation(
-                ctx,
-                "lint",
-                { root, preparation: value },
-                value.complete ? "info" : "error",
-              );
-          });
-          active.unsubscribeLint = () => {
-            progress();
-            reports();
-          };
-          return owned;
-        },
-      );
+      active.lint = retainLintCoordinator(root, lintAdapters).then(async (owned) => {
+        if (active.controller.signal.aborted) {
+          await owned.release();
+          throw active.controller.signal.reason;
+        }
+        const progress = owned.coordinator.subscribeProgress((value) =>
+          reportPreparation(ctx, "lint", { root, preparation: value }, "info"),
+        );
+        const reports = owned.coordinator.subscribe((value) => {
+          reportCompletedPreparation(ctx, "lint", root, value);
+        });
+        active.unsubscribeLint = () => {
+          progress();
+          reports();
+        };
+        return owned;
+      });
       void active.lint.catch(() => {
-        if (!active.controller.signal.aborted) active.lint = undefined;
+        if (!active.controller.signal.aborted) {
+          active.lint = undefined;
+        }
       });
     }
     return (await active.lint).coordinator;
   }
   async function typecheckCoordinator(root: string, ctx: ExtensionContext) {
     const active = scope;
-    if (!active || active.root !== root || active.controller.signal.aborted)
-      throw new StructureError(
-        "root-changed",
-        "Session root changed before typecheck preparation",
-      );
+    if (!active || active.root !== root || active.controller.signal.aborted) {
+      throw new StructureError("root-changed", "Session root changed before typecheck preparation");
+    }
     if (!active.typecheck) {
-      active.typecheck = retainTypecheckCoordinator(
-        root,
-        typecheckAdapters,
-      ).then(async (owned) => {
+      active.typecheck = retainTypecheckCoordinator(root, typecheckAdapters).then(async (owned) => {
         if (active.controller.signal.aborted) {
           await owned.release();
           throw active.controller.signal.reason;
         }
         const progress = owned.coordinator.subscribeProgress((value) =>
-          reportPreparation(
-            ctx,
-            "typecheck",
-            { root, preparation: value },
-            "info",
-          ),
+          reportPreparation(ctx, "typecheck", { root, preparation: value }, "info"),
         );
         const reports = owned.coordinator.subscribe((value) => {
           const { projects: _projects, ...preparation } = value;
-          if (!value.complete || value.changes.length)
-            reportPreparation(
-              ctx,
-              "typecheck",
-              { root, preparation },
-              value.complete ? "info" : "error",
-            );
+          reportCompletedPreparation(ctx, "typecheck", root, preparation);
         });
         active.unsubscribeTypecheck = () => {
           progress();
@@ -178,71 +148,62 @@ export default function registerInspection(pi: ExtensionAPI): void {
         return owned;
       });
       void active.typecheck.catch(() => {
-        if (!active.controller.signal.aborted) active.typecheck = undefined;
+        if (!active.controller.signal.aborted) {
+          active.typecheck = undefined;
+        }
       });
     }
     return (await active.typecheck).coordinator;
   }
   async function testCoordinator(root: string, ctx: ExtensionContext) {
     const active = scope;
-    if (!active || active.root !== root || active.controller.signal.aborted)
-      throw new StructureError(
-        "root-changed",
-        "Session root changed before test preparation",
-      );
+    if (!active || active.root !== root || active.controller.signal.aborted) {
+      throw new StructureError("root-changed", "Session root changed before test preparation");
+    }
     if (!active.testing) {
-      active.testing = retainTestCoordinator(root, testAdapters).then(
-        async (owned) => {
-          if (active.controller.signal.aborted) {
-            await owned.release();
-            throw active.controller.signal.reason;
-          }
-          const progress = owned.coordinator.subscribeProgress((value) =>
-            reportPreparation(
-              ctx,
-              "test",
-              { root, preparation: value },
-              "info",
-            ),
-          );
-          const reports = owned.coordinator.subscribe((value) => {
-            if (!value.complete || value.changes.length)
-              reportPreparation(
-                ctx,
-                "test",
-                { root, preparation: value },
-                value.complete ? "info" : "error",
-              );
-          });
-          active.unsubscribeTesting = () => {
-            progress();
-            reports();
-          };
-          return owned;
-        },
-      );
+      active.testing = retainTestCoordinator(root, testAdapters).then(async (owned) => {
+        if (active.controller.signal.aborted) {
+          await owned.release();
+          throw active.controller.signal.reason;
+        }
+        const progress = owned.coordinator.subscribeProgress((value) =>
+          reportPreparation(ctx, "test", { root, preparation: value }, "info"),
+        );
+        const reports = owned.coordinator.subscribe((value) => {
+          reportCompletedPreparation(ctx, "test", root, value);
+        });
+        active.unsubscribeTesting = () => {
+          progress();
+          reports();
+        };
+        return owned;
+      });
       void active.testing.catch(() => {
-        if (!active.controller.signal.aborted) active.testing = undefined;
+        if (!active.controller.signal.aborted) {
+          active.testing = undefined;
+        }
       });
     }
     return (await active.testing).coordinator;
   }
+  function ensureOpen(): void {
+    if (closed) {
+      throw new StructureError("closed", "Inspection session has shut down");
+    }
+  }
   function selectRoot(root: string): Promise<Scope> {
     const next = transition.then(async () => {
-      if (closed)
-        throw new StructureError("closed", "Inspection session has shut down");
+      ensureOpen();
       const canonical = await realpath(root);
-      if (closed)
-        throw new StructureError("closed", "Inspection session has shut down");
-      if (scope?.root === canonical) return scope;
+      ensureOpen();
+      if (scope?.root === canonical) {
+        return scope;
+      }
       const previous = scope;
       scope = undefined;
-      previous?.controller.abort(
-        new StructureError("root-changed", "Session root changed"),
-      );
+      previous?.controller.abort(new StructureError("root-changed", "Session root changed"));
       await releaseScope(previous);
-      if (closed)
-        throw new StructureError("closed", "Inspection session has shut down");
+      ensureOpen();
       const release = await retainPackagingStructure(canonical);
       if (closed) {
         await release();
@@ -269,10 +230,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
   ): Promise<T> {
     outerSignal?.throwIfAborted();
     const active = await selectRoot(root);
-    const signal = AbortSignal.any([
-      active.controller.signal,
-      ...(outerSignal ? [outerSignal] : []),
-    ]);
+    const signal = AbortSignal.any([active.controller.signal, ...(outerSignal ? [outerSignal] : [])]);
     signal.throwIfAborted();
     const job = work(active.root, signal);
     active.pending.add(job);
@@ -282,30 +240,12 @@ export default function registerInspection(pi: ExtensionAPI): void {
       active.pending.delete(job);
     }
   }
-  registerDependencyTools(pi, (root, signal, work) =>
-    track(withRoot(root, signal, work)),
-  );
-  registerCommitTools(pi, (root, signal, work) =>
-    track(withRoot(root, signal, work)),
-  );
-  registerFormatTools(pi, (root, signal, work) =>
-    track(withRoot(root, signal, work)),
-  );
-  registerLintTools(
-    pi,
-    (root, signal, work) => track(withRoot(root, signal, work)),
-    lintCoordinator,
-  );
-  registerTypecheckTools(
-    pi,
-    (root, signal, work) => track(withRoot(root, signal, work)),
-    typecheckCoordinator,
-  );
-  registerTestTools(
-    pi,
-    (root, signal, work) => track(withRoot(root, signal, work)),
-    testCoordinator,
-  );
+  registerDependencyTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
+  registerCommitTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
+  registerFormatTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
+  registerLintTools(pi, (root, signal, work) => track(withRoot(root, signal, work)), lintCoordinator);
+  registerTypecheckTools(pi, (root, signal, work) => track(withRoot(root, signal, work)), typecheckCoordinator);
+  registerTestTools(pi, (root, signal, work) => track(withRoot(root, signal, work)), testCoordinator);
   async function inspect(
     root: string,
     refresh: boolean,
@@ -314,26 +254,18 @@ export default function registerInspection(pi: ExtensionAPI): void {
   ): Promise<PackagingResult> {
     const deadline = new AbortController();
     const timer = setTimeout(
-      () =>
-        deadline.abort(
-          new StructureError(
-            "timeout",
-            "Inspection exceeded the OMP handler budget",
-          ),
-        ),
+      () => deadline.abort(new StructureError("timeout", "Inspection exceeded the OMP handler budget")),
       24_000,
     );
     try {
-      return await withRoot(
-        root,
-        outerSignal,
-        async (activeRoot, activeSignal) => {
-          const signal = AbortSignal.any([deadline.signal, activeSignal]);
-          signal.throwIfAborted();
-          if (flush) await loadConfig(activeRoot, { flush: true, signal });
-          return await getPackagingStructure(activeRoot, { refresh, signal });
-        },
-      );
+      return await withRoot(root, outerSignal, async (activeRoot, activeSignal) => {
+        const signal = AbortSignal.any([deadline.signal, activeSignal]);
+        signal.throwIfAborted();
+        if (flush) {
+          await loadConfig(activeRoot, { flush: true, signal });
+        }
+        return await getPackagingStructure(activeRoot, { refresh, signal });
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -342,9 +274,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
     refresh: pi.zod
       .boolean()
       .optional()
-      .describe(
-        "Force a full inspection instead of reusing a clean watched snapshot.",
-      ),
+      .describe("Force a full inspection instead of reusing a clean watched snapshot."),
   });
   pi.registerTool({
     name: "project_inspect",
@@ -355,19 +285,8 @@ export default function registerInspection(pi: ExtensionAPI): void {
     approval: "write",
     async execute(_callId, params, signal, _onUpdate, ctx) {
       try {
-        const result = await track(
-          inspect(
-            ctx.cwd,
-            parameters.parse(params).refresh ?? false,
-            false,
-            signal,
-          ),
-        );
-        const mode = result.fallbackReason
-          ? "full inspection (watcher unavailable)"
-          : result.cacheHit
-            ? "cached watched snapshot"
-            : "refreshed snapshot";
+        const result = await track(inspect(ctx.cwd, parameters.parse(params).refresh ?? false, false, signal));
+        const mode = inspectionMode(result);
         return {
           content: [
             {
@@ -379,7 +298,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
           details: result,
         };
       } catch (error) {
-        if (signal?.aborted) throw signal.reason;
+        if (signal?.aborted) {
+          throw signal.reason;
+        }
         const failure = describeError(error);
         return {
           content: [
@@ -403,8 +324,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
         withRoot(ctx.cwd, undefined, async (root, signal) => {
           for (const install of [installPrecommit, installPrepush]) {
             const installation = await install(root, signal);
-            if (installation.status === "conflict")
+            if (installation.status === "conflict") {
               reportStartupError(ctx, new Error(installation.message));
+            }
           }
         }),
       );
@@ -419,13 +341,18 @@ export default function registerInspection(pi: ExtensionAPI): void {
           ]);
           signal.throwIfAborted();
           // Coordinators own/join native jobs; a session only retains ownership.
-          for (const coordinator of coordinators)
+          for (const coordinator of coordinators) {
             void coordinator.reconcile().catch((error) => {
-              if (!signal.aborted) reportStartupError(ctx, error);
+              if (!signal.aborted) {
+                reportStartupError(ctx, error);
+              }
             });
+          }
         }),
       ).catch((error) => {
-        if (!closed) reportStartupError(ctx, error);
+        if (!closed) {
+          reportStartupError(ctx, error);
+        }
       });
     } catch (error) {
       reportStartupError(ctx, error);
@@ -433,13 +360,9 @@ export default function registerInspection(pi: ExtensionAPI): void {
   });
   pi.on("session_shutdown", async () => {
     closed = true;
-    scope?.controller.abort(
-      new StructureError("closed", "Inspection session has shut down"),
-    );
+    scope?.controller.abort(new StructureError("closed", "Inspection session has shut down"));
     await transition;
-    scope?.controller.abort(
-      new StructureError("closed", "Inspection session has shut down"),
-    );
+    scope?.controller.abort(new StructureError("closed", "Inspection session has shut down"));
     const previous = scope;
     scope = undefined;
     await releaseScope(previous);
@@ -448,8 +371,11 @@ export default function registerInspection(pi: ExtensionAPI): void {
 }
 function reportStartupError(ctx: ExtensionContext, error: unknown): void {
   const message = `justomp: ${describeError(error).message}`;
-  if (ctx.hasUI) ctx.ui.notify(message, "error");
-  else console.error(message);
+  if (ctx.hasUI) {
+    ctx.ui.notify(message, "error");
+  } else {
+    console.error(message);
+  }
 }
 
 function reportPreparation(
@@ -459,7 +385,28 @@ function reportPreparation(
   level: "info" | "error",
 ): void {
   const message = `justomp ${kind}: ${JSON.stringify(value)}`;
-  if (ctx.hasUI) ctx.ui.notify(message, level);
-  else if (level === "error") console.error(message);
-  else console.info(message);
+  if (ctx.hasUI) {
+    ctx.ui.notify(message, level);
+  } else if (level === "error") {
+    console.error(message);
+  } else {
+    process.stdout.write(`${message}\n`);
+  }
+}
+
+function inspectionMode(result: PackagingResult): string {
+  if (result.fallbackReason) {
+    return "full inspection (watcher unavailable)";
+  }
+  return result.cacheHit ? "cached watched snapshot" : "refreshed snapshot";
+}
+function reportCompletedPreparation(
+  ctx: ExtensionContext,
+  kind: "lint" | "typecheck" | "test",
+  root: string,
+  preparation: { complete: boolean; changes: readonly unknown[] },
+): void {
+  if (!preparation.complete || preparation.changes.length) {
+    reportPreparation(ctx, kind, { root, preparation }, preparation.complete ? "info" : "error");
+  }
 }

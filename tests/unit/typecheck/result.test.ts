@@ -1,14 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-  TypecheckCheck,
-  TypecheckDiagnostic,
-  TypecheckPreparation,
-} from "../../../src/typecheck/model";
-import {
-  mergePreparation,
-  publicPreparation,
-  typecheckResult,
-} from "../../../src/typecheck/result";
+import { type TypecheckCheck, type TypecheckDiagnostic, type TypecheckPreparation } from "../../../src/typecheck/model";
+import { mergePreparation, publicPreparation, typecheckResult } from "../../../src/typecheck/result";
 
 const project = {
   project_id: "python:pyproject.toml",
@@ -86,9 +78,7 @@ test("truncated check cannot become a complete public result", () => {
     diagnostics: [diagnostic],
     incomplete_stages: ["typecheck"],
   });
-  expect(result.remediation).toContain(
-    "Native output was truncated; rerun to obtain complete diagnostics.",
-  );
+  expect(result.remediation).toContain("Native output was truncated; rerun to obtain complete diagnostics.");
 });
 test("unrelated preparation failure keeps its effects while a ready selected check succeeds", () => {
   const selected = preparation();

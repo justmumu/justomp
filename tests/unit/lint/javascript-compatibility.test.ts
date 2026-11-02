@@ -1,20 +1,15 @@
 import { expect, test } from "bun:test";
 import { validateCompatibility } from "../../../src/lint/javascript/compatibility";
 
-test("preflight compatibility rejects unsupported application TypeScript", () => {
+test("Biome compatibility checks native runtime, without application compiler or framework coupling", () => {
   const metadata = {
-    "typescript-eslint": {
-      name: "typescript-eslint",
-      version: "8.72.1",
-      peerDependencies: { typescript: ">=4.8.4 <6.0.0" },
+    "@biomejs/biome": {
+      name: "@biomejs/biome",
+      version: "2.6.3",
+      engines: { node: ">=14.21.3" },
     },
   };
-  const tools = {
-    eslint: "9.39.5",
-    "@eslint/js": "9.39.5",
-    "typescript-eslint": "8.72.1",
-  };
-  expect(() =>
-    validateCompatibility(metadata, tools, { typescript: "7.0.2" }, "24.0.0"),
-  ).toThrow("incompatible");
+  const tools = { "@biomejs/biome": "2.6.3" };
+  expect(() => validateCompatibility(metadata, tools, "26.0.0")).not.toThrow();
+  expect(() => validateCompatibility(metadata, tools, "12.0.0")).toThrow("incompatible");
 });

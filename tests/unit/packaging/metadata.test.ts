@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import type { Stats, StatsFs } from "node:fs";
+import { type Stats, type StatsFs } from "node:fs";
 import * as fs from "node:fs/promises";
 import { FSWatcher } from "chokidar";
 import { INSPECTION_DEFAULTS } from "../../../src/config/inspection/defaults";
@@ -10,9 +10,7 @@ test("atime-only events do not invalidate while content metadata events do", asy
     type: process.platform === "darwin" ? 0x1a : 0xef53,
   } as StatsFs);
   let native: FSWatcher | undefined;
-  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (
-    this: FSWatcher,
-  ) {
+  const add = spyOn(FSWatcher.prototype, "add").mockImplementation(function (this: FSWatcher) {
     native = this;
     queueMicrotask(() => this.emit("ready"));
     return this;
@@ -30,7 +28,9 @@ test("atime-only events do not invalidate while content metadata events do", asy
   } as Stats;
   try {
     await watcher.start(new AbortController().signal);
-    if (!native) throw new Error("missing supplied watcher");
+    if (!native) {
+      throw new Error("missing supplied watcher");
+    }
     native.emit("all", "add", "/supplied/package.json", base);
     const revision = watcher.revision;
     native.emit("all", "change", "/supplied/package.json", {

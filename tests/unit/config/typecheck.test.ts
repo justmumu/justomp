@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  resolveTypecheckConfig,
-  typecheckPolicyKey,
-} from "../../../src/config/typecheck/resolve";
+import { resolveTypecheckConfig, typecheckPolicyKey } from "../../../src/config/typecheck/resolve";
 
 test("typecheck defaults apply strict policy equally to source and tests", () => {
   const { policy, missing } = resolveTypecheckConfig();
@@ -87,4 +84,17 @@ test("policy hash ignores object ordering and tracks effective policy edits", ()
   expect(typecheckPolicyKey(a)).toBe(typecheckPolicyKey(b));
   b.javascript.compilerOptions.checkJs = false;
   expect(typecheckPolicyKey(a)).not.toBe(typecheckPolicyKey(b));
+});
+
+test("JavaScript exclusions default empty, replace arrays and affect policy freshness", () => {
+  const defaults = resolveTypecheckConfig();
+  expect(defaults.policy.javascript.exclude).toEqual([]);
+  const excluded = resolveTypecheckConfig({ javascript: { exclude: [".private/**"] } });
+  expect(excluded.policy.javascript.exclude).toEqual([".private/**"]);
+  expect(resolveTypecheckConfig(excluded.policy).missing).toBe(false);
+  expect(typecheckPolicyKey(excluded.policy)).not.toBe(typecheckPolicyKey(defaults.policy));
+  expect(resolveTypecheckConfig({ javascript: { exclude: [] } }).policy.javascript.exclude).toEqual([]);
+  for (const exclude of [null, "**/*", [1]]) {
+    expect(() => resolveTypecheckConfig({ javascript: { exclude } })).toThrow("typecheck.javascript.exclude");
+  }
 });

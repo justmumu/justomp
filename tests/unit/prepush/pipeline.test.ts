@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { type PushPorts, runPushGate } from "../../../src/prepush/pipeline";
+import { suppliedResponse } from "../../response";
 
 function ports(calls: string[], fail = "", incomplete = false): PushPorts {
   const outcome = (stage: string, id?: string) => {
@@ -22,11 +23,7 @@ function ports(calls: string[], fail = "", incomplete = false): PushPorts {
 }
 test("all locks precede one preparation and full per-project checks", async () => {
   const calls: string[] = [];
-  const result = await runPushGate(
-    ["shared-a", "shared-b", "api"],
-    ports(calls),
-    new AbortController().signal,
-  );
+  const result = await runPushGate(["shared-a", "shared-b", "api"], ports(calls), new AbortController().signal);
   expect(result.success).toBe(true);
   expect(result.selected_projects).toEqual(["shared-a", "shared-b", "api"]);
   expect(result.changed_files).toEqual(["pyproject.toml"]);
@@ -50,11 +47,7 @@ test("all locks precede one preparation and full per-project checks", async () =
 });
 test("failed lock never reaches preparation or repair", async () => {
   const calls: string[] = [];
-  const result = await runPushGate(
-    ["api", "web"],
-    ports(calls, "dependency:web"),
-    new AbortController().signal,
-  );
+  const result = await runPushGate(["api", "web"], ports(calls, "dependency:web"), new AbortController().signal);
   expect(calls).toEqual(["dependency:api", "dependency:web"]);
   expect(result.complete).toBe(true);
   expect(result.success).toBe(false);
@@ -63,11 +56,7 @@ test("failed lock never reaches preparation or repair", async () => {
 test("format, lint, types and unit/coverage failures stop at their own stage", async () => {
   for (const stage of ["format", "lint", "typecheck", "unit"]) {
     const calls: string[] = [];
-    const result = await runPushGate(
-      ["api", "web"],
-      ports(calls, `${stage}:api`),
-      new AbortController().signal,
-    );
+    const result = await runPushGate(["api", "web"], ports(calls, `${stage}:api`), new AbortController().signal);
     expect(result.complete).toBe(true);
     expect(result.success).toBe(false);
     expect(calls.at(-1)).toBe(`${stage}:api`);
@@ -75,23 +64,21 @@ test("format, lint, types and unit/coverage failures stop at their own stage", a
   }
 });
 test("incomplete preparation and cancellation cannot succeed", async () => {
-  const result = await runPushGate(
-    ["api"],
-    ports([], "preparation", true),
-    new AbortController().signal,
-  );
+  const result = await runPushGate(["api"], ports([], "preparation", true), new AbortController().signal);
   expect(result.complete).toBe(false);
   const controller = new AbortController();
   const p = ports([]);
-  p.prepare = async () => {
-    controller.abort();
-    return {
-      stage: "preparation",
-      success: true,
-      complete: true,
-      effects: ["lock"],
-      details: {},
-    };
+  p.prepare = () => {
+    return suppliedResponse(() => {
+      controller.abort();
+      return {
+        stage: "preparation",
+        success: true,
+        complete: true,
+        effects: ["lock"],
+        details: {},
+      };
+    });
   };
   const cancelled = await runPushGate(["api"], p, controller.signal);
   expect(cancelled.cancelled).toBe(true);
@@ -100,11 +87,7 @@ test("incomplete preparation and cancellation cannot succeed", async () => {
 });
 test("no projects is explicit success without preparation", async () => {
   const calls: string[] = [];
-  const result = await runPushGate(
-    [],
-    ports(calls),
-    new AbortController().signal,
-  );
+  const result = await runPushGate([], ports(calls), new AbortController().signal);
   expect(result.success).toBe(true);
   expect(result.summary).toBe("no-projects");
   expect(calls).toEqual([]);

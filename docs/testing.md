@@ -3,25 +3,25 @@
 `project_test` runs one project's unit tests; `project_integration_test` runs its integration tests. Get its `project_id` from `list_projects({})` first.
 
 ```json
-{"project_id":"python:apps/api/pyproject.toml"}
+{ "project_id": "python:apps/api/pyproject.toml" }
 ```
 
 Optional `test_files` contains exact paths relative to that project, not the repository root, globs or test names. Providing it selects only those files and disables the project-wide coverage threshold, even when the list happens to contain every test file.
 
 ```json
-{"project_id":"javascript:apps/web/package.json","test_files":["tests/unit/cart.test.ts"],"timeout_seconds":120}
+{ "project_id": "javascript:apps/web/package.json", "test_files": ["tests/unit/cart.test.ts"], "timeout_seconds": 120 }
 ```
 
 `timeout_seconds` is a positive integer, defaults to 300, and is a tool input rather than configuration. One budget begins after runner preparation and covers collection, all test subprocesses and coverage imports. Cancellation or timeout stops and joins the supervised process tree before releasing shared manager access. Ordinary assertion failures do not stop the remaining selected tests; Justomp adds no automatic retry.
 
 ## Runners and setup
 
-| Project | Runner | Default test paths |
-| --- | --- | --- |
-| Python | pytest + pytest-cov | `tests/unit/**/test_*.py` |
-| Node JS/TS | Vitest + matching coverage-v8 | `tests/unit/**/*.test.{js,jsx,ts,tsx}` |
-| Bun runtime | `bun test` | `tests/unit/**/*.test.{js,jsx,ts,tsx}` |
-| Go | `go test` | Colocated `**/*_test.go` |
+| Project     | Runner                        | Default test paths                     |
+| ----------- | ----------------------------- | -------------------------------------- |
+| Python      | pytest + pytest-cov           | `tests/unit/**/test_*.py`              |
+| Node JS/TS  | Vitest + matching coverage-v8 | `tests/unit/**/*.test.{js,jsx,ts,tsx}` |
+| Bun runtime | `bun test`                    | `tests/unit/**/*.test.{js,jsx,ts,tsx}` |
+| Go          | `go test`                     | Colocated `**/*_test.go`               |
 
 A Bun package manager alone does not identify a Bun runtime. Explicit test scripts and runtime metadata determine the runner. An active unsupported or ambiguous runner is reported before setup; Justomp does not migrate tests. Unit and integration include/exclude policies select separate file sets.
 

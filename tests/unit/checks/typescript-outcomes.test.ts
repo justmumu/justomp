@@ -1,14 +1,17 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
-import type { TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
+import { type TypecheckCheckContext } from "../../../src/typecheck/adapters/types";
 import * as native from "../../../src/typecheck/javascript/native";
 import * as scopes from "../../../src/typecheck/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function fixture() {
   const selected = target("javascript"),
@@ -25,12 +28,8 @@ function fixture() {
       configs: { check: ["/repo/apps/app/tsconfig.justomp.json"] },
     },
   };
-  const files = spyOn(scopes, "collectTypecheckScope").mockResolvedValue(
-    scope("index.ts"),
-  );
-  const plan = spyOn(javascriptAdapter, "plan").mockResolvedValue(
-    context.projection,
-  );
+  const files = spyOn(scopes, "collectTypecheckScope").mockResolvedValue(scope("index.ts"));
+  const plan = spyOn(javascriptAdapter, "plan").mockResolvedValue(context.projection);
   const run = spyOn(native, "typescriptRun").mockResolvedValue(output());
   restores.push(
     () => files.mockRestore(),
@@ -85,11 +84,8 @@ for (const [name, result] of [
   ["truncated output", output({ truncated: true })],
   ["cancelled output", output({ exit_code: null, cancelled: true })],
   ["stderr failure", output({ stderr: "compiler failed" })],
-  [
-    "nonzero without diagnostics",
-    output({ exit_code: 1, stdout: "unrecognized output" }),
-  ],
-] as const)
+  ["nonzero without diagnostics", output({ exit_code: 1, stdout: "unrecognized output" })],
+] as const) {
   test(`TypeScript ${name} cannot pass`, async () => {
     const f = fixture();
     f.run.mockResolvedValue(result);
@@ -102,12 +98,15 @@ for (const [name, result] of [
     });
     expect(check?.reason).toBeTruthy();
   });
+}
 test("TypeScript pre-aborted compiler invocation reports cancellation", async () => {
   const f = fixture();
   f.controller.abort(new Error("cancelled"));
-  f.run.mockImplementation(async () => {
-    f.controller.signal.throwIfAborted();
-    return output();
+  f.run.mockImplementation(() => {
+    return suppliedResponse(() => {
+      f.controller.signal.throwIfAborted();
+      return output();
+    });
   });
   expect((await f.check())[0]).toMatchObject({
     status: "not-run",

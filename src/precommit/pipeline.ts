@@ -1,4 +1,4 @@
-import type { GateCheckStage, GateStage, PrecommitResult } from "./model";
+import { type GateCheckStage, type GateStage, type PrecommitResult } from "./model";
 
 export interface GatePorts {
   run(stage: GateCheckStage, id: string): Promise<GateStage>;
@@ -30,52 +30,15 @@ export async function runGate(
 ): Promise<PrecommitResult> {
   const checkedDependencies = new Set<string>();
   try {
-    let failed = false;
-    for (const stage of [
-      "fix",
-      "format",
-      "lint",
-      "typecheck",
-      "dependency",
-    ] as const) {
-      for (const id of ids) {
-        signal.throwIfAborted();
-        await ports.verify();
-        if (stage === "dependency") {
-          const key = ports.dependencyKey(id);
-          if (checkedDependencies.has(key)) continue;
-          checkedDependencies.add(key);
-        }
-        const outcome = await ports.run(stage, id);
-        result.stages.push(outcome);
-        result.changed_files = [
-          ...new Set([...result.changed_files, ...outcome.effects]),
-        ];
-        await ports.observe(outcome.effects);
-        signal.throwIfAborted();
-        if (!outcome.complete)
-          throw new Error(
-            `${id}: ${stage} did not complete; inspect stage details`,
-          );
-        if (
-          outcome.affected_projects.some((affected) => !ids.includes(affected))
-        )
-          throw new Error(
-            "Preparation changed another project after selection; retry commit",
-          );
-        if (!outcome.success) {
-          failed = true;
-          break;
-        }
-      }
-      if (failed) break;
-    }
+    const failed = !(await runChecks(ids, ports, signal, result, checkedDependencies));
     signal.throwIfAborted();
     await ports.verify();
     result.staged_files = await ports.stage();
     signal.throwIfAborted();
     const whitespace = await ports.whitespace();
-    if (!whitespace) result.errors.push("git diff --cached --check failed");
+    if (!whitespace) {
+      result.errors.push("git diff --cached --check failed");
+    }
     result.complete = true;
     result.success = !failed && whitespace;
   } catch (error) {
@@ -87,4 +50,48 @@ export async function runGate(
     result.success = false;
   }
   return result;
+}
+
+async function runChecks(
+  ids: string[],
+  ports: GatePorts,
+  signal: AbortSignal,
+  result: PrecommitResult,
+  checked: Set<string>,
+): Promise<boolean> {
+  for (const stage of ["fix", "format", "lint", "typecheck", "dependency"] as const) {
+    for (const id of ids) {
+      signal.throwIfAborted();
+      await ports.verify();
+      if (stage === "dependency" && alreadyChecked(id, ports, checked)) {
+        continue;
+      }
+      const outcome = await ports.run(stage, id);
+      result.stages.push(outcome);
+      result.changed_files = [...new Set([...result.changed_files, ...outcome.effects])];
+      await ports.observe(outcome.effects);
+      signal.throwIfAborted();
+      validateOutcome(outcome, ids, id, stage);
+      if (!outcome.success) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+function alreadyChecked(id: string, ports: GatePorts, checked: Set<string>): boolean {
+  const key = ports.dependencyKey(id);
+  if (checked.has(key)) {
+    return true;
+  }
+  checked.add(key);
+  return false;
+}
+function validateOutcome(outcome: GateStage, ids: string[], id: string, stage: GateCheckStage): void {
+  if (!outcome.complete) {
+    throw new Error(`${id}: ${stage} did not complete; inspect stage details`);
+  }
+  if (outcome.affected_projects.some((affected) => !ids.includes(affected))) {
+    throw new Error("Preparation changed another project after selection; retry commit");
+  }
 }

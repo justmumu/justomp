@@ -1,4 +1,4 @@
-import type { InspectionRules } from "./model";
+import { type InspectionRules } from "./model";
 export const INSPECTION_DEFAULTS: InspectionRules = Object.freeze({
   include: Object.freeze(["**/*"]),
   exclude: Object.freeze([

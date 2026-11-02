@@ -1,14 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { goLintAdapter } from "../../../src/lint/adapters/go";
-import type { LintCheckContext } from "../../../src/lint/adapters/types";
-import {
-  applyGoLintResult,
-  applyGoReadiness,
-} from "../../../src/lint/go/result";
-import type { LintCheck } from "../../../src/lint/model";
+import { type LintCheckContext } from "../../../src/lint/adapters/types";
+import { applyGoLintResult, applyGoReadiness } from "../../../src/lint/go/result";
+import { type LintCheck } from "../../../src/lint/model";
 import * as runtime from "../../../src/lint/runtime";
 import * as scopes from "../../../src/lint/scope";
+import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
 function fixture() {
@@ -42,7 +40,7 @@ for (const [name, result] of [
   ["truncated", output({ truncated: true, stdout: "{", exit_code: 1 })],
   ["cancelled", output({ cancelled: true, exit_code: null })],
   ["crashed", output({ exit_code: 9 })],
-] as const)
+] as const) {
   test(`Go lint ${name} result leaves both checks incomplete`, () => {
     const f = fixture();
     applyGoLintResult(f.context, f.checks, result);
@@ -56,24 +54,14 @@ for (const [name, result] of [
       expect(check.reason).toBeTruthy();
     }
   });
+}
 test("Go lint empty diagnostics pass while malformed or missing failure diagnostics reject", () => {
   const f = fixture();
   applyGoLintResult(f.context, f.checks, output({ stdout: '{"Issues":null}' }));
   expect(f.checks.map((c) => c.status)).toEqual(["passed", "passed"]);
-  for (const stdout of [
-    '{"Issues":[]}',
-    '{"Issues":{}}',
-    '{"Issues":[{}]}',
-    "invalid JSON",
-  ]) {
+  for (const stdout of ['{"Issues":[]}', '{"Issues":{}}', '{"Issues":[{}]}', "invalid JSON"]) {
     const other = fixture();
-    expect(() =>
-      applyGoLintResult(
-        other.context,
-        other.checks,
-        output({ exit_code: 1, stdout }),
-      ),
-    ).toThrow();
+    expect(() => applyGoLintResult(other.context, other.checks, output({ exit_code: 1, stdout }))).toThrow();
   }
 });
 test("Go lint separates formatter diagnostics and compiler failures block both stages", () => {
@@ -110,12 +98,7 @@ test("Go lint separates formatter diagnostics and compiler failures block both s
       stdout: JSON.stringify({ Issues: [issue("typecheck")] }),
     }),
   );
-  expect(
-    compiler.checks.every(
-      (c) =>
-        c.status === "not-run" && c.reason?.includes("compiler diagnostics"),
-    ),
-  ).toBe(true);
+  expect(compiler.checks.every((c) => c.status === "not-run" && c.reason?.includes("compiler diagnostics"))).toBe(true);
 });
 test("empty Go lint scope never invokes the runtime", async () => {
   const f = fixture(),
@@ -126,9 +109,7 @@ test("empty Go lint scope never invokes the runtime", async () => {
     });
   const probe = spyOn(runtime, "lintManagerContext");
   try {
-    expect((await goLintAdapter.check(f.context)).map((c) => c.status)).toEqual(
-      ["no-sources", "no-sources"],
-    );
+    expect((await goLintAdapter.check(f.context)).map((c) => c.status)).toEqual(["no-sources", "no-sources"]);
     expect(probe).not.toHaveBeenCalled();
   } finally {
     files.mockRestore();
@@ -139,19 +120,17 @@ test("pre-aborted Go lint leaves both checks cancelled", async () => {
   const f = fixture(),
     controller = new AbortController();
   controller.abort(new Error("cancelled"));
-  const files = spyOn(scopes, "collectLintScope").mockResolvedValue(
-    scope("main.go"),
-  );
-  const probe = spyOn(runtime, "lintManagerContext").mockImplementation(
-    async () => {
+  const files = spyOn(scopes, "collectLintScope").mockResolvedValue(scope("main.go"));
+  const probe = spyOn(runtime, "lintManagerContext").mockImplementation(() => {
+    return suppliedResponse(() => {
       throw controller.signal.reason;
-    },
-  );
+    });
+  });
   try {
     expect(
-      (
-        await goLintAdapter.check({ ...f.context, signal: controller.signal })
-      ).every((c) => c.cancelled && c.status === "not-run"),
+      (await goLintAdapter.check({ ...f.context, signal: controller.signal })).every(
+        (c) => c.cancelled && c.status === "not-run",
+      ),
     ).toBe(true);
   } finally {
     files.mockRestore();
@@ -161,18 +140,10 @@ test("pre-aborted Go lint leaves both checks cancelled", async () => {
 
 test("truncated Go readiness probe preserves evidence and blocks both stages", () => {
   const f = fixture();
-  expect(() =>
-    applyGoReadiness(
-      f.checks,
-      output({ exit_code: 1, stdout: "partial", truncated: true }),
-    ),
-  ).toThrow("truncated");
-  expect(
-    f.checks.every(
-      (check) =>
-        check.truncated && check.status === "not-run" && check.exit_code === 1,
-    ),
-  ).toBe(true);
+  expect(() => applyGoReadiness(f.checks, output({ exit_code: 1, stdout: "partial", truncated: true }))).toThrow(
+    "truncated",
+  );
+  expect(f.checks.every((check) => check.truncated && check.status === "not-run" && check.exit_code === 1)).toBe(true);
 });
 
 test("Go lint failure preserves error severity without failing the formatter stage", () => {

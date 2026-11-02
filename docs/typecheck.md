@@ -34,6 +34,10 @@ Every field is optional. Startup and explicit preparation complete absent fields
 
 The inspection getter and check-only API read effective defaults without writing them. A policy change must be prepared before a check can succeed. Native source, module, JSX, import-path and environment context remains relevant, but native strictness opt-outs do not override the shared policy.
 
+`typecheck.javascript.exclude` accepts an array of project-relative glob patterns, including dot paths, and defaults to `[]`. For example, `[".private/**"]` omits unimported private archives from selected JS/TS source entries. Explicit arrays replace the default; `[]` restores the ordinary owned-source scope. Changing exclusions requires preparation and invalidates the corresponding readiness evidence.
+
+Lint and typecheck exclusions are independent. They do not change test selection or coverage ownership, and cannot include dependency directories, generated state, symlinks or child projects excluded by ordinary ownership rules. They are source-entry filters, not filesystem or import-security boundaries: TypeScript may still analyze an excluded file imported by selected code. Diagnostics are not hidden after checking.
+
 ## Preparation and retained versions
 
 After startup inspection, background tooling and policy preparation runs outside the inspection handler's deadline. Discovering a new manifest makes the project eligible; creating an empty directory does not. The getter itself never installs tools. Without a healthy watcher, the next explicit full typecheck discovers and prepares the current projects.
@@ -44,17 +48,17 @@ Native managers install or upgrade project dev dependencies and update their man
 
 Exact targets and readiness evidence persist in `.justomp/typecheck_state.json`. A receipt never replaces verification of native tools, source/configuration inputs or generated outputs. Preparation, checks, lint and dependency operations share process-local resource leases. There is no persisted `BUSY` lock or rollback of completed native changes. A cancelled tool wait may leave shared setup running for another session. Closing the last owning session cancels and joins native work before releasing resources.
 
-When typecheck upgrades TypeScript, it invalidates the older lint receipt and removes lint's retained compiler pin from both its receipt and saved target map. Lint must recheck compatibility and cannot restore the old compiler. Typecheck success does not imply that the selected lint plugins support that compiler. See [lint compatibility](lint.md#javascript-and-typescript-versions).
+Typecheck owns the application TypeScript target. Managed lint uses Biome independently of the TypeScript compiler API and never installs or restores a compiler to satisfy a lint plugin. Typecheck preparation can invalidate stale legacy lint receipts; lint preparation then verifies its own current Biome environment. Typecheck success and lint success remain separate results. See [lint preparation](lint.md#javascript-and-typescript-versions).
 
 ## Native checking and generated files
 
-| Ecosystem | Preparation and selected check |
-| --- | --- |
-| Python | uv installs the Pyright dev package. `pyright.justomp.json` preserves native imports and source context, applies shared policy and selects the uv environment. Checks invoke the verified checker JavaScript entry through installed Node without downloading it. |
-| JavaScript/TypeScript | Managed `tsconfig.justomp.*.json` check projections preserve module, JSX, paths and reference context, add first-party JS/test scope and run the native compiler with `noEmit`. The check projections do not edit original build configs. |
-| Next | Full preparation runs native `next typegen`, including custom `typescript.tsconfigPath` and `distDir`, and records generated `next-env.d.ts` and native type outputs. Loading native Next configuration can execute config code and requires its environment. Check-only does not load that code or generate missing output. |
+| Ecosystem                | Preparation and selected check                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python                   | uv installs the Pyright dev package. `pyright.justomp.json` preserves native imports and source context, applies shared policy and selects the uv environment. Checks invoke the verified checker JavaScript entry through installed Node without downloading it.                                                                                                                                                                                                                   |
+| JavaScript/TypeScript    | Managed `tsconfig.justomp.*.json` check projections preserve module, JSX, paths and reference context, add first-party JS/test scope and run the native compiler with `noEmit`. The check projections do not edit original build configs.                                                                                                                                                                                                                                           |
+| Next                     | Full preparation runs native `next typegen`, including custom `typescript.tsconfigPath` and `distDir`, and records generated `next-env.d.ts` and native type outputs. Loading native Next configuration can execute config code and requires its environment. Check-only does not load that code or generate missing output.                                                                                                                                                        |
 | Local JS/TS dependencies | Full preparation generates declarations required by the selected dependency/reference closure in native output locations. Managed declaration reference configs preserve native root/output/package-types expectations, including mixed JS with native `allowJs: false`. Source declaration packages can provide `.d.ts` without a native tsconfig; JSON-only shared config packages need no declaration generation. No arbitrary build script or application JavaScript emit runs. |
-| Go | Installed Go compiles the selected package directories and internal/external tests with `go test -c -vet=off`, using unique temporary binary paths. It does not execute package `init`, `TestMain` or test bodies. Results report `GOOS`, `GOARCH` and build tags. |
+| Go                       | Installed Go compiles the selected package directories and internal/external tests with `go test -c -vet=off`, using unique temporary binary paths. It does not execute package `init`, `TestMain` or test bodies. Results report `GOOS`, `GOARCH` and build tags.                                                                                                                                                                                                                  |
 
 The source scope excludes dependencies, build/cache directories, symlinks, justomp outputs and separately discovered child projects. A root Python project does not typecheck Python files belonging to a discovered nested Go or JS project. Compilers may read imported dependencies required to analyze the selected project. Required declaration preparation can report diagnostics originating in those dependency projects without making them additional selected checks.
 
@@ -71,11 +75,7 @@ Every check runs the compiler again. Source or required dependency changes durin
 The public API works without OMP:
 
 ```ts
-import {
-  prepareProjectTypecheck,
-  checkProjectTypecheck,
-  typecheckProject,
-} from "justomp/typecheck";
+import { prepareProjectTypecheck, checkProjectTypecheck, typecheckProject } from "justomp/typecheck";
 
 const projectId = "javascript:apps/web/package.json";
 
@@ -114,19 +114,19 @@ The standalone `prepareProjectTypecheck` result's `complete` describes readiness
 
 The native evidence below was collected on macOS arm64. It is not certification of other operating systems, framework versions or manager combinations.
 
-| Area | Verified behavior |
-| --- | --- |
-| Python | uv 0.11.6, Pyright 1.1.414, Python 3.13.13 and Node 26.0.0; strict source/test checks and uv environment selection |
-| JS managers | npm 11.12.1, pnpm 10.20.0, Yarn Classic 1.22.22 and Bun 1.4.2 install and check with TypeScript 7.0.2 |
-| Yarn PnP | Yarn 4.12.0 fails its built-in TypeScript 7 compatibility patch. Yarn 4.18.1 installs TypeScript 7.0.2, but native compiler resolution of real PnP package imports/configs fails. The same package/config fixture works with TypeScript 5.9.3. No compiler downgrade or linker switch is performed. |
-| Next | Next 16.4.3 with TypeScript 7.0.2 passes native typegen, custom paths and a clean local dependency chain. Next 15.4.8 lacks typegen and fails explicitly. |
-| Go | Go 1.25.6; module/workspace metadata preservation, package/test compilation, tags/platform context and non-execution sentinels |
+| Area        | Verified behavior                                                                                                                                                                                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Python      | uv 0.11.6, Pyright 1.1.414, Python 3.13.13 and Node 26.0.0; strict source/test checks and uv environment selection                                                                                                                                                                                  |
+| JS managers | npm 11.12.1, pnpm 10.20.0, Yarn Classic 1.22.22 and Bun 1.4.2 install and check with TypeScript 7.0.2                                                                                                                                                                                               |
+| Yarn PnP    | Yarn 4.12.0 fails its built-in TypeScript 7 compatibility patch. Yarn 4.18.1 installs TypeScript 7.0.2, but native compiler resolution of real PnP package imports/configs fails. The same package/config fixture works with TypeScript 5.9.3. No compiler downgrade or linker switch is performed. |
+| Next        | Next 16.4.3 with TypeScript 7.0.2 passes native typegen, custom paths and a clean local dependency chain. Next 15.4.8 lacks typegen and fails explicitly.                                                                                                                                           |
+| Go          | Go 1.25.6; module/workspace metadata preservation, package/test compilation, tags/platform context and non-execution sentinels                                                                                                                                                                      |
 
 ```sh
 bun run check
 bun run test:typecheck
 # All integration tests, including installed-package API/bin/docs smoke:
-bun run test:integration
+bun run check:integration
 ```
 
 Provision native managers as described in [dependency test setup](dependencies.md#reproducing-native-tests). `JUSTOMP_TYPECHECK_YARN_MODERN_BINARY` selects the installed Yarn 4.18.1 launcher for typecheck tests; the existing lint fixtures use their own `JUSTOMP_YARN_MODERN_BINARY`. Registry fixtures provide deterministic version metadata while native managers install real packages and compilers perform the checks. Missing prerequisites fail tests instead of skipping them.

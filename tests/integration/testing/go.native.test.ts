@@ -16,22 +16,13 @@ test("Go selects files in a normal package and reports tests-less owned source c
       "b_test.go",
       'package app\nimport "testing"\nfunc TestOther(t *testing.T) { t.Fatal("intentional") }\n',
     );
-    await f.put(
-      "unused/value.go",
-      "package unused\nfunc Value() int { return 2 }\n",
-    );
-    await f.put(
-      "external_test.go",
-      'package app_test\nimport "testing"\nfunc TestOther(t *testing.T) {}\n',
-    );
+    await f.put("unused/value.go", "package unused\nfunc Value() int { return 2 }\n");
+    await f.put("external_test.go", 'package app_test\nimport "testing"\nfunc TestOther(t *testing.T) {}\n');
     await f.put(
       "flow_integration_test.go",
       '//go:build integration\n\npackage app\nimport ("os";"testing")\nfunc init(){os.WriteFile("integration-init", []byte("yes"),0600)}\nfunc TestIntegration(t *testing.T){if value()!=1 {t.Fatal("wrong")}}\n',
     );
-    const full = await f.run(
-      ["a_test.go", "b_test.go", "external_test.go"],
-      ["value.go", "unused/value.go"],
-    );
+    const full = await f.run(["a_test.go", "b_test.go", "external_test.go"], ["value.go", "unused/value.go"]);
     expect(full.tests, JSON.stringify(full)).toMatchObject({
       total: 3,
       passed: 2,
@@ -41,32 +32,18 @@ test("Go selects files in a normal package and reports tests-less owned source c
       full.errors.every((e) => e.code === "test-failed"),
       JSON.stringify(full),
     ).toBe(true);
-    expect(full.executed_files.sort()).toEqual([
-      "a_test.go",
-      "b_test.go",
-      "external_test.go",
-    ]);
+    expect(full.executed_files.sort()).toEqual(["a_test.go", "b_test.go", "external_test.go"]);
     expect(full.coverage).toEqual({ covered: 1, total: 2 });
-    expect(await Bun.file(join(f.root, "integration-init")).exists()).toBe(
-      false,
-    );
-    const integration = await f.run(
-      ["flow_integration_test.go"],
-      ["value.go"],
-      "full",
-      { suite: "integration", integration: ["flow_integration_test.go"] },
-    );
+    expect(await Bun.file(join(f.root, "integration-init")).exists()).toBe(false);
+    const integration = await f.run(["flow_integration_test.go"], ["value.go"], "full", {
+      suite: "integration",
+      integration: ["flow_integration_test.go"],
+    });
     expect(integration.errors, JSON.stringify(integration)).toEqual([]);
     expect(integration.tests).toMatchObject({ total: 1, passed: 1 });
     expect(integration.executed_files).toEqual(["flow_integration_test.go"]);
-    expect(await readFile(join(f.root, "integration-init"), "utf8")).toBe(
-      "yes",
-    );
-    const selected = await f.run(
-      ["a_test.go"],
-      ["value.go", "unused/value.go"],
-      "targeted",
-    );
+    expect(await readFile(join(f.root, "integration-init"), "utf8")).toBe("yes");
+    const selected = await f.run(["a_test.go"], ["value.go", "unused/value.go"], "targeted");
     expect(selected.errors, JSON.stringify(selected)).toEqual([]);
     expect(selected.tests).toMatchObject({ total: 1, passed: 1, failed: 0 });
     expect(selected.executed_files).toEqual(["a_test.go"]);

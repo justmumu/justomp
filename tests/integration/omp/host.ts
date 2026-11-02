@@ -1,12 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionFactory } from "@oh-my-pi/pi-coding-agent";
 import { ModelRegistry } from "@oh-my-pi/pi-coding-agent/config/model-registry";
 import { Settings } from "@oh-my-pi/pi-coding-agent/config/settings";
-import {
-  bindPreparedExtensions,
-  loadExtensions,
-} from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
+import { bindPreparedExtensions, loadExtensions } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/loader";
 import { ExtensionRunner } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/runner";
 import {
   ExtensionToolWrapper,
@@ -22,12 +19,11 @@ export async function createHost(
   approvals: Record<string, "allow" | "deny"> = {},
 ) {
   const loaded = factory
-    ? await bindPreparedExtensions(
-        [{ path: entry, resolvedPath: entry, factory, error: null }],
-        root,
-      )
+    ? await bindPreparedExtensions([{ path: entry, resolvedPath: entry, factory, error: null }], root)
     : await loadExtensions([entry], root);
-  if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
+  if (loaded.errors.length) {
+    throw new Error(JSON.stringify(loaded.errors));
+  }
   await mkdir(join(root, ".host"), { recursive: true });
   const auth = await AuthStorage.create(join(root, ".host/auth.db"));
   const models = new ModelRegistry(auth, join(root, ".host/models.yml"), {
@@ -52,30 +48,16 @@ export async function createHost(
           "dependency_sync",
         ].map((name) => [name, "allow"]),
       ),
-      ...Object.fromEntries(
-        (deny === true ? ["project_inspect"] : deny || []).map((name) => [
-          name,
-          "deny",
-        ]),
-      ),
+      ...Object.fromEntries((deny === true ? ["project_inspect"] : deny || []).map((name) => [name, "deny"])),
     },
   });
   const session = SessionManager.inMemory(root);
-  const runner = new ExtensionRunner(
-    loaded.extensions,
-    loaded.runtime,
-    root,
-    session,
-    models,
-    undefined,
-    settings,
-  );
+  const runner = new ExtensionRunner(loaded.extensions, loaded.runtime, root, session, models, undefined, settings);
   const registered = runner.getRegisteredTool("project_inspect");
-  if (!registered) throw new Error("project_inspect was not registered");
-  const tool = new ExtensionToolWrapper(
-    new RegisteredToolAdapter(registered, runner),
-    runner,
-  );
+  if (!registered) {
+    throw new Error("project_inspect was not registered");
+  }
+  const tool = new ExtensionToolWrapper(new RegisteredToolAdapter(registered, runner), runner);
   return {
     runner,
     session,
@@ -83,11 +65,10 @@ export async function createHost(
     tool,
     getTool(name: string) {
       const entry = runner.getRegisteredTool(name);
-      if (!entry) throw new Error(`${name} was not registered`);
-      return new ExtensionToolWrapper(
-        new RegisteredToolAdapter(entry, runner),
-        runner,
-      );
+      if (!entry) {
+        throw new Error(`${name} was not registered`);
+      }
+      return new ExtensionToolWrapper(new RegisteredToolAdapter(entry, runner), runner);
     },
     async close() {
       await runner.emit({ type: "session_shutdown" });

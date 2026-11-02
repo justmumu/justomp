@@ -1,19 +1,14 @@
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
 import { commitRepository } from "../commit/service";
-import type { WithSessionRoot } from "./dependency-tools";
+import { type WithSessionRoot } from "./dependency-tools";
 
-export function registerCommitTools(
-  pi: ExtensionAPI,
-  withRoot: WithSessionRoot,
-): void {
+export function registerCommitTools(pi: ExtensionAPI, withRoot: WithSessionRoot): void {
   const parameters = pi.zod
     .object({
       message: pi.zod
         .string()
         .min(1)
-        .describe(
-          "Full Conventional Commit message. Header defaults to at most 72 characters.",
-        ),
+        .describe("Full Conventional Commit message. Header defaults to at most 72 characters."),
     })
     .strict();
   pi.registerTool({

@@ -3,27 +3,14 @@ import { loadConfig } from "../config/load";
 import { adapters, executeDependency } from "../dependencies/index";
 import { formatProject } from "../format/service";
 import { prepareLint } from "../lint/prepare";
-import {
-  checkProjectLint,
-  fixProjectLintOnly,
-  lintAdapters,
-} from "../lint/service";
+import { checkProjectLint, fixProjectLintOnly, lintAdapters } from "../lint/service";
 import { prepareTypecheck } from "../typecheck/prepare";
-import {
-  checkTypecheckTarget,
-  inspectTypecheckProject,
-  typecheckAdapters,
-} from "../typecheck/service";
-import type { GateCheckStage, GateStage } from "./model";
+import { checkTypecheckTarget, inspectTypecheckProject, typecheckAdapters } from "../typecheck/service";
+import { type GateCheckStage, type GateStage } from "./model";
 
 export interface GateOperations {
   prepare(root: string, signal: AbortSignal): Promise<GateStage>;
-  run(
-    stage: GateCheckStage,
-    root: string,
-    id: string,
-    signal: AbortSignal,
-  ): Promise<GateStage>;
+  run(stage: GateCheckStage, root: string, id: string, signal: AbortSignal): Promise<GateStage>;
 }
 export const nativeOperations: GateOperations = {
   async prepare(root, signal) {
@@ -39,10 +26,7 @@ export const nativeOperations: GateOperations = {
         ...lint.changes.map((c) => c.path),
         ...types.changes.map((c) => c.path),
       ],
-      affected_projects: [
-        ...lint.changes.map((c) => c.project_id),
-        ...types.changes.map((c) => c.project_id),
-      ],
+      affected_projects: [...lint.changes.map((c) => c.project_id), ...types.changes.map((c) => c.project_id)],
       details: { lint, typecheck: types },
     };
   },
@@ -55,8 +39,7 @@ export const nativeOperations: GateOperations = {
     };
     if (stage === "fix") {
       const fix = await fixProjectLintOnly(root, id, signal);
-      const complete =
-        fix.observation_complete && !fix.errors.length && !fix.cancelled;
+      const complete = fix.observation_complete && !fix.errors.length && !fix.cancelled;
       return {
         ...base,
         success: complete,
@@ -106,20 +89,12 @@ export const nativeOperations: GateOperations = {
         details: result,
       };
     }
-    const result = await executeDependency(
-      root,
-      "sync",
-      { project_id: id, check: true },
-      adapters,
-      signal,
-    );
+    const result = await executeDependency(root, "sync", { project_id: id, check: true }, adapters, signal);
     const steps = "native_steps" in result ? result.native_steps : undefined;
     const complete =
       result.outcome === "success" ||
       (!!steps?.length &&
-        steps.every(
-          (s) => !s.cancelled && !s.truncated && s.exit_code !== null,
-        ) &&
+        steps.every((s) => !s.cancelled && !s.truncated && s.exit_code !== null) &&
         !("structure_refresh_error" in result));
     return {
       ...base,

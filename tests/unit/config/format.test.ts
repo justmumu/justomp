@@ -3,10 +3,7 @@ import { resolveFormatConfig } from "../../../src/config/format/resolve";
 
 test("format attributes prefer explicit values, then legacy values, then defaults", () => {
   const legacy = { singleQuote: true, printWidth: 88, futureOption: "keep" };
-  const { policy, missing } = resolveFormatConfig(
-    { prettier: { printWidth: 100 } },
-    legacy,
-  );
+  const { policy, missing } = resolveFormatConfig({ prettier: { printWidth: 100 } }, legacy);
   expect(policy.prettier.singleQuote).toBe(true);
   expect(policy.prettier.printWidth).toBe(100);
   expect(policy.prettier.tabWidth).toBe(2);
@@ -29,12 +26,9 @@ test("format empty pattern arrays and unknown attributes survive default resolut
   expect(policy.prettier.overrides).toEqual([]);
 });
 
-test.each([
-  null,
-  { include: [5] },
-  { exclude: null },
-  { prettier: { semi: "yes" } },
-  { prettier: [] },
-])("invalid format config is rejected: %j", (value) => {
-  expect(() => resolveFormatConfig(value)).toThrow("format");
-});
+test.each([null, { include: [5] }, { exclude: null }, { prettier: { semi: "yes" } }, { prettier: [] }])(
+  "invalid format config is rejected: %j",
+  (value) => {
+    expect(() => resolveFormatConfig(value)).toThrow("format");
+  },
+);

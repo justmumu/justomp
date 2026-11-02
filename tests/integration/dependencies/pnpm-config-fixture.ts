@@ -20,9 +20,7 @@ export const isolatedEnvironment = Object.fromEntries(
   ].map((key) => [key, process.env[key]]),
 );
 export async function fixture() {
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), "justomp-pnpm-config-")),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-pnpm-config-")));
   roots.push(root);
   const project = join(root, "project");
   await mkdir(join(project, "local"), { recursive: true });
@@ -34,10 +32,7 @@ export async function fixture() {
       packageManager: "pnpm@10.20.0",
     }),
   );
-  await writeFile(
-    join(project, "local/package.json"),
-    JSON.stringify({ name: "local", version: "1.0.0" }),
-  );
+  await writeFile(join(project, "local/package.json"), JSON.stringify({ name: "local", version: "1.0.0" }));
   await writeFile(
     join(project, ".npmrc"),
     `offline=true\nignore-scripts=true\nmanage-package-manager-versions=false\nstore-dir=${join(root, "store")}\n`,
@@ -60,8 +55,9 @@ export async function native(project: string, args: string[]) {
 }
 export async function servicePath(root: string) {
   const command = process.env.JUSTOMP_PNPM_BINARY ?? Bun.which("pnpm");
-  if (!command)
+  if (!command) {
     throw new Error("Native pnpm fixture requires an installed binary");
+  }
   await mkdir(join(root, "bin"));
   await symlink(command, join(root, "bin/pnpm"));
   process.env.PATH = `${join(root, "bin")}:${originalPath}`;
@@ -69,6 +65,8 @@ export async function servicePath(root: string) {
 export async function scope(project: string, path = ".") {
   const structure = await inspectProject({ root: project });
   const selected = structure.projects.find((p) => p.path === path);
-  if (!selected) throw new Error(`Missing project ${path}`);
+  if (!selected) {
+    throw new Error(`Missing project ${path}`);
+  }
   return resolveManagerScope(project, selected, structure.projects);
 }

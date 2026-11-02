@@ -4,12 +4,7 @@ import { yarnModernAdapter } from "../../../../src/dependencies/adapters/yarn-mo
 
 test("Yarn variants expose the native JS groups independently", () => {
   expect(yarnClassicAdapter).not.toBe(yarnModernAdapter);
-  expect(yarnClassicAdapter.groups).toEqual([
-    "runtime",
-    "dev",
-    "optional",
-    "peer",
-  ]);
+  expect(yarnClassicAdapter.groups).toEqual(["runtime", "dev", "optional", "peer"]);
   expect(yarnModernAdapter.groups).toEqual(yarnClassicAdapter.groups);
 });
 
@@ -63,12 +58,7 @@ test("exact pins use group-local add and source-changing updates reject before n
         },
         f.inventory,
       );
-      expect(plan.steps[0]?.args).toEqual([
-        "add",
-        "foo@1.0.0",
-        "--exact",
-        "--dev",
-      ]);
+      expect(plan.steps[0]?.args).toEqual(["add", "foo@1.0.0", "--exact", "--dev"]);
       await expect(
         adapter.plan(
           f.context,

@@ -23,10 +23,7 @@ test("Bun remove plans native group deletion followed by installation", async ()
       },
       f.inventory,
     );
-    expect(plan.steps.map((step) => step.args)).toEqual([
-      ["pm", "pkg", "delete", "devDependencies.foo"],
-      ["install"],
-    ]);
+    expect(plan.steps.map((step) => step.args)).toEqual([["pm", "pkg", "delete", "devDependencies.foo"], ["install"]]);
     expect(plan.metadata).toContain("bun.lockb");
     const before = await f.text();
     await expect(

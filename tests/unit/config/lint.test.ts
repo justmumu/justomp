@@ -1,8 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-  lintPolicyKey,
-  resolveLintConfig,
-} from "../../../src/config/lint/resolve";
+import { type BiomeRuleMap } from "../../../src/config/lint/model";
+import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 
 const pythonPolicy = {
   ruff: {
@@ -35,9 +33,7 @@ const pythonPolicy = {
         "F E W B BLE RET PLC PLE PLW UP I SIM C4 C90 PTH RUF S ASYNC ARG DTZ T20 LOG G PT TID TC PERF FBT N ANN T10 SLF TRY PIE ERA A PGH RSE FURB INP EXE D".split(
           " ",
         ),
-      ignore: "E501 COM812 ISC001 TRY003 EM101 EM102 TID252 S603 S607".split(
-        " ",
-      ),
+      ignore: "E501 COM812 ISC001 TRY003 EM101 EM102 TID252 S603 S607".split(" "),
       "per-file-ignores": {
         "tests/*": "S101 SLF001 ARG T201 PT011 ANN INP001 D".split(" "),
         "scripts/*": "INP001 T201 FBT001 FBT002".split(" "),
@@ -65,9 +61,11 @@ test("missing structural leaves fill while arrays and user rule maps replace", (
       ruff: { exclude: [], lint: { ignore: [], "per-file-ignores": {} } },
     },
     javascript: {
-      eslint: {
+      biome: {
         rules: {},
-        test_rules: { "no-console": ["warn", { allow: [] }] },
+        test_rules: {
+          suspicious: { noConsole: { level: "warn", options: { allow: [] } } },
+        },
       },
     },
     go: { golangci: { linters: { enable: [] } } },
@@ -78,9 +76,9 @@ test("missing structural leaves fill while arrays and user rule maps replace", (
   expect(policy.python.ruff.exclude).toEqual([]);
   expect(policy.python.ruff.lint.ignore).toEqual([]);
   expect(policy.python.ruff.lint["per-file-ignores"]).toEqual({});
-  expect(policy.javascript.eslint.rules).toEqual({});
-  expect(policy.javascript.eslint.test_rules).toEqual({
-    "no-console": ["warn", { allow: [] }],
+  expect(policy.javascript.biome.rules).toEqual({});
+  expect(policy.javascript.biome.test_rules).toEqual({
+    suspicious: { noConsole: { level: "warn", options: { allow: [] } } },
   });
   expect(policy.go.golangci.linters.enable).toEqual([]);
   expect(policy.future).toEqual({ value: 2 });
@@ -97,8 +95,8 @@ test.each([
   { python: { ruff: { "line-length": "120" } } },
   { python: { ruff: { lint: { ignore: [4] } } } },
   { python: { ruff: { lint: { "per-file-ignores": { "tests/*": false } } } } },
-  { javascript: { eslint: { rules: { "no-debugger": "loud" } } } },
-  { javascript: { eslint: { rules: { "no-debugger": [] } } } },
+  { javascript: { biome: { rules: { suspicious: { noDebugger: "loud" } } } } },
+  { javascript: { biome: { rules: { suspicious: { noDebugger: [] } } } } },
   { javascript: { prettier: { semi: "yes" } } },
   { go: { golangci: { linters: { enable: {} } } } },
 ])("invalid known policy values are rejected: %j", (value) => {
@@ -108,12 +106,26 @@ test.each([
 test("policy keys are stable across object order but preserve array order", () => {
   const a = resolveLintConfig({
     javascript: {
-      eslint: { rules: { a: "error", b: ["warn", { z: 1, y: 2 }] } },
+      biome: {
+        rules: {
+          suspicious: {
+            noDebugger: "error",
+            noConsole: { level: "warn", options: { z: 1, y: 2 } },
+          },
+        },
+      },
     },
   }).policy;
   const b = resolveLintConfig({
     javascript: {
-      eslint: { rules: { b: ["warn", { y: 2, z: 1 }], a: "error" } },
+      biome: {
+        rules: {
+          suspicious: {
+            noConsole: { level: "warn", options: { y: 2, z: 1 } },
+            noDebugger: "error",
+          },
+        },
+      },
     },
   }).policy;
   expect(lintPolicyKey(a)).toBe(lintPolicyKey(b));
@@ -123,18 +135,18 @@ test("policy keys are stable across object order but preserve array order", () =
 
 test("JS and Go defaults contain explicit strict checks and formatter options", () => {
   const { javascript: js, go } = resolveLintConfig().policy;
-  expect(js.eslint.rules.eqeqeq).toEqual(["error", "always"]);
-  expect(js.eslint.rules["no-console"]).toEqual([
-    "error",
-    { allow: ["warn", "error"] },
-  ]);
-  expect(js.eslint.typed_rules["@typescript-eslint/no-floating-promises"]).toBe(
-    "error",
-  );
-  expect(js.eslint.typed_rules["@typescript-eslint/no-unsafe-assignment"]).toBe(
-    "error",
-  );
-  expect(js.eslint.test_rules).toEqual({ "no-console": "off" });
+  expect((js.biome.rules as Partial<BiomeRuleMap>).suspicious?.noDoubleEquals).toEqual({
+    level: "error",
+    options: { ignoreNull: false },
+  });
+  expect((js.biome.rules as Partial<BiomeRuleMap>).suspicious?.noConsole).toEqual({
+    level: "error",
+    options: { allow: ["warn", "error"] },
+  });
+  expect((js.biome.typed_rules as Partial<BiomeRuleMap>).nursery?.noFloatingPromises).toBe("error");
+  expect((js.biome.typed_rules as Partial<BiomeRuleMap>).suspicious?.noExplicitAny).toBe("error");
+  expect(js.biome.test_rules).toEqual({ suspicious: { noConsole: "off" } });
+  expect(js.biome.organize_imports).toBe("on");
   expect(js.prettier).toEqual({
     printWidth: 120,
     tabWidth: 2,
@@ -161,9 +173,19 @@ test("JS and Go defaults contain explicit strict checks and formatter options", 
   expect(go.golangci.linters.default).toBe("none");
   expect(go.golangci.linters.exclusions.presets).toEqual([]);
   expect(go.golangci.formatters.enable).toEqual(["gofumpt", "goimports"]);
-  expect(go.golangci.linters.settings.exhaustive.check).toEqual([
-    "switch",
-    "mapliteral",
-  ]);
+  expect(go.golangci.linters.settings.exhaustive.check).toEqual(["switch", "mapliteral"]);
   expect(go.golangci.severity).toEqual({ default: "error" });
+});
+
+test("JavaScript exclusions default empty, replace arrays and affect policy freshness", () => {
+  const defaults = resolveLintConfig();
+  expect(defaults.policy.javascript.exclude).toEqual([]);
+  const excluded = resolveLintConfig({ javascript: { exclude: [".private/**"] } });
+  expect(excluded.policy.javascript.exclude).toEqual([".private/**"]);
+  expect(resolveLintConfig(excluded.policy).missing).toBe(false);
+  expect(lintPolicyKey(excluded.policy)).not.toBe(lintPolicyKey(defaults.policy));
+  expect(resolveLintConfig({ javascript: { exclude: [] } }).policy.javascript.exclude).toEqual([]);
+  for (const exclude of [null, "**/*", [1]]) {
+    expect(() => resolveLintConfig({ javascript: { exclude } })).toThrow("lint.javascript.exclude");
+  }
 });

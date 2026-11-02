@@ -1,3 +1,22 @@
+async function publishProjection(temporary: string, path: string, create: boolean): Promise<void> {
+  if (create) {
+    try {
+      await link(temporary, path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+      }
+      throw error;
+    }
+  } else {
+    const stat = await lstat(path);
+    if (stat.isSymbolicLink()) {
+      throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+    }
+    await rename(temporary, path);
+  }
+}
+
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, open, rename, unlink } from "node:fs/promises";
@@ -10,23 +29,15 @@ export interface FileSnapshot {
   identity: string | null;
   mode: number;
 }
-export async function readProjectionFile(
-  root: string,
-  path: string,
-): Promise<FileSnapshot> {
+export async function readProjectionFile(root: string, path: string): Promise<FileSnapshot> {
   await safePath(root, path);
   try {
-    const file = await open(
-      path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const stat = await file.stat();
-      if (!stat.isFile())
-        throw new LintError(
-          "projection-conflict",
-          `Not a regular config file: ${path}`,
-        );
+      if (!stat.isFile()) {
+        throw new LintError("projection-conflict", `Not a regular config file: ${path}`);
+      }
       return {
         text: await file.readFile("utf8"),
         identity: `${stat.dev}:${stat.ino}`,
@@ -36,8 +47,9 @@ export async function readProjectionFile(
       await file.close();
     }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT")
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { text: null, identity: null, mode: 0o644 };
+    }
     throw error;
   }
 }
@@ -52,24 +64,16 @@ export async function publishProjectionFile(
   const verify = async () => {
     await checkPath?.();
     const now = await readProjectionFile(root, path);
-    if (now.identity !== before.identity || now.text !== before.text)
-      throw new LintError(
-        "projection-conflict",
-        `Native config changed during preparation: ${path}`,
-      );
+    if (now.identity !== before.identity || now.text !== before.text) {
+      throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+    }
   };
   await verify();
-  const temporary = join(
-    dirname(path),
-    `.justomp-projection-${randomUUID()}.tmp`,
-  );
+  const temporary = join(dirname(path), `.justomp-projection-${randomUUID()}.tmp`);
   try {
     const file = await open(
       temporary,
-      constants.O_WRONLY |
-        constants.O_CREAT |
-        constants.O_EXCL |
-        constants.O_NOFOLLOW,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       before.mode & 0o777,
     );
     try {
@@ -80,61 +84,44 @@ export async function publishProjectionFile(
       await file.close();
     }
     await verify();
-    if (before.identity === null) {
-      try {
-        await link(temporary, path);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST")
-          throw new LintError(
-            "projection-conflict",
-            `Native config changed during preparation: ${path}`,
-          );
-        throw error;
-      }
-    } else {
-      const stat = await lstat(path);
-      if (stat.isSymbolicLink())
-        throw new LintError(
-          "projection-conflict",
-          `Native config changed during preparation: ${path}`,
-        );
-      await rename(temporary, path);
-    }
+    await publishProjection(temporary, path, before.identity === null);
   } finally {
     await unlink(temporary).catch((error) => {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
     });
   }
 }
 
+/** Retire only the owned snapshot observed before publishing its replacement. */
+export async function removeProjectionFile(root: string, path: string, before: FileSnapshot): Promise<void> {
+  const now = await readProjectionFile(root, path);
+  if (now.identity !== before.identity || now.text !== before.text) {
+    throw new LintError("projection-conflict", `Native config changed during preparation: ${path}`);
+  }
+  await unlink(path);
+}
+
 /** Reject symlinks in every path component before native source writes. */
-export async function assertSourcePath(
-  root: string,
-  path: string,
-): Promise<void> {
-  if (!within(root, path))
+export async function assertSourcePath(root: string, path: string): Promise<void> {
+  if (!within(root, path)) {
     throw new LintError("unsafe-path", "Source path is outside the project");
+  }
   let current = root;
   for (const part of ["", ...relative(root, path).split(sep)]) {
     current = resolve(current, part);
     const stat = await lstat(current);
-    if (
-      stat.isSymbolicLink() ||
-      (current === path ? !stat.isFile() : !stat.isDirectory())
-    )
-      throw new LintError(
-        "unsafe-path",
-        `Refusing unsafe source path: ${path}`,
-      );
+    if (stat.isSymbolicLink() || (current === path ? !stat.isFile() : !stat.isDirectory())) {
+      throw new LintError("unsafe-path", `Refusing unsafe source path: ${path}`);
+    }
   }
 }
-export async function readSourceFile(
-  root: string,
-  path: string,
-): Promise<FileSnapshot & { text: string }> {
+export async function readSourceFile(root: string, path: string): Promise<FileSnapshot & { text: string }> {
   await assertSourcePath(root, path);
   const snapshot = await readProjectionFile(root, path);
-  if (snapshot.text === null)
+  if (snapshot.text === null) {
     throw new LintError("file-missing", `Source file disappeared: ${path}`);
+  }
   return { ...snapshot, text: snapshot.text };
 }

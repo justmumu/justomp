@@ -2,23 +2,20 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import type { CommitPolicy } from "./commit/model";
+import { type CommitPolicy } from "./commit/model";
 import { resolveCommitConfig } from "./commit/resolve";
-import type { FormatPolicy } from "./format/model";
+import { type FormatPolicy } from "./format/model";
 import { formatPolicyKey, resolveFormatConfig } from "./format/resolve";
 import { INSPECTION_DEFAULTS } from "./inspection/defaults";
-import type { InspectionRules } from "./inspection/model";
+import { type InspectionRules } from "./inspection/model";
 import { validateRules } from "./inspection/validate";
 import { resolveIntegrationTestConfig } from "./integration-test/resolve";
-import type { LintPolicy } from "./lint/model";
+import { type LintPolicy } from "./lint/model";
 import { lintPolicyKey, resolveLintConfig } from "./lint/resolve";
-import type { TestPolicy } from "./test/model";
+import { type TestPolicy } from "./test/model";
 import { resolveTestConfig, testPolicyKey } from "./test/resolve";
-import type { TypecheckPolicy } from "./typecheck/model";
-import {
-  resolveTypecheckConfig,
-  typecheckPolicyKey,
-} from "./typecheck/resolve";
+import { type TypecheckPolicy } from "./typecheck/model";
+import { resolveTypecheckConfig, typecheckPolicyKey } from "./typecheck/resolve";
 export interface LoadedConfig {
   commit: CommitPolicy;
   format: FormatPolicy;
@@ -46,8 +43,9 @@ const host = globalThis as typeof globalThis & {
 host[startupKey] ??= new Map<string, Promise<LoadedConfig>>();
 const startups = host[startupKey];
 function record(value: unknown, label: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new ConfigError(`${label} must be an object`);
+  }
   return value as Record<string, unknown>;
 }
 function errno(error: unknown, code: string): boolean {
@@ -56,9 +54,70 @@ function errno(error: unknown, code: string): boolean {
 export async function assertNotSymlink(path: string): Promise<void> {
   try {
     const s = await lstat(path);
-    if (s.isSymbolicLink()) throw new ConfigError(`Refusing symlink: ${path}`);
+    if (s.isSymbolicLink()) {
+      throw new ConfigError(`Refusing symlink: ${path}`);
+    }
   } catch (error) {
-    if (!errno(error, "ENOENT")) throw error;
+    if (!errno(error, "ENOENT")) {
+      throw error;
+    }
+  }
+}
+async function readFile(path: string): Promise<{ text: string | null; identity: string | null }> {
+  let text: string | null = null,
+    identity: string | null = null;
+  try {
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stats = await file.stat();
+      if (!stats.isFile()) {
+        throw new ConfigError("config.json must be a regular file");
+      }
+      identity = `${stats.dev}:${stats.ino}`;
+      text = await file.readFile("utf8");
+    } finally {
+      await file.close();
+    }
+  } catch (error) {
+    if (!errno(error, "ENOENT")) {
+      throw error;
+    }
+  }
+  return { text, identity };
+}
+function resolvePolicies(object: Record<string, unknown>) {
+  let format: ReturnType<typeof resolveFormatConfig>;
+  let commit: ReturnType<typeof resolveCommitConfig>;
+  let lint: ReturnType<typeof resolveLintConfig>;
+  let typecheck: ReturnType<typeof resolveTypecheckConfig>;
+  let test: ReturnType<typeof resolveTestConfig>;
+  let integrationTest: ReturnType<typeof resolveIntegrationTestConfig>;
+  try {
+    commit = resolveCommitConfig(object.commit);
+    integrationTest = resolveIntegrationTestConfig(
+      Object.hasOwn(object, "integration_test") ? object.integration_test : undefined,
+    );
+    test = resolveTestConfig(Object.hasOwn(object, "test") ? object.test : undefined);
+    lint = resolveLintConfig(Object.hasOwn(object, "lint") ? object.lint : undefined);
+    format = resolveFormatConfig(object.format, lint.policy.javascript.prettier);
+    typecheck = resolveTypecheckConfig(Object.hasOwn(object, "typecheck") ? object.typecheck : undefined);
+  } catch (error) {
+    throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return { format, commit, lint, typecheck, test, integrationTest };
+}
+async function publish(temporary: string, path: string, create: boolean): Promise<void> {
+  if (create) {
+    try {
+      await link(temporary, path);
+    } catch (error) {
+      if (errno(error, "EEXIST")) {
+        throw new ConfigError("config-conflict: configuration created during startup; retry startup");
+      }
+      throw error;
+    }
+  } else {
+    await rename(temporary, path);
   }
 }
 async function read(root: string): Promise<{
@@ -79,75 +138,19 @@ async function read(root: string): Promise<{
     path = join(directory, "config.json");
   await assertNotSymlink(directory);
   await assertNotSymlink(path);
-  let text: string | null = null,
-    identity: string | null = null;
-  try {
-    const file = await open(
-      path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
-    try {
-      const stats = await file.stat();
-      if (!stats.isFile())
-        throw new ConfigError("config.json must be a regular file");
-      identity = `${stats.dev}:${stats.ino}`;
-      text = await file.readFile("utf8");
-    } finally {
-      await file.close();
-    }
-  } catch (error) {
-    if (!errno(error, "ENOENT")) throw error;
-  }
+  const { text, identity } = await readFile(path);
   let object: Record<string, unknown>;
   try {
     object = text === null ? {} : record(JSON.parse(text), "config");
   } catch (error) {
-    throw new ConfigError(
-      `Invalid config.json: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const raw = Object.hasOwn(object, "inspection_rules")
-    ? record(object.inspection_rules, "inspection_rules")
-    : {};
-  const include = Object.hasOwn(raw, "include")
-    ? raw.include
-    : INSPECTION_DEFAULTS.include;
-  const exclude = Object.hasOwn(raw, "exclude")
-    ? raw.exclude
-    : INSPECTION_DEFAULTS.exclude;
+  const raw = Object.hasOwn(object, "inspection_rules") ? record(object.inspection_rules, "inspection_rules") : {};
+  const include = Object.hasOwn(raw, "include") ? raw.include : INSPECTION_DEFAULTS.include;
+  const exclude = Object.hasOwn(raw, "exclude") ? raw.exclude : INSPECTION_DEFAULTS.exclude;
   const rules = { include, exclude };
   validateRules(rules);
-  let format: ReturnType<typeof resolveFormatConfig>;
-  let commit: ReturnType<typeof resolveCommitConfig>;
-  let lint: ReturnType<typeof resolveLintConfig>;
-  let typecheck: ReturnType<typeof resolveTypecheckConfig>;
-  let test: ReturnType<typeof resolveTestConfig>;
-  let integrationTest: ReturnType<typeof resolveIntegrationTestConfig>;
-  try {
-    commit = resolveCommitConfig(object.commit);
-    integrationTest = resolveIntegrationTestConfig(
-      Object.hasOwn(object, "integration_test")
-        ? object.integration_test
-        : undefined,
-    );
-    test = resolveTestConfig(
-      Object.hasOwn(object, "test") ? object.test : undefined,
-    );
-    lint = resolveLintConfig(
-      Object.hasOwn(object, "lint") ? object.lint : undefined,
-    );
-    format = resolveFormatConfig(
-      object.format,
-      lint.policy.javascript.prettier,
-    );
-    typecheck = resolveTypecheckConfig(
-      Object.hasOwn(object, "typecheck") ? object.typecheck : undefined,
-    );
-  } catch (error) {
-    throw new ConfigError(
-      `Invalid config.json: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  const { format, commit, lint, typecheck, test, integrationTest } = resolvePolicies(object);
   return {
     text,
     object,
@@ -177,11 +180,7 @@ async function read(root: string): Promise<{
     identity,
   };
 }
-async function execute(
-  root: string,
-  flush: boolean,
-  signal?: AbortSignal,
-): Promise<LoadedConfig> {
+async function execute(root: string, flush: boolean, signal?: AbortSignal): Promise<LoadedConfig> {
   signal?.throwIfAborted();
   const initial = await read(root);
   signal?.throwIfAborted();
@@ -205,7 +204,9 @@ async function execute(
     }),
     wrote: false,
   };
-  if (!flush || !initial.missing) return result;
+  if (!flush || !initial.missing) {
+    return result;
+  }
   const directory = join(root, ".justomp"),
     path = join(directory, "config.json");
   await mkdir(directory, { recursive: true });
@@ -233,28 +234,19 @@ async function execute(
     signal?.throwIfAborted();
     const current = await read(root);
     signal?.throwIfAborted();
-    if (current.text !== initial.text || current.identity !== initial.identity)
-      throw new ConfigError(
-        "config-conflict: configuration changed during startup; retry startup",
-      );
+    if (current.text !== initial.text || current.identity !== initial.identity) {
+      throw new ConfigError("config-conflict: configuration changed during startup; retry startup");
+    }
     await assertNotSymlink(directory);
     await assertNotSymlink(path);
     signal?.throwIfAborted();
-    if (initial.text === null) {
-      try {
-        await link(temporary, path);
-      } catch (error) {
-        if (errno(error, "EEXIST"))
-          throw new ConfigError(
-            "config-conflict: configuration created during startup; retry startup",
-          );
-        throw error;
-      }
-    } else await rename(temporary, path);
+    await publish(temporary, path, initial.text === null);
     return { ...result, wrote: true };
   } finally {
     await unlink(temporary).catch((error) => {
-      if (!errno(error, "ENOENT")) throw error;
+      if (!errno(error, "ENOENT")) {
+        throw error;
+      }
     });
   }
 }
@@ -262,16 +254,22 @@ export async function loadConfig(
   root: string,
   options: { flush?: boolean; signal?: AbortSignal } = {},
 ): Promise<LoadedConfig> {
-  if (!options.flush) return execute(root, false, options.signal);
+  if (!options.flush) {
+    return execute(root, false, options.signal);
+  }
   const previous = startups.get(root);
   const task = (async () => {
-    if (previous) await previous.catch(() => undefined);
+    if (previous) {
+      await previous.catch(() => undefined);
+    }
     return execute(root, true, options.signal);
   })();
   startups.set(root, task);
   try {
     return await task;
   } finally {
-    if (startups.get(root) === task) startups.delete(root);
+    if (startups.get(root) === task) {
+      startups.delete(root);
+    }
   }
 }

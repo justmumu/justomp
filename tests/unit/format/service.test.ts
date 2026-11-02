@@ -1,9 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
-import {
-  lintPolicyKey,
-  resolveLintConfig,
-} from "../../../src/config/lint/resolve";
+import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 import * as config from "../../../src/config/load";
 import { withDomains } from "../../../src/dependencies/queue";
 import * as prettier from "../../../src/format/engines/prettier";
@@ -18,11 +15,14 @@ import { lintAdapters } from "../../../src/lint/service";
 import { LintStateStore } from "../../../src/lint/state";
 import * as targets from "../../../src/lint/targets";
 import * as packaging from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { output, target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -57,13 +57,9 @@ function setup(paths: string[]) {
     }),
   );
   const publish = keep(spyOn(files, "publishFormatFile").mockResolvedValue());
-  const format = keep(
-    spyOn(prettier, "formatPrettier").mockResolvedValue("after"),
-  );
+  const format = keep(spyOn(prettier, "formatPrettier").mockResolvedValue("after"));
   const prepare = keep(
-    spyOn(preparation, "prepareLint").mockRejectedValue(
-      new Error("Common files must not prepare native tooling"),
-    ),
+    spyOn(preparation, "prepareLint").mockRejectedValue(new Error("Common files must not prepare native tooling")),
   );
   return {
     selected,
@@ -96,52 +92,43 @@ test("unchanged and changed files are distinguished without unnecessary publicat
   const counts: number[] = [];
   const result = await formatProject("/repo", f.selected.project.project_id, {
     onProgress(progress) {
-      if (progress.stage === "formatting") counts.push(progress.completed);
+      if (progress.stage === "formatting") {
+        counts.push(progress.completed);
+      }
     },
   });
   expect(counts).toEqual([0, 1]);
   expect(result.success).toBe(true);
-  expect(result.files.map((file) => file.status)).toEqual([
-    "unchanged",
-    "changed",
-  ]);
+  expect(result.files.map((file) => file.status)).toEqual(["unchanged", "changed"]);
   expect(f.publish).toHaveBeenCalledTimes(1);
   expect(f.prepare).not.toHaveBeenCalled();
 });
 test("parse failure preserves earlier writes and leaves remaining files not-run", async () => {
   const f = setup(["a.md", "b.md", "c.md"]);
-  f.format
-    .mockResolvedValueOnce("after")
-    .mockRejectedValueOnce(new Error("Invalid syntax"));
+  f.format.mockResolvedValueOnce("after").mockRejectedValueOnce(new Error("Invalid syntax"));
   const result = await formatProject("/repo", f.selected.project.project_id);
   expect(result).toMatchObject({
     success: false,
     complete: false,
     cancelled: false,
   });
-  expect(result.files.map((file) => file.status)).toEqual([
-    "changed",
-    "failed",
-    "not-run",
-  ]);
+  expect(result.files.map((file) => file.status)).toEqual(["changed", "failed", "not-run"]);
   expect(f.publish).toHaveBeenCalledTimes(1);
 });
 test("abort during API formatting prevents publication and preserves prior effects", async () => {
   const f = setup(["a.md", "b.md", "c.md"]);
   const controller = new AbortController();
-  f.format.mockResolvedValueOnce("after").mockImplementationOnce(async () => {
-    controller.abort(new Error("stop"));
-    return "after";
+  f.format.mockResolvedValueOnce("after").mockImplementationOnce(() => {
+    return suppliedResponse(() => {
+      controller.abort(new Error("stop"));
+      return "after";
+    });
   });
   const result = await formatProject("/repo", f.selected.project.project_id, {
     signal: controller.signal,
   });
   expect(result.cancelled).toBe(true);
-  expect(result.files.map((file) => file.status)).toEqual([
-    "changed",
-    "failed",
-    "not-run",
-  ]);
+  expect(result.files.map((file) => file.status)).toEqual(["changed", "failed", "not-run"]);
   expect(f.publish).toHaveBeenCalledTimes(1);
 });
 test("invalid entire selection is rejected before configuration flush or native preparation", async () => {
@@ -205,9 +192,7 @@ function native(f: ReturnType<typeof setup>) {
       configs: { lint: "/config", format: "/config" },
     }),
   );
-  const verify = keep(
-    spyOn(lintAdapters.python, "verify").mockResolvedValue(true),
-  );
+  const verify = keep(spyOn(lintAdapters.python, "verify").mockResolvedValue(true));
   const run = keep(spyOn(python, "formatPython").mockResolvedValue(output()));
   f.prepare.mockResolvedValue({
     projects: {},
@@ -231,11 +216,7 @@ function native(f: ReturnType<typeof setup>) {
 test("native failure accounts observed writes, keeps earlier effects and stops subsequent files", async () => {
   const f = setup(["a.py", "b.py", "c.py"]);
   const n = native(f);
-  n.run
-    .mockResolvedValueOnce(output())
-    .mockResolvedValueOnce(
-      output({ exit_code: 1, stderr: "formatter failed" }),
-    );
+  n.run.mockResolvedValueOnce(output()).mockResolvedValueOnce(output({ exit_code: 1, stderr: "formatter failed" }));
   const snapshot = (text: string) => ({ text, identity: "1", mode: 0o644 });
   f.read
     .mockResolvedValueOnce(snapshot("before"))
@@ -244,11 +225,7 @@ test("native failure accounts observed writes, keeps earlier effects and stops s
     .mockResolvedValueOnce(snapshot("partially written"));
   const result = await formatProject("/repo", f.selected.project.project_id);
   expect(result).toMatchObject({ success: false, complete: false });
-  expect(result.files.map((file) => file.status)).toEqual([
-    "changed",
-    "failed",
-    "not-run",
-  ]);
+  expect(result.files.map((file) => file.status)).toEqual(["changed", "failed", "not-run"]);
   expect(result.files[1]?.changed).toBe(true);
   expect(result.formatters).toEqual([{ engine: "ruff", version: "0.17.3" }]);
   expect(result.affected_projects).toContain("python:sibling");
@@ -288,9 +265,7 @@ test("partial preparation metadata changes refresh inspection and survive refres
         kind: "updated",
       },
     ],
-    errors: [
-      { code: "setup-failed", message: "failure after manifest update" },
-    ],
+    errors: [{ code: "setup-failed", message: "failure after manifest update" }],
     complete: false,
     cancelled: false,
   });
@@ -302,37 +277,38 @@ test("partial preparation metadata changes refresh inspection and survive refres
   const result = await formatProject("/repo", f.selected.project.project_id);
   expect(result.preparation_changes).toHaveLength(1);
   expect(result.affected_projects).toEqual(["python:sibling"]);
-  expect(result.errors.map((error) => error.code)).toEqual([
-    "setup-failed",
-    "refresh-failed",
-  ]);
+  expect(result.errors.map((error) => error.code)).toEqual(["setup-failed", "refresh-failed"]);
 });
 test("format shares dependency domains and rejects ownership changes after waiting", async () => {
   const f = setup(["a.md"]);
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let entered = () => {};
+  let entered = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const held = new Promise<void>((resolve) => {
     entered = resolve;
   });
-  const mutation = withDomains(
-    f.selected.scope.domains,
-    undefined,
-    async () => {
-      entered();
-      await gate;
-    },
-  );
+  const mutation = withDomains(f.selected.scope.domains, undefined, async () => {
+    entered();
+    await gate;
+  });
   await held;
-  let wait = () => {};
+  let wait = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const waiting = new Promise<void>((resolve) => {
     wait = resolve;
   });
   const pending = formatProject("/repo", f.selected.project.project_id, {
     onProgress: (progress) => {
-      if (progress.stage === "waiting") wait();
+      if (progress.stage === "waiting") {
+        wait();
+      }
     },
   });
   await waiting;
@@ -350,30 +326,34 @@ test("format shares dependency domains and rejects ownership changes after waiti
 });
 test("waiting calls use current policy and cancelled queue waiters never write", async () => {
   const f = setup(["a.md"]);
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  let enter = () => {};
+  let enter = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const held = new Promise<void>((resolve) => {
     enter = resolve;
   });
-  const mutation = withDomains(
-    f.selected.scope.domains,
-    undefined,
-    async () => {
-      enter();
-      await gate;
-    },
-  );
+  const mutation = withDomains(f.selected.scope.domains, undefined, async () => {
+    enter();
+    await gate;
+  });
   await held;
-  let wait = () => {};
+  let wait = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   const waiting = new Promise<void>((resolve) => {
     wait = resolve;
   });
   const pending = formatProject("/repo", f.selected.project.project_id, {
     onProgress: (progress) => {
-      if (progress.stage === "waiting") wait();
+      if (progress.stage === "waiting") {
+        wait();
+      }
     },
   });
   await waiting;
@@ -388,7 +368,9 @@ test("waiting calls use current policy and cancelled queue waiters never write",
   const cancelled = formatProject("/repo", f.selected.project.project_id, {
     signal: controller.signal,
     onProgress: (progress) => {
-      if (progress.stage === "waiting") controller.abort();
+      if (progress.stage === "waiting") {
+        controller.abort();
+      }
     },
   });
   expect((await cancelled).cancelled).toBe(true);
@@ -400,18 +382,13 @@ test("waiting calls use current policy and cancelled queue waiters never write",
 });
 test("metadata changed before a later parse failure still refreshes inspection", async () => {
   const f = setup(["pyproject.toml", "z.json"]);
-  f.format
-    .mockResolvedValueOnce("after")
-    .mockRejectedValueOnce(new Error("invalid JSON"));
+  f.format.mockResolvedValueOnce("after").mockRejectedValueOnce(new Error("invalid JSON"));
   const result = await formatProject("/repo", f.selected.project.project_id, {
     onProgress() {
       throw new Error("Reporting failed");
     },
   });
-  expect(result.files.map((file) => file.status)).toEqual([
-    "changed",
-    "failed",
-  ]);
+  expect(result.files.map((file) => file.status)).toEqual(["changed", "failed"]);
   expect(f.inspect).toHaveBeenCalledTimes(3);
   expect(f.inspect.mock.calls.at(-1)?.[1]).toEqual({ refresh: true });
 });
@@ -448,10 +425,7 @@ test("Ruff scope is revalidated with current shared policy after waiting before 
   );
   const current = structuredClone(f.policy);
   current.lint.python.ruff.exclude = ["main.py"];
-  f.load
-    .mockResolvedValueOnce(f.policy)
-    .mockResolvedValueOnce(f.policy)
-    .mockResolvedValue(current);
+  f.load.mockResolvedValueOnce(f.policy).mockResolvedValueOnce(f.policy).mockResolvedValue(current);
   const result = await formatProject("/repo", f.selected.project.project_id, {
     files: ["README.md", "main.py"],
   });

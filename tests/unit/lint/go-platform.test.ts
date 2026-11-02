@@ -7,6 +7,8 @@ test("unsupported Go lint platform fails artifact selection", () => {
     Object.defineProperty(process, "platform", { value: "win32" });
     expect(() => golangciArtifact("2.15.0")).toThrow("not supported");
   } finally {
-    if (platform) Object.defineProperty(process, "platform", platform);
+    if (platform) {
+      Object.defineProperty(process, "platform", platform);
+    }
   }
 });

@@ -1,31 +1,21 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
 import { readInventory } from "../../../../src/dependencies/inventory";
-import type {
-  AdapterContext,
-  DependencyRequest,
-} from "../../../../src/dependencies/model";
+import { type AdapterContext, type DependencyRequest } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
-import type { Project } from "../../../../src/inspect/model";
+import { type Project } from "../../../../src/inspect/model";
+import { suppliedResponse } from "../../../response";
 
 export async function uvFixture(dependencies = '"uv-demo>=1,<2"') {
   const root = await realpath(await mkdtemp(join(tmpdir(), "justomp-uv-")));
   await mkdir(join(root, "wheels"));
   const python = Bun.which("python3"),
     uv = Bun.which("uv");
-  if (!python || !uv)
-    throw new Error(
-      "uv and Python must already be installed for the native fixture",
-    );
+  if (!python || !uv) {
+    throw new Error("uv and Python must already be installed for the native fixture");
+  }
   const script = `import zipfile,sys,os
 root=sys.argv[1]
 for name,versions,requires in [('uv_demo',['1.0.0','1.5.0','2.0.0'],['uv-child>=1']),('uv_child',['1.0.0'],[])]:
@@ -40,8 +30,9 @@ for name,versions,requires in [('uv_demo',['1.0.0','1.5.0','2.0.0'],['uv-child>=
     stdout: "pipe",
     stderr: "pipe",
   });
-  if ((await wheelProcess.exited) !== 0)
+  if ((await wheelProcess.exited) !== 0) {
     throw new Error(await new Response(wheelProcess.stderr).text());
+  }
   await writeFile(
     join(root, "pyproject.toml"),
     `[project]\nname = "uv-app"\nversion = "1.0.0"\nrequires-python = ">=3.9"\ndependencies = [${dependencies}]\n[tool.uv]\npackage = false\n`,
@@ -111,7 +102,9 @@ for name,versions,requires in [('uv_demo',['1.0.0','1.5.0','2.0.0'],['uv-child>=
     env,
     async native(args: string[]) {
       const result = await context.run({ args, label: "fixture" });
-      if (result.exit_code !== 0) throw new Error(result.stderr);
+      if (result.exit_code !== 0) {
+        throw new Error(result.stderr);
+      }
       return result;
     },
     async execute(request: Exclude<DependencyRequest, { operation: "list" }>) {
@@ -119,14 +112,18 @@ for name,versions,requires in [('uv_demo',['1.0.0','1.5.0','2.0.0'],['uv-child>=
       const plan = await uvAdapter.plan(context, request, before);
       for (const step of plan.steps) {
         const result = await context.run(step);
-        if (result.exit_code !== 0) throw new Error(result.stderr);
+        if (result.exit_code !== 0) {
+          throw new Error(result.stderr);
+        }
       }
       const after = await uvAdapter.inventory(context, false);
       await uvAdapter.verify?.(context, request, before, after);
       return after;
     },
-    async manifest() {
-      return readFile(join(root, context.project.manifest), "utf8");
+    manifest() {
+      return suppliedResponse(() => {
+        return readFile(join(root, context.project.manifest), "utf8");
+      });
     },
     async dispose() {
       await rm(root, { recursive: true, force: true });

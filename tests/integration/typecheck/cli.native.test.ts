@@ -7,7 +7,9 @@ import { pythonFixture } from "../../fixtures/typecheck/python/fixture";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
-  for (const fn of cleanup.splice(0).reverse()) await fn();
+  for (const fn of cleanup.splice(0).reverse()) {
+    await fn();
+  }
 });
 async function cli(root: string, extra: string[] = []) {
   const child = Bun.spawn(
@@ -36,9 +38,7 @@ test("CLI defaults to full preparation; explicit check-only is readonly and shar
     await f.dispose();
   });
   expect((await cli(f.root, ["--check-only"])).exit).toBe(2);
-  expect(await Bun.file(join(f.root, ".justomp/config.json")).exists()).toBe(
-    false,
-  );
+  expect(await Bun.file(join(f.root, ".justomp/config.json")).exists()).toBe(false);
   const first = await cli(f.root);
   expect(first.exit, JSON.stringify(first)).toBe(0);
   expect(first.result.preparation.changes.length).toBeGreaterThan(0);
@@ -51,8 +51,7 @@ test("CLI defaults to full preparation; explicit check-only is readonly and shar
     ".justomp/config.json",
     ".justomp/typecheck_state.json",
   ];
-  const bytes = () =>
-    Promise.all(files.map((path) => readFile(join(f.root, path), "utf8")));
+  const bytes = () => Promise.all(files.map((path) => readFile(join(f.root, path), "utf8")));
   const before = await bytes(),
     api = await checkProjectTypecheck(f.root, "python:pyproject.toml"),
     command = await cli(f.root, ["--check-only"]);
@@ -69,7 +68,9 @@ test("CLI SIGTERM cancels and joins its actual native setup process", async () =
     await f.dispose();
   });
   const uv = Bun.which("uv");
-  if (!uv) throw new Error("uv required");
+  if (!uv) {
+    throw new Error("uv required");
+  }
   const bin = join(f.root, ".fixture-bin"),
     started = join(f.root, "started"),
     stopped = join(f.root, "stopped");
@@ -99,7 +100,9 @@ test("CLI SIGTERM cancels and joins its actual native setup process", async () =
   try {
     const deadline = Date.now() + 20000;
     while (!(await Bun.file(started).exists())) {
-      if (Date.now() > deadline) throw new Error("Native setup did not start");
+      if (Date.now() > deadline) {
+        throw new Error("Native setup did not start");
+      }
       await Bun.sleep(20);
     }
     const pid = Number(await readFile(started, "utf8"));

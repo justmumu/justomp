@@ -98,3 +98,13 @@ On cancellation, inspect `committed` and `commit_hash` before retrying. A null
 ## Pre-push
 
 The [repository pre-push hook](prepush.md) checks the current working tree without lint fixes, formatting or staging. It runs lock consistency, format checks, lint, typecheck and unit tests with coverage for all discovered projects. Git and its hook retain the sandbox of their caller; no trusted push tool is added.
+
+## Developing Justomp itself
+
+In this checkout, `bun install --frozen-lockfile` followed by `bun run setup`
+prepares the repository and installs these same hooks without starting OMP.
+`bun run check` calls the same pre-push service. Setup reports conflicts and
+partial installation; rerunning it uses the installer's existing idempotence.
+The local launchers contain absolute executable and CLI paths and are not tracked.
+Terminal commit messages are not validated by a new commit-msg hook; message
+validation remains the existing OMP `repo_commit` behavior.

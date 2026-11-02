@@ -1,25 +1,13 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveLintConfig } from "../../../../src/config/lint/resolve";
-import type {
-  PackagingStructure,
-  Project,
-} from "../../../../src/inspect/model";
+import { type PackagingStructure, type Project } from "../../../../src/inspect/model";
 import { pythonAdapter } from "../../../../src/lint/adapters/python";
-import type { LintOperationContext } from "../../../../src/lint/adapters/types";
-import {
-  applyProjection,
-  planProjection,
-} from "../../../../src/lint/projection";
+import { type LintOperationContext } from "../../../../src/lint/adapters/types";
+import { applyProjection, planProjection } from "../../../../src/lint/projection";
 import { resolveLintTarget } from "../../../../src/lint/targets";
+import { suppliedResponse } from "../../../response";
 
 export const VERSION = "0.17.3";
 export async function pythonFixture(workspace = false, declaration = "") {
@@ -47,25 +35,25 @@ export async function pythonFixture(workspace = false, declaration = "") {
     });
   }
   const structure = { root, complete: true, projects } as PackagingStructure;
-  const targets = await Promise.all(
-    projects.map((p) => resolveLintTarget(structure, p.project_id)),
-  );
+  const targets = await Promise.all(projects.map((p) => resolveLintTarget(structure, p.project_id)));
   const policy = resolveLintConfig().policy;
   const signal = new AbortController().signal;
   const context: LintOperationContext = {
     targets,
     policy,
     signal,
-    versions: Object.fromEntries(
-      projects.map((p) => [p.project_id, { ruff: VERSION }]),
-    ),
+    versions: Object.fromEntries(projects.map((p) => [p.project_id, { ruff: VERSION }])),
     changes: [],
   };
   const checkContext = async (index = 0) => {
     const target = targets[index];
-    if (!target) throw new Error("Missing fixture target");
+    if (!target) {
+      throw new Error("Missing fixture target");
+    }
     const versions = context.versions[target.project.project_id];
-    if (!versions) throw new Error("Missing fixture versions");
+    if (!versions) {
+      throw new Error("Missing fixture versions");
+    }
     return {
       target,
       policy,
@@ -81,19 +69,17 @@ export async function pythonFixture(workspace = false, declaration = "") {
     async prepare() {
       await pythonAdapter.preflight(context);
       await pythonAdapter.prepareBatch(context);
-      for (const target of targets)
-        await applyProjection(
-          await planProjection(target, policy),
-          context.changes,
-        );
+      for (const target of targets) {
+        await applyProjection(await planProjection(target, policy), context.changes);
+      }
     },
     checkContext,
-    async bytes() {
-      return Promise.all(
-        ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map(
-          (p) => readFile(join(root, p), "utf8"),
-        ),
-      );
+    bytes() {
+      return suppliedResponse(() => {
+        return Promise.all(
+          ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readFile(join(root, p), "utf8")),
+        );
+      });
     },
     dispose: () => rm(root, { recursive: true, force: true }),
   };

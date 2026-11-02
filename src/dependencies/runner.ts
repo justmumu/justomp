@@ -6,7 +6,7 @@ export function runProcess(
   options: {
     cwd: string;
     env?: Record<string, string | undefined>;
-    signal?: AbortSignal;
+    signal?: AbortSignal | undefined;
     limit?: number;
     /** Authoritative bounded protocol consumer, independent of console capture. */
     onStdout?: (chunk: Buffer) => void;
@@ -29,12 +29,13 @@ export function runProcess(
       stdio: ["ignore", "pipe", "pipe"],
     });
     const collect = (buffer: Buffer<ArrayBuffer>, chunk: Buffer) => {
-      if (buffer.length + chunk.length > limit) truncated = true;
-      if (buffer.length >= limit) return buffer;
-      return Buffer.concat([
-        buffer,
-        chunk.subarray(0, Math.max(0, limit - buffer.length)),
-      ]);
+      if (buffer.length + chunk.length > limit) {
+        truncated = true;
+      }
+      if (buffer.length >= limit) {
+        return buffer;
+      }
+      return Buffer.concat([buffer, chunk.subarray(0, Math.max(0, limit - buffer.length))]);
     };
     child.stdout.on("data", (chunk: Buffer) => {
       stdout = collect(stdout, chunk);
@@ -51,28 +52,29 @@ export function runProcess(
       stderr = collect(stderr, chunk);
     });
     const kill = (signal: "SIGTERM" | "SIGKILL") => {
-      if (!child.pid) return;
+      if (!child.pid) {
+        return;
+      }
       try {
-        if (process.platform === "win32") {
-          // Windows support requires the platform smoke suite; never use a shell.
-          spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-            stdio: "ignore",
-            shell: false,
-          }).on("error", () => child.kill(signal));
-        } else process.kill(-child.pid, signal);
+        killProcessTree(child, child.pid, signal);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ESRCH")
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
           child.kill(signal);
+        }
       }
     };
     const abort = () => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       cancelled = true;
       kill("SIGTERM");
       force = setTimeout(() => kill("SIGKILL"), 400);
     };
     const cleanup = () => {
-      if (force) clearTimeout(force);
+      if (force) {
+        clearTimeout(force);
+      }
       options.signal?.removeEventListener("abort", abort);
     };
     child.on("error", (error) => {
@@ -81,7 +83,9 @@ export function runProcess(
     });
     child.on("close", (exit_code, signal) => {
       // Also terminate descendants that closed inherited stdio before their parent.
-      if (cancelled) kill("SIGKILL");
+      if (cancelled) {
+        kill("SIGKILL");
+      }
       cleanup();
       if (protocolError) {
         reject(protocolError);
@@ -97,6 +101,20 @@ export function runProcess(
       });
     });
     options.signal?.addEventListener("abort", abort, { once: true });
-    if (options.signal?.aborted) abort();
+    if (options.signal?.aborted) {
+      abort();
+    }
   });
+}
+
+function killProcessTree(child: ReturnType<typeof spawn>, pid: number, signal: "SIGTERM" | "SIGKILL") {
+  if (process.platform === "win32") {
+    // Windows support requires the platform smoke suite; never use a shell.
+    spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+      stdio: "ignore",
+      shell: false,
+    }).on("error", () => child.kill(signal));
+  } else {
+    process.kill(-pid, signal);
+  }
 }

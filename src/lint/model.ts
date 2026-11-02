@@ -10,12 +10,7 @@ export class LintError extends Error {
 export type LintEcosystem = "python" | "javascript" | "go";
 export type CheckKind = "lint" | "format";
 export type CheckStatus = "passed" | "failed" | "not-run" | "no-sources";
-export type PreparationStatus =
-  | "unprepared"
-  | "preparing"
-  | "ready"
-  | "outdated"
-  | "failed";
+export type PreparationStatus = "unprepared" | "preparing" | "ready" | "outdated" | "failed";
 export interface LintDiagnostic {
   kind: CheckKind;
   /** Paths are relative to the repository root and the selected project. */

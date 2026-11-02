@@ -1,20 +1,20 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import {
-  lintPolicyKey,
-  resolveLintConfig,
-} from "../../../src/config/lint/resolve";
+import { lintPolicyKey, resolveLintConfig } from "../../../src/config/lint/resolve";
 import * as config from "../../../src/config/load";
-import type { LintAdapter } from "../../../src/lint/adapters/types";
+import { type LintAdapter } from "../../../src/lint/adapters/types";
 import { prepareLint } from "../../../src/lint/prepare";
 import * as projection from "../../../src/lint/projection";
 import { LintStateStore } from "../../../src/lint/state";
 import * as targets from "../../../src/lint/targets";
 import * as packaging from "../../../src/packaging/get-structure";
+import { suppliedResponse } from "../../response";
 import { target } from "../checks/fixture";
 
 const restores: (() => void)[] = [];
 afterEach(() => {
-  for (const restore of restores.splice(0).reverse()) restore();
+  for (const restore of restores.splice(0).reverse()) {
+    restore();
+  }
 });
 function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
@@ -63,7 +63,9 @@ test("scoped native preparation includes all Python projects but preserves other
         }),
       ),
     },
-    async save() {},
+    save() {
+      return Promise.resolve();
+    },
   } as unknown as LintStateStore;
   const goReceipt = structuredClone(store.state.projects["go:project2"]);
   keep(
@@ -72,15 +74,15 @@ test("scoped native preparation includes all Python projects but preserves other
     } as packaging.PackagingResult),
   );
   keep(
-    spyOn(targets, "resolveLintTarget").mockImplementation(
-      async (_structure, id) => {
-        const found = selected.find(
-          (current) => current.project.project_id === id,
-        );
-        if (!found) throw new Error(`Unknown fixture project: ${id}`);
+    spyOn(targets, "resolveLintTarget").mockImplementation((_structure, id) => {
+      return suppliedResponse(() => {
+        const found = selected.find((current) => current.project.project_id === id);
+        if (!found) {
+          throw new Error(`Unknown fixture project: ${id}`);
+        }
         return found;
-      },
-    ),
+      });
+    }),
   );
   keep(
     spyOn(config, "loadConfig").mockResolvedValue({
@@ -98,39 +100,39 @@ test("scoped native preparation includes all Python projects but preserves other
   );
   const verified: string[] = [];
   const adapter: LintAdapter = {
-    async resolve() {
-      throw new Error("Resolved pins must be retained");
+    resolve() {
+      return suppliedResponse(() => {
+        throw new Error("Resolved pins must be retained");
+      });
     },
-    async preflight(context) {
-      expect(
-        context.targets.map((current) => current.project.project_id),
-      ).toEqual(["python:project0", "python:project1"]);
+    preflight(context) {
+      return suppliedResponse(() => {
+        expect(context.targets.map((current) => current.project.project_id)).toEqual([
+          "python:project0",
+          "python:project1",
+        ]);
+      });
     },
-    async prepareBatch() {
-      throw new Error("Ready environments must not install tools");
+    prepareBatch() {
+      return suppliedResponse(() => {
+        throw new Error("Ready environments must not install tools");
+      });
     },
-    async verify(context) {
-      verified.push(context.target.project.project_id);
-      return true;
+    verify(context) {
+      return suppliedResponse(() => {
+        verified.push(context.target.project.project_id);
+        return true;
+      });
     },
-    async check() {
-      throw new Error("Preparation does not check sources");
+    check() {
+      return suppliedResponse(() => {
+        throw new Error("Preparation does not check sources");
+      });
     },
   };
-  const result = await prepareLint(
-    "/repo",
-    { python: adapter },
-    new AbortController().signal,
-    undefined,
-    ["python"],
-  );
+  const result = await prepareLint("/repo", { python: adapter }, new AbortController().signal, undefined, ["python"]);
   expect(result.complete, JSON.stringify(result)).toBe(true);
-  expect(result.affected_projects).toEqual([
-    "python:project0",
-    "python:project1",
-  ]);
-  expect(new Set(verified)).toEqual(
-    new Set(["python:project0", "python:project1"]),
-  );
+  expect(result.affected_projects).toEqual(["python:project0", "python:project1"]);
+  expect(new Set(verified)).toEqual(new Set(["python:project0", "python:project1"]));
   expect(store.state.projects["go:project2"]).toEqual(goReceipt);
 });

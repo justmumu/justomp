@@ -14,33 +14,33 @@ import {
 
 afterEach(async () => {
   process.env.PATH = originalPath;
-  if (originalModules === undefined) delete process.env.npm_config_modules_dir;
-  else process.env.npm_config_modules_dir = originalModules;
+  if (originalModules === undefined) {
+    delete process.env.npm_config_modules_dir;
+  } else {
+    process.env.npm_config_modules_dir = originalModules;
+  }
   for (const [key, value] of Object.entries(isolatedEnvironment)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
   await closePackagingStructure();
-  for (const cleanup of cleanups.splice(0)) await cleanup();
-  for (const root of roots.splice(0))
+  for (const cleanup of cleanups.splice(0)) {
+    await cleanup();
+  }
+  for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
+  }
 });
 test("workspace modules directory checks every member's symlink destination", async () => {
   const { root, project } = await fixture();
   await mkdir(join(project, "packages/member"), { recursive: true });
-  await writeFile(
-    join(project, "packages/member/package.json"),
-    '{"name":"member","version":"1.0.0"}',
-  );
-  await writeFile(
-    join(project, "pnpm-workspace.yaml"),
-    "packages: ['packages/*']\nmodulesDir: installed\n",
-  );
+  await writeFile(join(project, "packages/member/package.json"), '{"name":"member","version":"1.0.0"}');
+  await writeFile(join(project, "pnpm-workspace.yaml"), "packages: ['packages/*']\nmodulesDir: installed\n");
   await mkdir(join(root, "outside"));
-  await symlink(
-    join(root, "outside"),
-    join(project, "packages/member/installed"),
-  );
+  await symlink(join(root, "outside"), join(project, "packages/member/installed"));
   await expect(scope(project)).rejects.toMatchObject({ code: "outside-root" });
 });
 test("pnpm environment destination participates in root validation", async () => {

@@ -1,19 +1,13 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { TestRunContext } from "../adapters";
+import { type TestRunContext } from "../adapters";
 import { coverageEnabled } from "../native-tools";
 export function pythonConfig(context: TestRunContext) {
   const enabled = coverageEnabled(context),
     report = join(context.artifacts, "junit.xml"),
     coverage = join(context.artifacts, "coverage.json"),
     rc = join(context.artifacts, "coverage.ini");
-  const dirs = [
-    ...new Set(
-      context.scope.sources.map((file) =>
-        dirname(resolve(context.target.scope.cwd, file)),
-      ),
-    ),
-  ];
+  const dirs = [...new Set(context.scope.sources.map((file) => dirname(resolve(context.target.scope.cwd, file))))];
   const config = `[run]\nbranch = false\ndata_file = ${join(context.artifacts, ".coverage")}\nsource =\n${dirs.map((d) => `    ${d}`).join("\n")}\n[report]\ninclude_namespace_packages = true\ninclude =\n${context.scope.sources.map((f) => `    ${resolve(context.target.scope.cwd, f)}`).join("\n")}\nfail_under = 0\n`;
   const pytestArgs = [
     "-o",
@@ -31,12 +25,7 @@ export function pythonConfig(context: TestRunContext) {
     "no:xdist",
     `--junitxml=${report}`,
     ...(enabled
-      ? [
-          "--cov",
-          `--cov-config=${rc}`,
-          `--cov-report=json:${coverage}`,
-          "--cov-fail-under=0",
-        ]
+      ? ["--cov", `--cov-config=${rc}`, `--cov-report=json:${coverage}`, "--cov-fail-under=0"]
       : ["--no-cov"]),
     ...context.scope.selected.map((f) => `./${f}`),
   ];

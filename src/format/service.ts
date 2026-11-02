@@ -4,7 +4,7 @@ import { type LoadedConfig, loadConfig } from "../config/load";
 import { within } from "../dependencies/paths";
 import { withDomains } from "../dependencies/queue";
 import { isDiscoveryInput } from "../inspect/exclusions";
-import type { LintCheckContext } from "../lint/adapters/types";
+import { type LintCheckContext } from "../lint/adapters/types";
 import { lintDomains, prepareLint } from "../lint/prepare";
 import { planProjection } from "../lint/projection";
 import { lintAdapters } from "../lint/service";
@@ -16,8 +16,8 @@ import { formatPrettier, prettierVersion } from "./engines/prettier";
 import { assertFormatProcess } from "./engines/process";
 import { formatPython } from "./engines/python";
 import { publishFormatFile, readFormatFile } from "./files";
-import { FormatError } from "./model";
-import { type FormatResult, finishFormat, formatIssue } from "./result";
+import { FormatError, type Formatter } from "./model";
+import { type FormatFileResult, type FormatResult, finishFormat, formatIssue } from "./result";
 import { collectFormatScope } from "./scope";
 import { formatterFor, selectFormatFiles } from "./selection";
 
@@ -34,8 +34,9 @@ export interface FormatOptions {
 }
 function selectedFormatter(path: string, target: LintTarget) {
   const formatter = formatterFor(path, target.project.ecosystem);
-  if (!formatter)
+  if (!formatter) {
     throw new FormatError("invalid-files", `Unsupported format file: ${path}`);
+  }
   return formatter;
 }
 function ownership(target: LintTarget): string {
@@ -49,18 +50,12 @@ function ownership(target: LintTarget): string {
     target.project.workspace,
     lintDomains(target.root, [target]),
     target.structure.projects
-      .filter((project) =>
-        within(target.scope.cwd, resolve(target.root, project.path)),
-      )
+      .filter((project) => within(target.scope.cwd, resolve(target.root, project.path)))
       .map((project) => [project.project_id, project.path, project.manifest])
       .sort(),
   ]);
 }
-async function liveTarget(
-  root: string,
-  id: string,
-  signal: AbortSignal,
-): Promise<LintTarget> {
+async function liveTarget(root: string, id: string, signal: AbortSignal): Promise<LintTarget> {
   const { structure } = await getPackagingStructure(root, {
     signal,
     refresh: true,
@@ -68,51 +63,184 @@ async function liveTarget(
   });
   return resolveLintTarget(structure, id);
 }
-async function nativeContext(
-  target: LintTarget,
-  policy: LoadedConfig,
-  signal: AbortSignal,
-): Promise<LintCheckContext> {
+async function nativeContext(target: LintTarget, policy: LoadedConfig, signal: AbortSignal): Promise<LintCheckContext> {
   const store = await LintStateStore.load(target.root);
   const receipt = store.state.projects[target.project.project_id];
   if (
     store.recovery ||
     !receipt?.ready ||
     receipt.policy_hash !== lintPolicyKey(policy.lint[target.project.ecosystem])
-  )
-    throw new FormatError(
-      "not-ready",
-      "Native format preparation is not current",
-    );
+  ) {
+    throw new FormatError("not-ready", "Native format preparation is not current");
+  }
   if (
     !lintWaveReady(
       store.state,
       target.project.ecosystem,
-      target.structure.projects
-        .filter((p) => p.ecosystem === target.project.ecosystem)
-        .map((p) => p.project_id),
+      target.structure.projects.filter((p) => p.ecosystem === target.project.ecosystem).map((p) => p.project_id),
     )
-  )
-    throw new FormatError(
-      `incomplete-${target.project.ecosystem}-wave`,
-      "Lint version alignment wave is incomplete",
-    );
+  ) {
+    throw new FormatError(`incomplete-${target.project.ecosystem}-wave`, "Lint version alignment wave is incomplete");
+  }
   const context: LintCheckContext = {
     target,
     policy: policy.lint,
     versions: receipt.tools,
     signal,
-    projection: await planProjection(target, policy.lint),
+    projection: await planProjection(target, policy.lint, receipt.tools),
   };
-  if (
-    !context.projection.current ||
-    !(await lintAdapters[target.project.ecosystem].verify(context))
-  )
-    throw new FormatError(
-      "not-ready",
-      "Native format environment changed after preparation",
-    );
+  if (!context.projection.current || !(await lintAdapters[target.project.ecosystem].verify(context))) {
+    throw new FormatError("not-ready", "Native format environment changed after preparation");
+  }
   return context;
+}
+function formatterVersion(formatter: Formatter, context: LintCheckContext | undefined): string {
+  const version =
+    formatter.engine === "prettier"
+      ? prettierVersion
+      : context?.versions[formatter.engine === "ruff" ? "ruff" : "golangci-lint"];
+  if (!version) {
+    throw new FormatError("not-ready", "Prepared formatter version is missing");
+  }
+  return version;
+}
+async function attemptFormatFile(
+  file: FormatFileResult,
+  target: LintTarget,
+  currentPolicy: LoadedConfig,
+  context: LintCheckContext | undefined,
+  result: FormatResult,
+  signal: AbortSignal,
+): Promise<boolean> {
+  try {
+    await formatFile(file, target, currentPolicy, context, result, signal);
+  } catch (error) {
+    file.status = "failed";
+    file.error = {
+      ...formatIssue(error, signal.aborted ? "cancelled" : "format-failed"),
+      path: file.path,
+    };
+    result.errors.push(file.error);
+    return false;
+  }
+  return true;
+}
+async function formatFile(
+  file: FormatFileResult,
+  target: LintTarget,
+  currentPolicy: LoadedConfig,
+  context: LintCheckContext | undefined,
+  result: FormatResult,
+  signal: AbortSignal,
+): Promise<void> {
+  const path = resolve(target.scope.cwd, file.path);
+  // Check from canonical inspection root, so project-directory aliases are rejected too.
+  const before = await readFormatFile(target.root, path);
+  const formatter = selectedFormatter(file.path, target);
+  const version = formatterVersion(formatter, context);
+  signal.throwIfAborted();
+  if (!result.formatters.some((entry) => entry.engine === formatter.engine)) {
+    result.formatters.push({ engine: formatter.engine, version });
+  }
+  if (formatter.engine === "prettier") {
+    const text = await formatPrettier(before.text, formatter.parser, currentPolicy.format.prettier);
+    signal.throwIfAborted();
+    if (text !== before.text) {
+      await publishFormatFile(target.root, path, before, text, signal);
+    }
+    file.status = text === before.text ? "unchanged" : "changed";
+  } else {
+    await formatNativeFile(file, target, context, formatter.engine, before.text, signal);
+  }
+}
+async function formatNativeFile(
+  file: FormatFileResult,
+  target: LintTarget,
+  context: LintCheckContext | undefined,
+  engine: "ruff" | "go",
+  beforeText: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const path = resolve(target.scope.cwd, file.path);
+  if (!context) {
+    throw new FormatError("not-ready", "Native format context is missing");
+  }
+  let completed = false;
+  try {
+    const process = await (engine === "ruff" ? formatPython : formatGo)(context, [file.path]);
+    assertFormatProcess(process, engine);
+    signal.throwIfAborted();
+    completed = true;
+  } finally {
+    const after = await readFormatFile(target.root, path);
+    const changed = beforeText !== after.text;
+    if (completed) {
+      file.status = changed ? "changed" : "unchanged";
+    } else {
+      file.changed = changed;
+    }
+  }
+}
+function selectResults(target: LintTarget, paths: string[]) {
+  return paths.map((path) => ({
+    path,
+    engine: selectedFormatter(path, target).engine,
+    status: "not-run" as const,
+  }));
+}
+function validateInput(projectId: unknown, files: unknown): void {
+  if (typeof projectId !== "string" || !projectId.trim()) {
+    throw new FormatError("invalid-input", "project_id is required");
+  }
+  if (files !== undefined && (!Array.isArray(files) || files.some((file) => typeof file !== "string"))) {
+    throw new FormatError("invalid-files", "files must be a non-empty list of exact project-relative paths");
+  }
+}
+async function prepareNative(
+  initial: LintTarget,
+  result: FormatResult,
+  signal: AbortSignal,
+  progress: (stage: FormatProgress["stage"], path?: string) => void,
+): Promise<{ cancelled: boolean } | undefined> {
+  const report = await prepareLint(initial.root, lintAdapters, signal, () => progress("preparation"), [
+    initial.project.ecosystem,
+  ]);
+  result.preparation_changes.push(...report.changes);
+  result.affected_projects.push(...report.affected_projects);
+  result.errors.push(...report.errors);
+  if (report.changes.some((change) => isDiscoveryInput(change.path))) {
+    progress("refresh");
+    try {
+      await getPackagingStructure(initial.root, { refresh: true });
+    } catch (error) {
+      result.errors.push({ ...formatIssue(error), code: "refresh-failed" });
+    }
+  }
+  if (!report.complete || result.errors.length) {
+    if (!report.complete && !report.errors.length) {
+      result.errors.push({
+        code: "preparation-incomplete",
+        message: "Native format preparation did not complete",
+      });
+    }
+    return { cancelled: signal.aborted || report.cancelled };
+  }
+  return undefined;
+}
+async function refresh(
+  root: string,
+  result: FormatResult,
+  progress: (stage: FormatProgress["stage"], path?: string) => void,
+): Promise<void> {
+  progress("refresh");
+  try {
+    await getPackagingStructure(root, { refresh: true });
+  } catch (error) {
+    result.errors.push({ ...formatIssue(error), code: "refresh-failed" });
+  }
+}
+function changedMetadata(file: FormatFileResult): boolean {
+  return (file.status === "changed" || file.changed === true) && isDiscoveryInput(file.path);
 }
 /** Writes owned files serially, retaining observed partial effects on failure or cancellation. */
 export async function formatProject(
@@ -126,9 +254,7 @@ export async function formatProject(
     project_id: projectId,
     relative_path: null,
     selection: options.files === undefined ? "all" : "explicit",
-    ...(Array.isArray(options.files)
-      ? { requested_files: [...options.files] }
-      : {}),
+    ...(Array.isArray(options.files) ? { requested_files: [...options.files] } : {}),
     success: false,
     complete: false,
     cancelled: false,
@@ -153,39 +279,43 @@ export async function formatProject(
       /* Reporting cannot interrupt writes or cleanup. */
     }
   }
+  async function writeFiles(
+    target: LintTarget,
+    currentPolicy: LoadedConfig,
+    context: LintCheckContext | undefined,
+  ): Promise<void> {
+    let metadataChanged = false;
+    try {
+      for (const file of result.files) {
+        signal.throwIfAborted();
+        progress("formatting", file.path);
+        try {
+          if (!(await attemptFormatFile(file, target, currentPolicy, context, result, signal))) {
+            break;
+          }
+        } finally {
+          completed++;
+          metadataChanged = changedMetadata(file) || metadataChanged;
+        }
+      }
+    } finally {
+      if (metadataChanged) {
+        await refresh(target.root, result, progress);
+      }
+    }
+  }
   try {
     signal.throwIfAborted();
-    if (typeof projectId !== "string" || !projectId.trim())
-      throw new FormatError("invalid-input", "project_id is required");
-    if (
-      options.files !== undefined &&
-      (!Array.isArray(options.files) ||
-        options.files.some((file) => typeof file !== "string"))
-    )
-      throw new FormatError(
-        "invalid-files",
-        "files must be a non-empty list of exact project-relative paths",
-      );
+    validateInput(projectId, options.files);
     progress("selection");
     const initial = await liveTarget(root, projectId, signal);
     result.relative_path = initial.project.path;
     const policy = await loadConfig(initial.root, { signal });
     const selected = selectFormatFiles(
-      await collectFormatScope(
-        initial,
-        policy.format,
-        policy.lint,
-        options.files,
-      ),
+      await collectFormatScope(initial, policy.format, policy.lint, options.files),
       options.files,
     );
     const identity = ownership(initial);
-    const selectResults = (target: LintTarget, paths: string[]) =>
-      paths.map((path) => ({
-        path,
-        engine: selectedFormatter(path, target).engine,
-        status: "not-run" as const,
-      }));
     result.files = selectResults(initial, selected);
     // Explicit inputs are validated as a whole before any config or native setup writes.
     const flushed = await loadConfig(initial.root, { signal, flush: true });
@@ -195,180 +325,36 @@ export async function formatProject(
         path: ".justomp/config.json",
         kind: "updated",
       });
-      result.affected_projects.push(
-        ...initial.structure.projects.map((project) => project.project_id),
-      );
+      result.affected_projects.push(...initial.structure.projects.map((project) => project.project_id));
     }
-    const needsNative = selected.some(
-      (path) =>
-        formatterFor(path, initial.project.ecosystem)?.engine !== "prettier",
-    );
+    const needsNative = selected.some((path) => formatterFor(path, initial.project.ecosystem)?.engine !== "prettier");
     if (needsNative) {
       progress("preparation");
-      const report = await prepareLint(
-        initial.root,
-        lintAdapters,
-        signal,
-        () => progress("preparation"),
-        [initial.project.ecosystem],
-      );
-      result.preparation_changes.push(...report.changes);
-      result.affected_projects.push(...report.affected_projects);
-      result.errors.push(...report.errors);
-      if (report.changes.some((change) => isDiscoveryInput(change.path))) {
-        progress("refresh");
-        try {
-          await getPackagingStructure(initial.root, { refresh: true });
-        } catch (error) {
-          result.errors.push({ ...formatIssue(error), code: "refresh-failed" });
-        }
-      }
-      if (!report.complete || result.errors.length) {
-        if (!report.complete && !report.errors.length)
-          result.errors.push({
-            code: "preparation-incomplete",
-            message: "Native format preparation did not complete",
-          });
-        return finishFormat(
-          result,
-          started,
-          signal.aborted || report.cancelled,
-        );
+      const stopped = await prepareNative(initial, result, signal, progress);
+      if (stopped) {
+        return finishFormat(result, started, stopped.cancelled);
       }
     }
     progress("waiting");
-    await withDomains(
-      lintDomains(initial.root, [initial]),
-      signal,
-      async () => {
-        signal.throwIfAborted();
-        const target = await liveTarget(initial.root, projectId, signal);
-        if (ownership(target) !== identity)
-          throw new FormatError(
-            "ownership-changed",
-            "Project ownership changed while format was waiting",
-          );
-        const currentPolicy = await loadConfig(target.root, { signal });
-        const current = selectFormatFiles(
-          await collectFormatScope(
-            target,
-            currentPolicy.format,
-            currentPolicy.lint,
-            options.files,
-          ),
-          options.files,
-        );
-        result.files = selectResults(target, current);
-        completed = 0;
-        const currentNative = current.some(
-          (path) =>
-            formatterFor(path, target.project.ecosystem)?.engine !== "prettier",
-        );
-        const context = currentNative
-          ? await nativeContext(target, currentPolicy, signal)
-          : undefined;
-        let metadataChanged = false;
-        try {
-          for (const file of result.files) {
-            signal.throwIfAborted();
-            progress("formatting", file.path);
-            try {
-              const path = resolve(target.scope.cwd, file.path);
-              // Check from canonical inspection root, so project-directory aliases are rejected too.
-              const before = await readFormatFile(target.root, path);
-              const formatter = selectedFormatter(file.path, target);
-              const version =
-                formatter.engine === "prettier"
-                  ? prettierVersion
-                  : context?.versions[
-                      formatter.engine === "ruff" ? "ruff" : "golangci-lint"
-                    ];
-              if (!version)
-                throw new FormatError(
-                  "not-ready",
-                  "Prepared formatter version is missing",
-                );
-              signal.throwIfAborted();
-              if (
-                !result.formatters.some(
-                  (entry) => entry.engine === formatter.engine,
-                )
-              )
-                result.formatters.push({ engine: formatter.engine, version });
-              if (formatter.engine === "prettier") {
-                const text = await formatPrettier(
-                  before.text,
-                  formatter.parser,
-                  currentPolicy.format.prettier,
-                );
-                signal.throwIfAborted();
-                if (text !== before.text)
-                  await publishFormatFile(
-                    target.root,
-                    path,
-                    before,
-                    text,
-                    signal,
-                  );
-                file.status = text === before.text ? "unchanged" : "changed";
-              } else {
-                if (!context)
-                  throw new FormatError(
-                    "not-ready",
-                    "Native format context is missing",
-                  );
-                try {
-                  const process = await (formatter.engine === "ruff"
-                    ? formatPython
-                    : formatGo)(context, [file.path]);
-                  assertFormatProcess(process, formatter.engine);
-                  signal.throwIfAborted();
-                } finally {
-                  const after = await readFormatFile(target.root, path);
-                  file.changed = before.text !== after.text;
-                }
-                file.status = file.changed ? "changed" : "unchanged";
-                delete file.changed;
-              }
-            } catch (error) {
-              file.status = "failed";
-              file.error = {
-                ...formatIssue(
-                  error,
-                  signal.aborted ? "cancelled" : "format-failed",
-                ),
-                path: file.path,
-              };
-              result.errors.push(file.error);
-              break;
-            } finally {
-              completed++;
-              if (
-                (file.status === "changed" || file.changed) &&
-                isDiscoveryInput(file.path)
-              )
-                metadataChanged = true;
-            }
-          }
-        } finally {
-          if (metadataChanged) {
-            progress("refresh");
-            try {
-              await getPackagingStructure(target.root, { refresh: true });
-            } catch (error) {
-              result.errors.push({
-                ...formatIssue(error),
-                code: "refresh-failed",
-              });
-            }
-          }
-        }
-      },
-    );
+    await withDomains(lintDomains(initial.root, [initial]), signal, async () => {
+      signal.throwIfAborted();
+      const target = await liveTarget(initial.root, projectId, signal);
+      if (ownership(target) !== identity) {
+        throw new FormatError("ownership-changed", "Project ownership changed while format was waiting");
+      }
+      const currentPolicy = await loadConfig(target.root, { signal });
+      const current = selectFormatFiles(
+        await collectFormatScope(target, currentPolicy.format, currentPolicy.lint, options.files),
+        options.files,
+      );
+      result.files = selectResults(target, current);
+      completed = 0;
+      const currentNative = current.some((path) => formatterFor(path, target.project.ecosystem)?.engine !== "prettier");
+      const context = currentNative ? await nativeContext(target, currentPolicy, signal) : undefined;
+      await writeFiles(target, currentPolicy, context);
+    });
   } catch (error) {
-    result.errors.push(
-      formatIssue(error, signal.aborted ? "cancelled" : "format-failed"),
-    );
+    result.errors.push(formatIssue(error, signal.aborted ? "cancelled" : "format-failed"));
   }
   return finishFormat(result, started, signal.aborted);
 }

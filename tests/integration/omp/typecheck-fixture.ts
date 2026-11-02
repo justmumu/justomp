@@ -2,11 +2,10 @@ import { spyOn } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
+import { type TypecheckResult } from "../../../src/typecheck/model";
 import { VERSION as RUFF_VERSION } from "../../fixtures/lint/python/fixture";
-import {
-  pythonFixture,
-  VERSION,
-} from "../../fixtures/typecheck/python/fixture";
+import { pythonFixture, VERSION } from "../../fixtures/typecheck/python/fixture";
+import { suppliedResponse } from "../../response";
 import { createHost } from "./host";
 import { createLocalHost, localPythonCheckers } from "./local-checkers";
 export const cleanups: (() => Promise<void>)[] = [];
@@ -21,9 +20,7 @@ export async function fixture(deny: string[] = [], local = false) {
     await f.dispose();
   });
   await writeFile(join(f.root, "module.py"), '"""Example module."""\n');
-  const h = local
-    ? await createLocalHost(f.root, deny)
-    : await createHost(f.root, undefined, deny);
+  const h = local ? await createLocalHost(f.root, deny) : await createHost(f.root, undefined, deny);
   cleanups.push(h.close);
   return { f, h };
 }
@@ -31,37 +28,45 @@ export function registry() {
   const original = globalThis.fetch;
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      async (input: Parameters<typeof fetch>[0]) => {
-        if (String(input) === "https://pypi.org/pypi/ruff/json")
-          return Response.json({
-            releases: { [RUFF_VERSION]: [{ yanked: false }] },
-          });
-        if (String(input) !== "https://pypi.org/pypi/pyright/json")
-          throw new Error(`Unexpected network: ${input}`);
-        return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
+      (input: Parameters<typeof fetch>[0]) => {
+        return suppliedResponse(() => {
+          if (String(input) === "https://pypi.org/pypi/ruff/json") {
+            return Response.json({
+              releases: { [RUFF_VERSION]: [{ yanked: false }] },
+            });
+          }
+          if (String(input) !== "https://pypi.org/pypi/pyright/json") {
+            throw new Error(`Unexpected network: ${input}`);
+          }
+          return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
+        });
       },
       { preconnect: original.preconnect },
     ),
   );
 }
-export function json(result: { content: unknown }) {
+export function json<T = TypecheckResult>(result: { content: unknown }) {
   return JSON.parse(
     (result.content as { type: string; text: string }[])
       .filter((x) => x.type === "text")
       .map((x) => x.text)
       .join("\n"),
-  );
+  ) as T;
 }
 export async function until(check: () => Promise<boolean>, message: string) {
   const deadline = Date.now() + 20000;
   while (!(await check())) {
-    if (Date.now() > deadline) throw new Error(message);
+    if (Date.now() > deadline) {
+      throw new Error(message);
+    }
     await Bun.sleep(15);
   }
 }
 export function heldRegistry() {
   const original = globalThis.fetch;
-  let release = () => {};
+  let release = () => {
+    /* This supplied callback intentionally has no side effects. */
+  };
   let entered = false;
   let calls = 0;
   const gate = new Promise<void>((resolve) => {
@@ -70,20 +75,26 @@ export function heldRegistry() {
   const fetcher = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-        if (String(input) === "https://pypi.org/pypi/ruff/json")
+        if (String(input) === "https://pypi.org/pypi/ruff/json") {
           return Response.json({
             releases: { [RUFF_VERSION]: [{ yanked: false }] },
           });
-        if (String(input) !== "https://pypi.org/pypi/pyright/json")
+        }
+        if (String(input) !== "https://pypi.org/pypi/pyright/json") {
           throw new Error(`Unexpected network ${input}`);
+        }
         calls++;
         entered = true;
         const signal = init?.signal;
-        let abort = () => {};
+        let abort = () => {
+          /* This supplied callback intentionally has no side effects. */
+        };
         const cancelled = new Promise<never>((_, reject) => {
           abort = () => reject(signal?.reason);
           signal?.addEventListener("abort", abort, { once: true });
-          if (signal?.aborted) abort();
+          if (signal?.aborted) {
+            abort();
+          }
         });
         try {
           await Promise.race([gate, cancelled]);

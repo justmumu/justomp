@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import { LintError } from "../../lint/model";
+import { mergeFields } from "../merge";
 import { GO_DEFAULTS } from "./go/defaults";
 import { JAVASCRIPT_DEFAULTS } from "./javascript/defaults";
-import type { LintPolicy } from "./model";
+import { migrateJavascriptPolicy } from "./javascript/migrate";
+import { type LintPolicy } from "./model";
 import { PYTHON_DEFAULTS } from "./python/defaults";
 
 const defaults: LintPolicy = {
@@ -11,24 +13,106 @@ const defaults: LintPolicy = {
   go: GO_DEFAULTS,
 };
 const ruleMaps = new Set([
-  "lint.javascript.eslint.rules",
-  "lint.javascript.eslint.typed_rules",
-  "lint.javascript.eslint.test_rules",
-  "lint.javascript.eslint.react_rules",
-  "lint.javascript.eslint.next_rules",
+  "lint.javascript.biome.rules",
+  "lint.javascript.biome.typed_rules",
+  "lint.javascript.biome.test_rules",
+  "lint.javascript.biome.react_rules",
+  "lint.javascript.biome.next_rules",
 ]);
-const severities = new Set<unknown>(["off", "warn", "error", 0, 1, 2]);
+const severities = new Set<unknown>(["off", "info", "warn", "error"]);
+const groups = new Set([
+  "a11y",
+  "complexity",
+  "correctness",
+  "nursery",
+  "performance",
+  "security",
+  "style",
+  "suspicious",
+]);
 function invalid(path: string, type: string): never {
   throw new LintError("invalid-config", `${path} must be ${type}`);
 }
 function object(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     invalid(path, "an object");
+  }
   return value as Record<string, unknown>;
 }
 function strings(value: unknown, path: string): void {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
     invalid(path, "an array of strings");
+  }
+}
+
+function validateSetting(value: unknown, path: string, levels: Set<unknown>, fixes: boolean): void {
+  if (levels.has(value)) {
+    return;
+  }
+  const setting = object(value, path);
+  if (!levels.has(setting.level)) {
+    invalid(`${path}.level`, "a native severity");
+  }
+  for (const key of Object.keys(setting)) {
+    if (key !== "level" && key !== "options" && !(fixes && key === "fix")) {
+      invalid(`${path}.${key}`, "a supported native rule attribute");
+    }
+  }
+  if (Object.hasOwn(setting, "options")) {
+    object(setting.options, `${path}.options`);
+  }
+  if (Object.hasOwn(setting, "fix") && !["none", "safe", "unsafe"].includes(String(setting.fix))) {
+    invalid(`${path}.fix`, "none, safe or unsafe");
+  }
+}
+
+function validateRules(input: unknown, path: string): void {
+  for (const [group, settings] of Object.entries(object(input, path))) {
+    if (!groups.has(group)) {
+      invalid(`${path}.${group}`, "a native rule group");
+    }
+    for (const [rule, setting] of Object.entries(object(settings, `${path}.${group}`))) {
+      validateSetting(setting, `${path}.${group}.${rule}`, severities, true);
+    }
+  }
+}
+function scalar(input: unknown, fallback: unknown, path: string): unknown {
+  if (typeof input !== typeof fallback || (typeof input === "number" && !Number.isFinite(input))) {
+    invalid(path, `a ${typeof fallback}`);
+  }
+  return input;
+}
+function validateManagedDiscovery(supplied: Record<string, unknown>, path: string): void {
+  for (const key of ["extends", "plugins", "$schema", "root", "files", "overrides", "vcs"]) {
+    if (Object.hasOwn(supplied, key)) {
+      invalid(
+        `${path}.${key}`,
+        "absent from managed policy; configuration discovery and file scope are owned by Justomp",
+      );
+    }
+  }
+}
+function validatePolicyValue(input: unknown, path: string): boolean {
+  if (path === "lint.javascript.biome") {
+    const supplied = object(input, path);
+    validateManagedDiscovery(supplied, path);
+  }
+  if (path === "lint.javascript.biome.organize_imports") {
+    validateSetting(input, path, new Set(["on", "off"]), false);
+    return true;
+  }
+  if (ruleMaps.has(path)) {
+    validateRules(input, path);
+    return true;
+  }
+  if (path === "lint.python.ruff.lint.per-file-ignores") {
+    const patterns = object(input, path);
+    for (const [pattern, rules] of Object.entries(patterns)) {
+      strings(rules, `${path}.${pattern}`);
+    }
+    return true;
+  }
+  return false;
 }
 
 /** Fill structural fields, while treating user-keyed maps and arrays as values. */
@@ -36,76 +120,60 @@ export function resolveLintConfig(value?: unknown): {
   policy: LintPolicy;
   missing: boolean;
 } {
-  let missing = false;
+  const migration = migrateJavascriptPolicy(value);
+  let missing = migration.migrated;
   function merge(input: unknown, fallback: unknown, path: string): unknown {
     if (input === undefined) {
       missing = true;
       return structuredClone(fallback);
     }
-    if (path === "lint.javascript.eslint.globals") {
-      const globals = object(input, path);
-      for (const [name, value] of Object.entries(globals))
-        if (!["readonly", "writable", "off"].includes(String(value)))
-          invalid(`${path}.${name}`, "readonly, writable or off");
-      return structuredClone(globals);
-    }
-    if (ruleMaps.has(path)) {
-      const rules = object(input, path);
-      for (const [rule, setting] of Object.entries(rules)) {
-        const severity = Array.isArray(setting) ? setting[0] : setting;
-        if (!severities.has(severity))
-          invalid(
-            `${path}.${rule}`,
-            "a rule severity or a non-empty severity/options array",
-          );
-      }
-      return structuredClone(rules);
-    }
-    if (path === "lint.python.ruff.lint.per-file-ignores") {
-      const patterns = object(input, path);
-      for (const [pattern, rules] of Object.entries(patterns))
-        strings(rules, `${path}.${pattern}`);
-      return structuredClone(patterns);
+    if (validatePolicyValue(input, path)) {
+      return structuredClone(input);
     }
     if (Array.isArray(fallback)) {
       strings(input, path);
       return structuredClone(input);
     }
     if (fallback && typeof fallback === "object") {
-      const supplied = object(input, path);
-      const result = structuredClone(supplied);
-      for (const [key, defaultValue] of Object.entries(fallback))
-        result[key] = merge(
-          Object.hasOwn(supplied, key) ? supplied[key] : undefined,
-          defaultValue,
-          `${path}.${key}`,
-        );
+      const result = mergeFields(object(input, path), fallback, path, merge);
       return result;
     }
-    if (
-      typeof input !== typeof fallback ||
-      (typeof input === "number" && !Number.isFinite(input))
-    )
-      invalid(path, `a ${typeof fallback}`);
-    return input;
+    return scalar(input, fallback, path);
   }
-  const policy = merge(value, defaults, "lint") as LintPolicy;
+  const policy = merge(migration.value, defaults, "lint") as LintPolicy;
   return { policy, missing };
 }
 
 /** Object ordering is immaterial; native rule option and pattern arrays retain order. */
 export function lintPolicyKey(policy: unknown): string {
+  function activeJavascript(value: unknown): unknown {
+    if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, "biome")) {
+      return value;
+    }
+    const { eslint: _legacy, ...active } = value as Record<string, unknown>;
+    return active;
+  }
+  const active =
+    policy && typeof policy === "object" && !Array.isArray(policy) && Object.hasOwn(policy, "javascript")
+      ? {
+          ...policy,
+          javascript: activeJavascript((policy as Record<string, unknown>).javascript),
+        }
+      : activeJavascript(policy);
   function canonical(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(canonical);
-    if (value && typeof value === "object")
+    if (Array.isArray(value)) {
+      return value.map(canonical);
+    }
+    if (value && typeof value === "object") {
       return Object.fromEntries(
         Object.entries(value)
           .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
           .map(([key, item]) => [key, canonical(item)]),
       );
+    }
     return value;
   }
   return createHash("sha256")
-    .update(JSON.stringify(canonical(policy)))
+    .update(JSON.stringify(canonical(active)))
     .digest("hex");
 }

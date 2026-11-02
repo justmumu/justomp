@@ -1,5 +1,5 @@
-import type { ProcessResult } from "../dependencies/model";
-import type { validateMessage } from "./message";
+import { type ProcessResult } from "../dependencies/model";
+import { type validateMessage } from "./message";
 export interface CommitResult {
   success: boolean;
   committed: boolean | null;

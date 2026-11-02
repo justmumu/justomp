@@ -2,11 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { assertNotSymlink } from "../config/load";
-import type { PackagingStructure } from "../inspect/model";
-export async function publishSnapshot(
-  structure: PackagingStructure,
-  signal: AbortSignal,
-): Promise<number> {
+import { type PackagingStructure } from "../inspect/model";
+export async function publishSnapshot(structure: PackagingStructure, signal: AbortSignal): Promise<number> {
   const started = performance.now();
   signal.throwIfAborted();
   const directory = join(structure.root, ".justomp");
@@ -33,7 +30,9 @@ export async function publishSnapshot(
     await rename(temporary, destination);
   } finally {
     await unlink(temporary).catch((error) => {
-      if (error.code !== "ENOENT") throw error;
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
     });
   }
   return performance.now() - started;

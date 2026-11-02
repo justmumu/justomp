@@ -1,30 +1,18 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  LintSession,
-  withReadyLintTarget,
-} from "../../../src/lint/coordinator";
+import { LintSession, withReadyLintTarget } from "../../../src/lint/coordinator";
 import { getPackagingStructure } from "../../../src/packaging/get-structure";
 import { fixture } from "./fixture";
 
 test("getter and unprepared check are read-only; empty directories do not resolve versions", async () => {
   const f = await fixture();
   await getPackagingStructure(f.root, { publish: false });
+  await expect(readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8")).rejects.toThrow();
   await expect(
-    readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8"),
-  ).rejects.toThrow();
-  await expect(
-    withReadyLintTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("not ready");
-  await expect(
-    readFile(join(f.root, ".justomp/config.json"), "utf8"),
-  ).rejects.toThrow();
+  await expect(readFile(join(f.root, ".justomp/config.json"), "utf8")).rejects.toThrow();
   expect(f.counts()).toEqual({ resolves: 0, prepares: 0 });
   const coordinator = await f.start();
   await coordinator.reconcile();
@@ -43,19 +31,13 @@ test("moving a project creates a wave and corrupt state recovers without trustin
   await writeFile(join(f.root, ".justomp/lint_state.json"), "{broken");
   await rm(join(f.root, "moved/installed.json"));
   await expect(
-    withReadyLintTarget(
-      f.root,
-      "python:moved/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyLintTarget(f.root, "python:moved/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("not ready");
   const result = await coordinator.reconcile();
   expect(result.complete).toBe(true);
   expect(result.recovery).toContain("Invalid lint state");
   expect(
-    JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"))
-      .projects["python:a/pyproject.toml"],
+    JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8")).projects["python:a/pyproject.toml"],
   ).toBeUndefined();
 });
 
@@ -67,30 +49,18 @@ test("unrelated ecosystem policy does not stale Python; unsupported ecosystem fa
   const config = JSON.parse(await readFile(path, "utf8"));
   config.lint.go.golangci.linters.enable = [];
   await writeFile(path, JSON.stringify(config));
-  expect(
-    await withReadyLintTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
-  ).toBe(true);
-  await mkdir(join(f.root, "js"));
-  await writeFile(
-    join(f.root, "js/package.json"),
-    '{"name":"js","packageManager":"npm@11.0.0"}',
+  expect(await withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true)).toBe(
+    true,
   );
+  await mkdir(join(f.root, "js"));
+  await writeFile(join(f.root, "js/package.json"), '{"name":"js","packageManager":"npm@11.0.0"}');
   const result = await coordinator.reconcile();
   expect(result.complete).toBe(false);
-  expect(result.projects["python:a/pyproject.toml"]?.complete).toBe(true);
-  expect(
-    await withReadyLintTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
-  ).toBe(true);
+  const projects: Partial<typeof result.projects> = result.projects;
+  expect(projects["python:a/pyproject.toml"]?.complete).toBe(true);
+  expect(await withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true)).toBe(
+    true,
+  );
 });
 
 test("two sessions share a root; switching and releasing one leaves the other active", async () => {
@@ -116,23 +86,13 @@ test("normal getters publish after an earlier read-only getter and mixed concurr
   const f = await fixture();
   await getPackagingStructure(f.root, { publish: false });
   await getPackagingStructure(f.root);
-  expect(
-    JSON.parse(
-      await readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8"),
-    ).projects,
-  ).toHaveLength(1);
+  expect(JSON.parse(await readFile(join(f.root, ".justomp/packaging_structure.json"), "utf8")).projects).toHaveLength(
+    1,
+  );
   const second = await fixture();
-  await Promise.all([
-    getPackagingStructure(second.root, { publish: false }),
-    getPackagingStructure(second.root),
-  ]);
+  await Promise.all([getPackagingStructure(second.root, { publish: false }), getPackagingStructure(second.root)]);
   expect(
-    JSON.parse(
-      await readFile(
-        join(second.root, ".justomp/packaging_structure.json"),
-        "utf8",
-      ),
-    ).projects,
+    JSON.parse(await readFile(join(second.root, ".justomp/packaging_structure.json"), "utf8")).projects,
   ).toHaveLength(1);
 });
 
@@ -141,22 +101,13 @@ test("ambiguous Python manager cannot complete a partial Python wave", async () 
   const coordinator = await f.start();
   await coordinator.reconcile();
   await mkdir(join(f.root, "ambiguous"));
-  await writeFile(
-    join(f.root, "ambiguous/pyproject.toml"),
-    '[project]\nname="ambiguous"\nversion="1.0.0"\n',
-  );
+  await writeFile(join(f.root, "ambiguous/pyproject.toml"), '[project]\nname="ambiguous"\nversion="1.0.0"\n');
   const result = await coordinator.reconcile();
   expect(result.complete).toBe(false);
-  expect(
-    JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"))
-      .waves.python.complete,
-  ).toBe(false);
+  expect(JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8")).waves.python.complete).toBe(
+    false,
+  );
   await expect(
-    withReadyLintTarget(
-      f.root,
-      "python:a/pyproject.toml",
-      { python: f.adapter },
-      async () => true,
-    ),
+    withReadyLintTarget(f.root, "python:a/pyproject.toml", { python: f.adapter }, async () => true),
   ).rejects.toThrow("wave");
 });

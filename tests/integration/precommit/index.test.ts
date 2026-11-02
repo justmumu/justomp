@@ -10,14 +10,16 @@ test("real Git index preserves NUL paths from a nested cwd", async () => {
     await gitText(root, ["init", "-q"]);
     await mkdir(join(root, "nested"));
     const names = ["space name.ts", "line\nname.ts", ":(glob)literal.ts"];
-    for (const name of names) await writeFile(join(root, name), "hello\n");
+    for (const name of names) {
+      await writeFile(join(root, name), "hello\n");
+    }
     await gitText(root, ["--literal-pathspecs", "add", "--", ...names]);
     const context = await gitContext(join(root, "nested"));
     expect(context).not.toBeNull();
-    if (!context) throw new Error("Missing Git context");
-    expect(
-      (await stagedRecords(context)).flatMap((r) => r.paths).sort(),
-    ).toEqual(names.sort());
+    if (!context) {
+      throw new Error("Missing Git context");
+    }
+    expect((await stagedRecords(context)).flatMap((r) => r.paths).sort()).toEqual(names.sort());
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,14 +1,14 @@
-import type { EcosystemTestPolicy } from "../config/test/model";
-import type {
-  CoverageTotals,
-  TestIssue,
-  TestMode,
-  TestPreparation,
-  TestSuite,
-  TestSummary,
+import { type EcosystemTestPolicy } from "../config/test/model";
+import {
+  type CoverageTotals,
+  type TestIssue,
+  type TestMode,
+  type TestPreparation,
+  type TestSuite,
+  type TestSummary,
 } from "./model";
-import type { TestScope } from "./scope";
-import type { TestTarget } from "./targets";
+import { type TestScope } from "./scope";
+import { type TestTarget } from "./targets";
 export type TestTools = Record<string, string>;
 export interface TestToolContext {
   target: TestTarget;
@@ -36,12 +36,7 @@ export interface TestAdapter {
   resolve(targets: TestTarget[], signal: AbortSignal): Promise<TestTools>;
   preflight(context: TestToolContext): Promise<void>;
   verify(context: TestToolContext): Promise<boolean>;
-  prepare(
-    context: TestToolContext,
-    changes: TestPreparation["changes"],
-  ): Promise<void>;
+  prepare(context: TestToolContext, changes: TestPreparation["changes"]): Promise<void>;
   run(context: TestRunContext): Promise<NativeTestResult>;
 }
-export type TestAdapters = Partial<
-  Record<import("./model").TestRunner, TestAdapter>
->;
+export type TestAdapters = Partial<Record<import("./model").TestRunner, TestAdapter>>;

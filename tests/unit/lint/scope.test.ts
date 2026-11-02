@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { createMatcher } from "../../../src/inspect/exclusions";
-import type { Project } from "../../../src/inspect/model";
+import { type Project } from "../../../src/inspect/model";
 import { scopeIgnores } from "../../../src/lint/scope";
+import { excludeSourceFiles } from "../../../src/packaging/source-exclusions";
 
 const project = (path: string, ecosystem: Project["ecosystem"]): Project => ({
   project_id: `${ecosystem}:${path}`,
@@ -34,6 +35,7 @@ test("internal state, tools and generated configs never enter inspection with em
     ".justomp/lint_state.json",
     ".justomp/tools/package.json",
     "apps/web/eslint.justomp.config.mjs",
+    "apps/web/biome.justomp.jsonc",
     "apps/web/prettier.justomp.json",
     "golangci.justomp.yml",
   ]) {
@@ -48,4 +50,11 @@ test("literal child project paths are escaped instead of hiding a similarly name
   expect(ignores).toContain("apps/\\[a\\]/**");
   expect(ignores).not.toContain("apps/[a]/**");
   expect(ignores).not.toContain("apps/a/**");
+});
+
+test("source exclusions match project-relative dot paths without changing the owned input", () => {
+  const owned = ["src/a.ts", ".private/archive.ts", "src/.hidden/value.ts", "tests/a.test.ts"];
+  expect(excludeSourceFiles(owned, [".private/**", "src/**/.hidden/**"])).toEqual(["src/a.ts", "tests/a.test.ts"]);
+  expect(excludeSourceFiles(owned, [])).toEqual(owned);
+  expect(owned).toHaveLength(4);
 });

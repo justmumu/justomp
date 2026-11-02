@@ -29,3 +29,13 @@ Nested session directories and linked worktrees resolve to their Git working-tre
 `justomp-prepush` takes no arguments and can also be run inside a repository to execute the gate without pushing. It uses the existing domain services; no `repo_push` agent tool is registered.
 
 Git launched through OMP's protected bash inherits that sandbox, and so does its hook. A required preparation write can therefore fail under that entry point. Terminal/IDE pushes use their normal environment. This feature does not grant the trusted `repo_commit` path permission to push or weaken file protection.
+
+## Developing Justomp itself
+
+In this checkout, `bun install --frozen-lockfile` followed by `bun run setup`
+prepares the repository and installs these same hooks without starting OMP.
+`bun run check` calls the same pre-push service. Setup reports conflicts and
+partial installation; rerunning it uses the installer's existing idempotence.
+The local launchers contain absolute executable and CLI paths and are not tracked.
+Terminal commit messages are not validated by a new commit-msg hook; message
+validation remains the existing OMP `repo_commit` behavior.

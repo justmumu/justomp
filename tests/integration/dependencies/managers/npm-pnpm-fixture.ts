@@ -1,30 +1,23 @@
 import { createHash } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  Adapter,
-  AdapterContext,
-  DependencyRequest,
-} from "../../../../src/dependencies/model";
+import { type Adapter, type AdapterContext, type DependencyRequest } from "../../../../src/dependencies/model";
 import { runProcess } from "../../../../src/dependencies/runner";
 import { inspectProject } from "../../../../src/inspect/scan";
 import managerVersions from "../../../fixtures/dependencies/manager-versions.json";
 import { measuredVersion } from "../../../fixtures/dependencies/measured-version";
 import { registryArchives } from "./registry-archives";
 
+interface FixtureManifest {
+  [key: string]: unknown;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
 export async function fixture(manager: "npm" | "pnpm") {
   const expectedVersion = managerVersions.managers[manager];
-  const root = await realpath(
-    await mkdtemp(join(tmpdir(), `justomp-${manager}-`)),
-  );
+  const root = await realpath(await mkdtemp(join(tmpdir(), `justomp-${manager}-`)));
   const project = join(root, "project");
   await mkdir(project);
   const archives = await registryArchives("npm");
@@ -34,12 +27,14 @@ export async function fixture(manager: "npm" | "pnpm") {
     port: 0,
     fetch(request): Response {
       const path = decodeURIComponent(new URL(request.url).pathname).slice(1);
-      if (path.endsWith(".tgz"))
+      if (path.endsWith(".tgz")) {
         return new Response(new Uint8Array(archives.get(path) ?? []), {
           status: archives.has(path) ? 200 : 404,
         });
-      if (!["fixture-dep", "fixture-child"].includes(path))
+      }
+      if (!["fixture-dep", "fixture-child"].includes(path)) {
         return Response.json({ error: "not found" }, { status: 404 });
+      }
       return Response.json({
         name: path,
         "dist-tags": { latest: available.at(-1) },
@@ -51,9 +46,7 @@ export async function fixture(manager: "npm" | "pnpm") {
               {
                 name: path,
                 version,
-                ...(path === "fixture-dep"
-                  ? { dependencies: { "fixture-child": "1.0.0" } }
-                  : {}),
+                ...(path === "fixture-dep" ? { dependencies: { "fixture-child": "1.0.0" } } : {}),
                 dist: {
                   tarball: `${server.url}${archive}`,
                   shasum: createHash("sha1")
@@ -94,11 +87,7 @@ export async function fixture(manager: "npm" | "pnpm") {
     npm_config_manage_package_manager_versions: "false",
   };
   const native = async (args: string[], cwd = project) =>
-    runProcess(
-      manager === "npm" ? "npm" : (process.env.JUSTOMP_PNPM_BINARY ?? "pnpm"),
-      args,
-      { cwd, env },
-    );
+    runProcess(manager === "npm" ? "npm" : (process.env.JUSTOMP_PNPM_BINARY ?? "pnpm"), args, { cwd, env });
   const detected = await native(["--version"]);
   let version: string;
   try {
@@ -111,7 +100,9 @@ export async function fixture(manager: "npm" | "pnpm") {
   const context = async (path = "."): Promise<AdapterContext> => {
     const structure = await inspectProject({ root: project });
     const selected = structure.projects.find((p) => p.path === path);
-    if (!selected) throw new Error(`Missing fixture project ${path}`);
+    if (!selected) {
+      throw new Error(`Missing fixture project ${path}`);
+    }
     return {
       root: project,
       project: selected,
@@ -120,8 +111,7 @@ export async function fixture(manager: "npm" | "pnpm") {
       owner: join(project, selected.managerRoot),
       manager,
       version,
-      run: (step) =>
-        native(step.args, step.cwd ?? join(project, selected.path)),
+      run: (step) => native(step.args, step.cwd ?? join(project, selected.path)),
     };
   };
   return {
@@ -133,7 +123,7 @@ export async function fixture(manager: "npm" | "pnpm") {
       available = ["1.0.0", "1.1.0", "2.0.0"];
     },
     manifest: async (path = ".") =>
-      JSON.parse(await readFile(join(project, path, "package.json"), "utf8")),
+      JSON.parse(await readFile(join(project, path, "package.json"), "utf8")) as FixtureManifest,
     async operate(
       adapter: Adapter,
       request: DependencyRequest extends infer R
@@ -156,8 +146,9 @@ export async function fixture(manager: "npm" | "pnpm") {
       for (const step of plan.steps) {
         const result = await ctx.run(step);
         results.push(result);
-        if (result.exit_code !== 0)
+        if (result.exit_code !== 0) {
           throw new Error(`${step.label}: ${result.stderr}\n${result.stdout}`);
+        }
       }
       const after = await adapter.inventory(ctx, false);
       await adapter.verify?.(ctx, full, before, after);

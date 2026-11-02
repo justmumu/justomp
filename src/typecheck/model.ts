@@ -9,12 +9,7 @@ export class TypecheckError extends Error {
 }
 export type TypecheckEcosystem = "python" | "javascript" | "go";
 export type CheckStatus = "passed" | "failed" | "not-run" | "no-sources";
-export type PreparationStatus =
-  | "unprepared"
-  | "preparing"
-  | "ready"
-  | "outdated"
-  | "failed";
+export type PreparationStatus = "unprepared" | "preparing" | "ready" | "outdated" | "failed";
 export interface TypecheckDiagnostic {
   /** Origin project, including a dependency whose declaration generation failed. */
   project_id: string;

@@ -1,13 +1,13 @@
 import { basename, dirname, join, resolve } from "node:path";
 import { parse } from "smol-toml";
-import type { TypecheckPolicy } from "../../config/typecheck/model";
+import { type TypecheckPolicy } from "../../config/typecheck/model";
 import { object } from "../../dependencies/inventory";
 import { equivalentConfig, hasProjectionMarker } from "../../format/readiness";
 import { readProjectionFile } from "../../lint/files";
 import { TypecheckError } from "../model";
-import type { ProjectionPlan } from "../projection";
+import { type ProjectionPlan } from "../projection";
 import { collectTypecheckScope } from "../scope";
-import type { TypecheckTarget } from "../targets";
+import { type TypecheckTarget } from "../targets";
 
 // Pyright's boolean diagnostic rules are policy-owned alongside report* rules.
 const BOOLEAN_RULES = new Set([
@@ -22,87 +22,54 @@ const BOOLEAN_RULES = new Set([
   "enableTypeIgnoreComments",
   "enableReachabilityAnalysis",
 ]);
-function withoutPolicy(
-  value: Record<string, unknown>,
-): Record<string, unknown> {
+function withoutPolicy(value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(value).filter(
       ([key]) =>
         !key.startsWith("report") &&
         !BOOLEAN_RULES.has(key) &&
-        ![
-          "typeCheckingMode",
-          "strict",
-          "include",
-          "exclude",
-          "ignore",
-          "extends",
-        ].includes(key),
+        !["typeCheckingMode", "strict", "include", "exclude", "ignore", "extends"].includes(key),
     ),
   );
 }
-function rebase(
-  value: Record<string, unknown>,
-  directory: string,
-): Record<string, unknown> {
+function rebase(value: Record<string, unknown>, directory: string): Record<string, unknown> {
   const result = { ...value };
   for (const key of ["extraPaths"]) {
-    if (Array.isArray(result[key]))
-      result[key] = result[key].map((path: unknown) =>
-        typeof path === "string" ? resolve(directory, path) : path,
-      );
+    if (Array.isArray(result[key])) {
+      result[key] = result[key].map((path: unknown) => (typeof path === "string" ? resolve(directory, path) : path));
+    }
   }
-  for (const key of [
-    "stubPath",
-    "typeshedPath",
-    "venvPath",
-    "pythonPath",
-    "root",
-  ]) {
-    if (typeof result[key] === "string")
+  for (const key of ["stubPath", "typeshedPath", "venvPath", "pythonPath", "root"]) {
+    if (typeof result[key] === "string") {
       result[key] = resolve(directory, result[key]);
+    }
   }
-  if (Array.isArray(result.executionEnvironments))
-    result.executionEnvironments = result.executionEnvironments.map((value) =>
-      rebase(object(value), directory),
-    );
+  if (Array.isArray(result.executionEnvironments)) {
+    result.executionEnvironments = result.executionEnvironments.map((value) => rebase(object(value), directory));
+  }
   return result;
 }
-async function load(
-  target: TypecheckTarget,
-  path: string,
-  seen: Set<string>,
-): Promise<Record<string, unknown>> {
-  if (seen.has(path))
-    throw new TypecheckError(
-      "unsupported-config",
-      `Cyclic Pyright extends: ${path}`,
-    );
+async function load(target: TypecheckTarget, path: string, seen: Set<string>): Promise<Record<string, unknown>> {
+  if (seen.has(path)) {
+    throw new TypecheckError("unsupported-config", `Cyclic Pyright extends: ${path}`);
+  }
   seen.add(path);
   const snapshot = await readProjectionFile(target.root, path);
-  if (snapshot.text === null)
-    throw new TypecheckError(
-      "unsupported-config",
-      `Missing inherited Pyright config: ${path}`,
-    );
+  if (snapshot.text === null) {
+    throw new TypecheckError("unsupported-config", `Missing inherited Pyright config: ${path}`);
+  }
   const parsed: unknown = path.endsWith(".toml")
     ? (object(object(parse(snapshot.text)).tool).pyright ?? {})
     : Bun.JSONC.parse(snapshot.text);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw new TypecheckError(
-      "unsupported-config",
-      `Invalid Pyright configuration: ${path}`,
-    );
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new TypecheckError("unsupported-config", `Invalid Pyright configuration: ${path}`);
+  }
   const config = object(parsed);
-  if (config.extends !== undefined && typeof config.extends !== "string")
-    throw new TypecheckError(
-      "unsupported-config",
-      "Pyright extends must be a string",
-    );
+  if (config.extends !== undefined && typeof config.extends !== "string") {
+    throw new TypecheckError("unsupported-config", "Pyright extends must be a string");
+  }
   const inherited =
-    typeof config.extends === "string"
-      ? await load(target, resolve(dirname(path), config.extends), seen)
-      : {};
+    typeof config.extends === "string" ? await load(target, resolve(dirname(path), config.extends), seen) : {};
   return { ...inherited, ...rebase(config, dirname(path)) };
 }
 /** Materialize native import context; shared policy alone owns all diagnostic controls. */
@@ -113,19 +80,11 @@ export async function planPythonProjection(
 ): Promise<ProjectionPlan> {
   signal.throwIfAborted();
   const nativePath = join(target.scope.cwd, "pyrightconfig.json");
-  const hasJson =
-    (await readProjectionFile(target.root, nativePath)).text !== null;
-  const native = await load(
-    target,
-    hasJson ? nativePath : join(target.root, target.project.manifest),
-    new Set(),
-  );
+  const hasJson = (await readProjectionFile(target.root, nativePath)).text !== null;
+  const native = await load(target, hasJson ? nativePath : join(target.root, target.project.manifest), new Set());
   const { diagnostics, ...options } = policy.python.pyright;
   const shared = { ...options, ...diagnostics };
-  const environment = resolve(
-    target.scope.owner,
-    target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv",
-  );
+  const environment = resolve(target.scope.owner, target.scope.env.UV_PROJECT_ENVIRONMENT || ".venv");
   const config: Record<string, unknown> = {
     ...withoutPolicy(native),
     ...shared,
@@ -136,19 +95,16 @@ export async function planPythonProjection(
     venvPath: dirname(environment),
     venv: basename(environment),
   };
-  if (Array.isArray(config.executionEnvironments))
-    config.executionEnvironments = config.executionEnvironments.map((value) =>
-      withoutPolicy(object(value)),
-    );
+  if (Array.isArray(config.executionEnvironments)) {
+    config.executionEnvironments = config.executionEnvironments.map((value) => withoutPolicy(object(value)));
+  }
   // The native interpreter is passed explicitly at execution, preserving the uv owner env.
   const path = join(target.scope.cwd, "pyright.justomp.json");
   const before = await readProjectionFile(target.root, path);
   const marker = "// Generated by justomp; managed typecheck policy v1.\n";
-  if (before.text !== null && !hasProjectionMarker(before.text, marker))
-    throw new TypecheckError(
-      "projection-conflict",
-      `Config filename is not owned by justomp: ${path}`,
-    );
+  if (before.text !== null && !hasProjectionMarker(before.text, marker)) {
+    throw new TypecheckError("projection-conflict", `Config filename is not owned by justomp: ${path}`);
+  }
   const content = `${marker}${JSON.stringify(config, null, 2)}\n`;
   const changed = !(await equivalentConfig(before.text, content, "jsonc"));
   return {

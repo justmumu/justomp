@@ -5,15 +5,13 @@ import { join } from "node:path";
 import { withDomains } from "../../../src/dependencies/queue";
 import { runProcess } from "../../../src/dependencies/runner";
 import { testDeadline } from "../../../src/testing/execution";
+import { suppliedResponse } from "../../response";
 
 test("runner captures bounded output and process failure independently", async () => {
   const protocol: Buffer[] = [];
   const r = await runProcess(
     process.execPath,
-    [
-      "-e",
-      'console.log("x".repeat(200000));console.error("oops");process.exit(3)',
-    ],
+    ["-e", 'console.log("x".repeat(200000));console.error("oops");process.exit(3)'],
     {
       cwd: tmpdir(),
       limit: 2048,
@@ -27,25 +25,24 @@ test("runner captures bounded output and process failure independently", async (
   expect(r.stderr).toContain("oops");
   expect(r.truncated).toBe(true);
   expect(r.stdout.length).toBeLessThanOrEqual(2048);
-  await expect(
-    runProcess("/missing/justomp-manager", [], { cwd: tmpdir() }),
-  ).rejects.toThrow();
+  await expect(runProcess("/missing/justomp-manager", [], { cwd: tmpdir() })).rejects.toThrow();
 });
 test("test deadline kills the supervised process before releasing a shared domain", async () => {
   const deadline = testDeadline(0.04);
   const events: string[] = [];
   const first = withDomains(["runner-test"], undefined, async () => {
     events.push("first");
-    const running = runProcess(
-      process.execPath,
-      ["-e", "setInterval(()=>{},1000)"],
-      { cwd: tmpdir(), signal: deadline.signal },
-    );
+    const running = runProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+      cwd: tmpdir(),
+      signal: deadline.signal,
+    });
     expect((await running).cancelled).toBe(true);
     events.push("terminated");
   });
-  const second = withDomains(["runner-test"], undefined, async () => {
-    events.push("second");
+  const second = withDomains(["runner-test"], undefined, () => {
+    return suppliedResponse(() => {
+      events.push("second");
+    });
   });
   try {
     await Promise.all([first, second]);
@@ -69,8 +66,9 @@ test("cancellation also stops a grandchild that ignores SIGTERM", async () => {
   try {
     const deadline = Date.now() + 10000;
     while (!(await Bun.file(ready).exists())) {
-      if (Date.now() > deadline)
+      if (Date.now() > deadline) {
         throw new Error("Grandchild did not become ready");
+      }
       await Bun.sleep(10);
     }
     const pid = Number(await readFile(ready, "utf8"));
@@ -86,8 +84,9 @@ test("cancellation also stops a grandchild that ignores SIGTERM", async () => {
       } catch {
         break;
       }
-      if (Date.now() > reaped)
+      if (Date.now() > reaped) {
         throw new Error("Grandchild remained after cancellation");
+      }
       await Bun.sleep(10);
     }
     expect(() => process.kill(pid, 0)).toThrow();

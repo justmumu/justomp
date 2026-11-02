@@ -1,10 +1,6 @@
-import type { Project } from "../inspect/model";
-import type {
-  TypecheckCheck,
-  TypecheckPreparation,
-  TypecheckResult,
-} from "./model";
-import type { PreparationReport } from "./prepare";
+import { type Project } from "../inspect/model";
+import { type TypecheckCheck, type TypecheckPreparation, type TypecheckResult } from "./model";
+import { type PreparationReport } from "./prepare";
 
 export interface TypecheckOutcome {
   preparation: TypecheckPreparation;
@@ -14,10 +10,7 @@ export interface TypecheckOutcome {
   failure?: string;
 }
 
-export function publicPreparation(
-  id: string,
-  report?: PreparationReport,
-): TypecheckPreparation {
+export function publicPreparation(id: string, report?: PreparationReport): TypecheckPreparation {
   return report
     ? {
         status: report.status,
@@ -58,9 +51,7 @@ export function mergePreparation(
           : generated.action,
     complete: generated.complete && (!hadReport || base.complete),
     tools: { ...base.tools, ...generated.tools },
-    affected_projects: [
-      ...new Set([...base.affected_projects, ...generated.affected_projects]),
-    ],
+    affected_projects: [...new Set([...base.affected_projects, ...generated.affected_projects])],
     changes: [...base.changes, ...generated.changes],
     diagnostics: [...base.diagnostics, ...generated.diagnostics],
     cancelled: base.cancelled || generated.cancelled,
@@ -75,10 +66,48 @@ export function typecheckResult(
 ): TypecheckResult {
   const { preparation, policyHash, ready, failure } = result;
   let { checks } = result;
+  checks = ensureChecks(project, checks, preparation, aborted, failure);
+  const cancelled = aborted || checks.some((c) => c.cancelled),
+    truncated = checks.some((c) => c.truncated);
+  const complete = ready && !failure && !cancelled && !truncated && checks.every((c) => c.status !== "not-run");
+  return {
+    project_id: project.project_id,
+    relative_path: project.path,
+    ecosystem: project.ecosystem,
+    policy_hash: policyHash,
+    success: complete && checks.every((c) => c.status === "passed"),
+    preparation,
+    checks,
+    diagnostics: [...preparation.diagnostics, ...checks.flatMap((c) => c.diagnostics)],
+    complete,
+    truncated,
+    cancelled,
+    partial_change: !preparation.complete && preparation.changes.length > 0,
+    incomplete_stages: incompleteStages(ready, checks, failure),
+    remediation: [
+      ...new Set([
+        ...(failure ? [failure] : []),
+        ...checks.flatMap((c) => (c.reason ? [c.reason] : [])),
+        ...(!ready
+          ? [
+              "Run prepareProjectTypecheck(root, projectId) or full typecheckProject(root, projectId), resolve setup errors, then check again.",
+            ]
+          : []),
+        ...(truncated ? ["Native output was truncated; rerun to obtain complete diagnostics."] : []),
+      ]),
+    ],
+  };
+}
+
+function ensureChecks(
+  project: Pick<Project, "ecosystem">,
+  checks: TypecheckCheck[],
+  preparation: TypecheckPreparation,
+  aborted: boolean,
+  failure: string | undefined,
+): TypecheckCheck[] {
   if (!checks.length) {
-    const tool = { python: "pyright", javascript: "typescript", go: "go" }[
-      project.ecosystem
-    ];
+    const tool = { python: "pyright", javascript: "typescript", go: "go" }[project.ecosystem];
     checks = [
       {
         status: "not-run",
@@ -93,58 +122,13 @@ export function typecheckResult(
       },
     ];
   }
-  const cancelled = aborted || checks.some((c) => c.cancelled),
-    truncated = checks.some((c) => c.truncated);
-  const complete =
-    ready &&
-    !failure &&
-    !cancelled &&
-    !truncated &&
-    checks.every((c) => c.status !== "not-run");
-  return {
-    project_id: project.project_id,
-    relative_path: project.path,
-    ecosystem: project.ecosystem,
-    policy_hash: policyHash,
-    success: complete && checks.every((c) => c.status === "passed"),
-    preparation,
-    checks,
-    diagnostics: [
-      ...preparation.diagnostics,
-      ...checks.flatMap((c) => c.diagnostics),
-    ],
-    complete,
-    truncated,
-    cancelled,
-    partial_change: !preparation.complete && preparation.changes.length > 0,
-    incomplete_stages: [
-      ...(!ready && !checks.some((c) => c.status !== "not-run")
-        ? ["preparation"]
-        : []),
-      ...(checks.some(
-        (c) => c.status === "not-run" || c.cancelled || c.truncated,
-      )
-        ? ["typecheck"]
-        : []),
-      ...(failure && checks.some((c) => c.status !== "not-run")
-        ? ["verification"]
-        : []),
-    ],
-    remediation: [
-      ...new Set([
-        ...(failure ? [failure] : []),
-        ...checks.flatMap((c) => (c.reason ? [c.reason] : [])),
-        ...(!ready
-          ? [
-              "Run prepareProjectTypecheck(root, projectId) or full typecheckProject(root, projectId), resolve setup errors, then check again.",
-            ]
-          : []),
-        ...(truncated
-          ? [
-              "Native output was truncated; rerun to obtain complete diagnostics.",
-            ]
-          : []),
-      ]),
-    ],
-  };
+  return checks;
+}
+
+function incompleteStages(ready: boolean, checks: TypecheckCheck[], failure: string | undefined): string[] {
+  return [
+    ...(!ready && !checks.some((c) => c.status !== "not-run") ? ["preparation"] : []),
+    ...(checks.some((c) => c.status === "not-run" || c.cancelled || c.truncated) ? ["typecheck"] : []),
+    ...(failure && checks.some((c) => c.status !== "not-run") ? ["verification"] : []),
+  ];
 }

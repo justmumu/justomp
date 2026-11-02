@@ -6,9 +6,9 @@ import * as runtime from "../../../src/lint/runtime";
 import { vitestTestAdapter } from "../../../src/testing/javascript/vitest";
 import { pythonTestAdapter } from "../../../src/testing/python/adapter";
 import * as reports from "../../../src/testing/python/reports";
-import { context } from "./fixture";
+import { context, suppliedResponse } from "./fixture";
 
-for (const runner of ["pytest", "vitest"] as const)
+for (const runner of ["pytest", "vitest"] as const) {
   test(`${runner} targeted adapter returns native success without reading coverage`, async () => {
     const ctx = context("targeted");
     ctx.target.scope.owner = "/project";
@@ -22,20 +22,19 @@ for (const runner of ["pytest", "vitest"] as const)
     };
     const mocks = [
       spyOn(fs, "writeFile").mockResolvedValue(),
-      spyOn(fs, "access").mockRejectedValue(
-        Object.assign(new Error("absent"), { code: "ENOENT" }),
-      ),
+      spyOn(fs, "access").mockRejectedValue(Object.assign(new Error("absent"), { code: "ENOENT" })),
       spyOn(processRunner, "runProcess").mockResolvedValue(process),
       spyOn(runtime, "lintManagerContext").mockResolvedValue(
         {} as Awaited<ReturnType<typeof runtime.lintManagerContext>>,
       ),
       spyOn(javascriptNative, "localTool").mockResolvedValue(process),
     ];
-    const evidence = spyOn(reports, "reportText").mockImplementation(
-      async (path) => {
-        if (path.endsWith("junit.xml"))
+    const evidence = spyOn(reports, "reportText").mockImplementation((path) => {
+      return suppliedResponse(() => {
+        if (path.endsWith("junit.xml")) {
           return '<testsuite tests="1"><testcase name="passes" file="tests/test-a.py"/></testsuite>';
-        if (path.endsWith("vitest.json"))
+        }
+        if (path.endsWith("vitest.json")) {
           return JSON.stringify({
             numTotalTests: 1,
             testResults: [
@@ -45,14 +44,12 @@ for (const runner of ["pytest", "vitest"] as const)
               },
             ],
           });
+        }
         throw new Error("Targeted run must not read coverage");
-      },
-    );
+      });
+    });
     try {
-      const result = await (runner === "pytest"
-        ? pythonTestAdapter
-        : vitestTestAdapter
-      ).run(ctx);
+      const result = await (runner === "pytest" ? pythonTestAdapter : vitestTestAdapter).run(ctx);
       expect(result.errors).toEqual([]);
       expect(result.tests).toMatchObject({ total: 1, passed: 1, failed: 0 });
       expect(result.coverage).toBeUndefined();
@@ -60,6 +57,9 @@ for (const runner of ["pytest", "vitest"] as const)
       expect(evidence).toHaveBeenCalledTimes(1);
     } finally {
       evidence.mockRestore();
-      for (const mock of mocks.reverse()) mock.mockRestore();
+      for (const mock of mocks.reverse()) {
+        mock.mockRestore();
+      }
     }
   });
+}

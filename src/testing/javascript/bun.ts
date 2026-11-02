@@ -3,26 +3,21 @@ import { join } from "node:path";
 import { parse, stringify } from "smol-toml";
 import { readOptional } from "../../dependencies/executable";
 import { runProcess } from "../../dependencies/runner";
-import type { TestAdapter, TestToolContext } from "../adapters";
+import { type TestAdapter, type TestToolContext } from "../adapters";
 import { TestError } from "../model";
-import {
-  classifyResult,
-  coverageEnabled,
-  nativeResult,
-  parseEvidence,
-  requireNative,
-} from "../native-tools";
+import { classifyResult, coverageEnabled, nativeResult, parseEvidence, requireNative } from "../native-tools";
 import { junitReport, lcovReport, reportText } from "../python/reports";
 import { stableVersion } from "../versions";
 import { bunConfig, bunPreload } from "./config";
 
 async function runtime(context: Pick<TestToolContext, "target" | "signal">) {
   const command = Bun.which("bun", {
-    PATH: context.target.scope.env.PATH,
+    ...(context.target.scope.env.PATH !== undefined ? { PATH: context.target.scope.env.PATH } : {}),
     cwd: context.target.scope.cwd,
   });
-  if (!command)
+  if (!command) {
     throw new TestError("runtime-unavailable", "Bun is not installed");
+  }
   const result = await runProcess(command, ["--version"], {
     cwd: context.target.scope.cwd,
     env: context.target.scope.env,
@@ -34,15 +29,15 @@ async function runtime(context: Pick<TestToolContext, "target" | "signal">) {
 export const bunTestAdapter: TestAdapter = {
   async resolve(targets, signal) {
     const target = targets[0];
-    if (!target) throw new TestError("project-not-found", "No Bun project");
+    if (!target) {
+      throw new TestError("project-not-found", "No Bun project");
+    }
     return { bun: (await runtime({ target, signal })).version };
   },
   async preflight(context) {
-    if ((await runtime(context)).version !== context.tools.bun)
-      throw new TestError(
-        "runtime-conflict",
-        "Bun version changed during preparation",
-      );
+    if ((await runtime(context)).version !== context.tools.bun) {
+      throw new TestError("runtime-conflict", "Bun version changed during preparation");
+    }
   },
   async verify(context) {
     try {
@@ -52,18 +47,17 @@ export const bunTestAdapter: TestAdapter = {
       return false;
     }
   },
-  async prepare() {},
+  prepare() {
+    return Promise.resolve();
+  },
   async run(context) {
     const enabled = coverageEnabled(context),
-      preload = enabled
-        ? join(context.artifacts, "coverage-preload.ts")
-        : undefined;
-    if (preload) await writeFile(preload, bunPreload(context));
+      preload = enabled ? join(context.artifacts, "coverage-preload.ts") : undefined;
+    if (preload) {
+      await writeFile(preload, bunPreload(context));
+    }
     const existing = parse(
-      (await readOptional(
-        context.target.configFile ??
-          join(context.target.scope.cwd, "bunfig.toml"),
-      )) ?? "",
+      (await readOptional(context.target.configFile ?? join(context.target.scope.cwd, "bunfig.toml"))) ?? "",
     );
     const config = join(context.artifacts, "bunfig.toml");
     await writeFile(config, stringify(bunConfig(context, existing, preload)));
@@ -95,24 +89,22 @@ export const bunTestAdapter: TestAdapter = {
       result.executed_files = report.executed_files;
       classifyResult(result, report.collectionError);
     });
-    if (enabled)
+    if (enabled) {
       await parseEvidence(result, async () => {
-        const failures: unknown = JSON.parse(
-          await reportText(join(context.artifacts, "imports.json")),
-        );
-        if (!Array.isArray(failures))
+        const failures: unknown = JSON.parse(await reportText(join(context.artifacts, "imports.json")));
+        if (!Array.isArray(failures)) {
           throw new TestError("invalid-report", "Invalid source import report");
-        if (failures.length)
-          throw new TestError(
-            "coverage-import-failed",
-            JSON.stringify(failures),
-          );
+        }
+        if (failures.length) {
+          throw new TestError("coverage-import-failed", JSON.stringify(failures));
+        }
         result.coverage = lcovReport(
           await reportText(join(context.artifacts, "coverage/lcov.info")),
           context.target.scope.cwd,
           context.scope.sources,
         );
       });
+    }
     return result;
   },
 };

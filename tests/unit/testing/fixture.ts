@@ -1,4 +1,4 @@
-import type { TestRunContext } from "../../../src/testing/adapters";
+import { type TestRunContext } from "../../../src/testing/adapters";
 export function context(mode: "full" | "targeted" = "full"): TestRunContext {
   return {
     tools: {},
@@ -20,4 +20,9 @@ export function context(mode: "full" | "targeted" = "full"): TestRunContext {
       coverage: { enabled: true, minimum: 70 },
     },
   } as unknown as TestRunContext;
+}
+
+/** Execute supplied collaborators synchronously while preserving async rejection semantics. */
+export function suppliedResponse<T>(read: () => T): Promise<T> {
+  return new Promise((resolve) => resolve(read()));
 }

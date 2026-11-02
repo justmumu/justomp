@@ -1,17 +1,14 @@
 import { posix } from "node:path";
 import { INSPECTION_DEFAULTS } from "../../../src/config/inspection/defaults";
-import type { InspectionRules } from "../../../src/config/inspection/model";
+import { type InspectionRules } from "../../../src/config/inspection/model";
 import { assembleInspection } from "../../../src/inspect/assemble";
+import { createMatcher, type InspectionMatcher, LOCK_MANAGERS, MANIFEST_NAMES } from "../../../src/inspect/exclusions";
 import {
-  createMatcher,
-  LOCK_MANAGERS,
-  MANIFEST_NAMES,
-} from "../../../src/inspect/exclusions";
-import type {
-  GoReplace,
-  PackagingStructure,
-  ParsedProject,
-  WorkspaceDeclaration,
+  type GoReplace,
+  type PackagingStructure,
+  type ParsedManifest,
+  type ParsedProject,
+  type WorkspaceDeclaration,
 } from "../../../src/inspect/model";
 import { readManifest } from "../../../src/inspect/readers/manifest";
 
@@ -52,30 +49,23 @@ export function inspectDocuments({
     workReplaces = new Map<string, GoReplace[]>();
   const matcher = createMatcher(rules);
   for (const [path, text] of Object.entries(files)) {
-    const pieces = path.split("/");
-    const excluded = pieces
-      .map((_, i) => pieces.slice(0, i + 1).join("/"))
-      .find((p) => matcher.excludes(p));
-    if (excluded) {
-      if (!report.excluded.some((e) => e.path === excluded))
-        report.excluded.push({ path: excluded, reason: "rule" });
+    if (recordExcluded(path, matcher, report)) {
       continue;
     }
-    if (!matcher.includes(path)) continue;
+    if (!matcher.includes(path)) {
+      continue;
+    }
     const name = posix.basename(path),
       directory = posix.dirname(path);
     const manager = LOCK_MANAGERS[name];
-    if (manager)
-      locks.set(directory, [
-        ...(locks.get(directory) ?? []),
-        { file: path, manager },
-      ]);
-    if (!MANIFEST_NAMES.has(name)) continue;
+    if (manager) {
+      locks.set(directory, [...(locks.get(directory) ?? []), { file: path, manager }]);
+    }
+    if (!MANIFEST_NAMES.has(name)) {
+      continue;
+    }
     const value = readManifest(path, text);
-    report.diagnostics.push(...value.diagnostics);
-    if (value.project) parsed.push(value.project);
-    if (value.workspace) declarations.push(value.workspace);
-    if (value.replaces) workReplaces.set(path, value.replaces);
+    collectParsed(value, path, report, parsed, declarations, workReplaces);
   }
   assembleInspection({
     report,
@@ -86,4 +76,36 @@ export function inspectDocuments({
     matcher,
   });
   return report;
+}
+
+function collectParsed(
+  value: ParsedManifest,
+  path: string,
+  report: PackagingStructure,
+  parsed: ParsedProject[],
+  declarations: WorkspaceDeclaration[],
+  workReplaces: Map<string, GoReplace[]>,
+): void {
+  report.diagnostics.push(...value.diagnostics);
+  if (value.project) {
+    parsed.push(value.project);
+  }
+  if (value.workspace) {
+    declarations.push(value.workspace);
+  }
+  if (value.replaces) {
+    workReplaces.set(path, value.replaces);
+  }
+}
+
+function recordExcluded(path: string, matcher: InspectionMatcher, report: PackagingStructure): boolean {
+  const pieces = path.split("/");
+  const excluded = pieces.map((_, i) => pieces.slice(0, i + 1).join("/")).find((p) => matcher.excludes(p));
+  if (excluded) {
+    if (!report.excluded.some((e) => e.path === excluded)) {
+      report.excluded.push({ path: excluded, reason: "rule" });
+    }
+    return true;
+  }
+  return false;
 }

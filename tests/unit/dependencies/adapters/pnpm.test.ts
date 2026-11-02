@@ -35,7 +35,9 @@ test("pnpm group remove rejects native peer co-removal", async () => {
 test("pnpm catalog selector updates do not overwrite shared catalog ownership", async () => {
   const ctx = context("pnpm"),
     before = inventory("runtime");
-  if (!before.dependencies[0]) throw new Error("Missing fixture dependency");
+  if (!before.dependencies[0]) {
+    throw new Error("Missing fixture dependency");
+  }
   before.dependencies[0].source = { kind: "unknown", specifier: "catalog:" };
   before.dependencies[0].declared_specifier = "catalog:";
   await expect(
@@ -58,9 +60,7 @@ test("pnpm exact updates retain group and shared-lock metadata", async () => {
       {
         operation: "update",
         project_id: ctx.project.project_id,
-        packages: [
-          { name: "fixture-dep", version: "1.0.0", group: { kind: "dev" } },
-        ],
+        packages: [{ name: "fixture-dep", version: "1.0.0", group: { kind: "dev" } }],
       },
       inventory("dev"),
     );
@@ -83,7 +83,9 @@ test("pnpm postcondition rejects a native caret when an exact downgrade was requ
     after = inventory("runtime");
   await expect(
     Promise.resolve().then(() => {
-      if (!pnpmAdapter.verify) throw new Error("missing postcondition");
+      if (!pnpmAdapter.verify) {
+        throw new Error("missing postcondition");
+      }
       return pnpmAdapter.verify(
         ctx,
         {
@@ -101,7 +103,9 @@ test("pnpm local-source refresh does not bypass peer group capability", async ()
   const ctx = context("pnpm"),
     before = inventory("peer");
   const dependency = before.dependencies[0];
-  if (!dependency) throw new Error("Missing fixture dependency");
+  if (!dependency) {
+    throw new Error("Missing fixture dependency");
+  }
   dependency.source = { kind: "path" };
   dependency.declared_specifier = "file:../local";
   await expect(

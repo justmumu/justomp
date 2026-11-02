@@ -3,11 +3,11 @@ import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import * as compatibility from "../../../src/lint/javascript/compatibility";
 import * as runtime from "../../../src/lint/runtime";
 import { javascriptAdapter } from "../../../src/typecheck/adapters/javascript";
-import type { TypecheckOperationContext } from "../../../src/typecheck/adapters/types";
+import { type TypecheckOperationContext } from "../../../src/typecheck/adapters/types";
 import { target } from "../checks/fixture";
 import { memoryContext } from "../dependencies/memory";
 
-for (const variant of ["runtime", "override", "group"] as const)
+for (const variant of ["runtime", "override", "group"] as const) {
   test(`TypeScript ${variant} conflict fails preflight before native work`, async () => {
     const f = memoryContext();
     f.write(
@@ -17,9 +17,7 @@ for (const variant of ["runtime", "override", "group"] as const)
         ...(variant === "group"
           ? { dependencies: { typescript: "5.9.3" } }
           : { devDependencies: { typescript: "5.9.3" } }),
-        ...(variant === "override"
-          ? { overrides: { typescript: "5.9.3" } }
-          : {}),
+        ...(variant === "override" ? { overrides: { typescript: "5.9.3" } } : {}),
       }),
     );
     const selected = target("javascript");
@@ -39,12 +37,8 @@ for (const variant of ["runtime", "override", "group"] as const)
       signal: new AbortController().signal,
       changes: [],
     };
-    const probe = spyOn(runtime, "lintManagerContext").mockResolvedValue(
-      f.context,
-    );
-    const node = spyOn(compatibility, "nodeVersion").mockResolvedValue(
-      "24.0.0",
-    );
+    const probe = spyOn(runtime, "lintManagerContext").mockResolvedValue(f.context);
+    const node = spyOn(compatibility, "nodeVersion").mockResolvedValue("24.0.0");
     const metadata = spyOn(compatibility, "toolMetadata").mockResolvedValue({
       typescript: {
         name: "typescript",
@@ -57,10 +51,7 @@ for (const variant of ["runtime", "override", "group"] as const)
     try {
       await expect(javascriptAdapter.preflight(context)).rejects.toMatchObject({
         name: "TypecheckError",
-        code:
-          variant === "group"
-            ? "conflicting-declaration"
-            : "incompatible-toolchain",
+        code: variant === "group" ? "conflicting-declaration" : "incompatible-toolchain",
       });
       expect(context.changes).toEqual([]);
       expect([...f.files]).toEqual(before);
@@ -73,3 +64,4 @@ for (const variant of ["runtime", "override", "group"] as const)
       f.close();
     }
   });
+}
