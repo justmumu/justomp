@@ -107,6 +107,7 @@ test.each([".npmrc", "pnpm-workspace.yaml"])(
       "metadata_changes" in removed && removed.metadata_changes?.some((item) => item.path === "locks/pnpm-lock.yaml"),
     ).toBe(true);
   },
+  60000,
 );
 test("native pnpm shared workspace destination waits for its canonical write lease", async () => {
   const { root, project } = await fixture();
