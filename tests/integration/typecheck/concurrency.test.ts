@@ -32,6 +32,8 @@ test("check holds dependency domains and revalidates after waiting behind mutati
   await f.add("b");
   const coordinator = await f.start();
   await coordinator.reconcile();
+  // Keep the deliberately stale environment from being repaired by the watcher.
+  await coordinator.shutdown();
   const selected = await target(f.root);
   const entered = deferred(),
     release = deferred();
