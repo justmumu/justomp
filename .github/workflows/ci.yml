@@ -1,0 +1,147 @@
+name: Justomp CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            runner: ubuntu-24.04
+          - platform: macOS
+            runner: macos-15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout proposed merge
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.2"
+
+      - name: Install Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26.0.0"
+          package-manager-cache: false
+
+      - name: Install Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.6"
+          enable-cache: false
+
+      - name: Install Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.25.6"
+          cache: false
+
+      - name: Configure isolated tools and download paths
+        id: configure
+        run: bun scripts/ci/setup.ts configure
+
+      - name: Record initial checkout
+        id: baseline
+        run: bun scripts/ci/evidence.ts baseline
+
+      - name: Restore package downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/justomp-downloads
+            ${{ runner.temp }}/justomp-tools/go-mod/cache/download
+          key: downloads-v1-${{ runner.os }}-${{ runner.arch }}-node26.0.0-python3.13.13-${{ hashFiles('tests/fixtures/dependencies/manager-versions.json', 'tests/fixtures/typecheck/javascript/fixture.ts', 'scripts/ci/environment.ts') }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            downloads-v1-${{ runner.os }}-${{ runner.arch }}-node26.0.0-python3.13.13-${{ hashFiles('tests/fixtures/dependencies/manager-versions.json', 'tests/fixtures/typecheck/javascript/fixture.ts', 'scripts/ci/environment.ts') }}-
+
+      - name: Install locked repository dependencies
+        id: install
+        run: /usr/bin/time -p bun install --frozen-lockfile 2>&1 | tee "$RUNNER_TEMP/justomp-ci/install.log"
+
+      - name: Check checkout after installation
+        if: ${{ !cancelled() && steps.install.outcome != 'skipped' }}
+        run: bun scripts/ci/evidence.ts install
+
+      - name: Enable Linux sandbox prerequisites
+        if: ${{ !cancelled() && runner.os == 'Linux' && steps.install.outcome == 'success' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Provision and verify native toolchain
+        id: native
+        run: /usr/bin/time -p bun scripts/ci/setup.ts 2>&1 | tee "$RUNNER_TEMP/justomp-ci/setup.log"
+
+      - name: Managed lock, format, lint, typecheck and unit coverage
+        id: check
+        run: /usr/bin/time -p bun run check --report "$RUNNER_TEMP/justomp-ci/check.json" 2>&1 | tee "$RUNNER_TEMP/justomp-ci/check.log"
+
+      - name: Check checkout after managed validation
+        if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
+        run: bun scripts/ci/evidence.ts check
+
+      - name: Complete integration suite
+        id: integration
+        if: ${{ !cancelled() && steps.native.outcome == 'success' }}
+        run: /usr/bin/time -p bun run check:integration --report "$RUNNER_TEMP/justomp-ci/integration.json" --timeout-seconds 1800 2>&1 | tee "$RUNNER_TEMP/justomp-ci/integration.log"
+
+      - name: Check checkout after integration
+        if: ${{ !cancelled() && steps.integration.outcome != 'skipped' }}
+        run: bun scripts/ci/evidence.ts integration
+
+      - name: Validate complete evidence
+        if: ${{ !cancelled() && steps.native.outcome == 'success' }}
+        env:
+          JUSTOMP_CI_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          JUSTOMP_CI_CHECK_OUTCOME: ${{ steps.check.outcome }}
+          JUSTOMP_CI_INTEGRATION_OUTCOME: ${{ steps.integration.outcome }}
+        run: bun scripts/ci/evidence.ts summary
+
+      - name: Upload diagnostic evidence
+        if: ${{ !cancelled() && steps.configure.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-${{ matrix.platform }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/justomp-ci/environment.json
+            ${{ runner.temp }}/justomp-ci/baseline.json
+            ${{ runner.temp }}/justomp-ci/install-drift.json
+            ${{ runner.temp }}/justomp-ci/check-drift.json
+            ${{ runner.temp }}/justomp-ci/integration-drift.json
+            ${{ runner.temp }}/justomp-ci/install.log
+            ${{ runner.temp }}/justomp-ci/setup.log
+            ${{ runner.temp }}/justomp-ci/check.log
+            ${{ runner.temp }}/justomp-ci/integration.log
+            ${{ runner.temp }}/justomp-ci/check.json
+            ${{ runner.temp }}/justomp-ci/integration.json
+            ${{ runner.temp }}/justomp-ci/summary.json
