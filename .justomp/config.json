@@ -966,6 +966,7 @@
       "**/*.tsbuildinfo",
       "**/*.generated.*",
       "**/next-env.d.ts",
+      "**/biome.justomp.jsonc",
       "**/tsconfig.justomp.*.json",
       ".private/**",
       ".compound-engineering/artifacts/**"
