@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { uvAdapter } from "../../../../src/dependencies/adapters/uv";
 import { type Group } from "../../../../src/dependencies/model";
+import { pythonVersionStep, releaseLockStep } from "../../../../src/release/adapters/lock-refresh";
 import { localPackage, uvFixture } from "../../../fixtures/dependencies/uv/fixture";
 
 const groups: Group[] = [{ kind: "named", name: "test" }];
@@ -220,6 +221,25 @@ test("uv workspace sources target only the selected member and share owner lock"
       group: { kind: "runtime" },
       packages: [{ name: "uv-other" }],
     });
+    const beforeReleaseLock = await readFile(join(fixture.root, "uv.lock"), "utf8");
+    const selectedVersion = await fixture.context.run(
+      pythonVersionStep("1.1.0", join(fixture.root, selected.path), selected.name),
+    );
+    expect(selectedVersion.exit_code, selectedVersion.stderr).toBe(0);
+    expect(await readFile(join(fixture.root, selected.manifest), "utf8")).toContain('version = "1.1.0"');
+    expect(await readFile(join(fixture.root, other.manifest), "utf8")).toBe(untouched);
+    expect(await readFile(join(fixture.root, "uv.lock"), "utf8")).toBe(beforeReleaseLock);
+    for (const project of [rootProject, other]) {
+      const result = await fixture.context.run(
+        pythonVersionStep("1.1.0", join(fixture.root, project.path), project.name),
+      );
+      expect(result.exit_code, result.stderr).toBe(0);
+    }
+    const relock = await fixture.context.run(releaseLockStep("uv", fixture.context.version, fixture.root));
+    expect(relock.exit_code, relock.stderr).toBe(0);
+    const releaseLock = await readFile(join(fixture.root, "uv.lock"), "utf8");
+    expect(releaseLock).toContain('name = "uv-selected"\nversion = "1.1.0"');
+    expect(releaseLock).toContain('name = "uv-other"\nversion = "1.1.0"');
   } finally {
     await fixture.dispose();
   }

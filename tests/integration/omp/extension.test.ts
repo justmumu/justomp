@@ -6,6 +6,7 @@ import { COMMIT_DEFAULTS } from "../../../src/config/commit/defaults";
 import { FORMAT_DEFAULTS } from "../../../src/config/format/defaults";
 import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
+import { RELEASE_DEFAULTS } from "../../../src/config/release/defaults";
 import { resolveTestConfig } from "../../../src/config/test/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import { getPackagingStatus } from "../../../src/packaging/get-structure";
@@ -50,6 +51,7 @@ test("actual OMP loader, session hook and tool share a snapshot in headless mode
     test: resolveTestConfig().policy,
     integration_test: resolveIntegrationTestConfig().policy,
     commit: COMMIT_DEFAULTS,
+    release: RELEASE_DEFAULTS,
   });
   const snapshot = JSON.parse(await readFile(join(root, ".justomp/packaging_structure.json"), "utf8"));
   const result = await h.tool.execute("test", {});

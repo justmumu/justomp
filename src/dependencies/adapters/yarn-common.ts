@@ -711,7 +711,7 @@ async function bunBinaryGraph(
   }
 }
 
-function binaryLockRecords(text: string) {
+export function binaryLockRecords(text: string) {
   const records = new Map<string, { version?: string; dependencies: Record<string, string> }>();
   let current: { version?: string; dependencies: Record<string, string> } | undefined;
   let dependencies = false;

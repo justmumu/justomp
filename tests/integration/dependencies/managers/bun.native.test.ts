@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { bunAdapter as adapter } from "../../../../src/dependencies/adapters/bun";
+import { releaseHandoff } from "./release-handoff";
 import { fixture } from "./yarn-bun-fixture";
 
 test("Bun native registry lifecycle respects constraints and exact downgrades", async () => {
@@ -75,6 +76,8 @@ test("Bun binary lock graph and frozen sync retain native binary metadata", asyn
     expect(await Bun.file(join(f.root, "bun.lock")).exists()).toBe(false);
     await f.operate(adapter, { operation: "sync" });
     expect(await readFile(join(f.root, "bun.lockb"))).toEqual(before);
+    await releaseHandoff(await f.context());
+    expect(await Bun.file(join(f.root, "bun.lock")).exists()).toBe(false);
   } finally {
     await f.close();
   }

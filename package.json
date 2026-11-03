@@ -16,6 +16,7 @@
     "docs/format.md",
     "docs/precommit.md",
     "docs/prepush.md",
+    "docs/release.md",
     "docs/lint.md",
     "docs/lint-migration.md",
     "docs/lint-defaults.json",
@@ -32,7 +33,8 @@
     "./lint": "./src/lint/index.ts",
     "./format": "./src/format/index.ts",
     "./typecheck": "./src/typecheck/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./release": "./src/release/index.ts"
   },
   "omp": {
     "extensions": ["./src/index.ts"]
@@ -57,9 +59,12 @@
     "@oh-my-pi/omptype": "18.13.3",
     "chokidar": "6.0.0",
     "conventional-changelog-conventionalcommits": "10.4.1",
+    "conventional-changelog-writer": "9.3.0",
+    "conventional-commits-parser": "7.1.4",
     "picomatch": "4.0.7",
     "prettier": "3.9.10",
     "prettier-plugin-toml": "2.0.6",
+    "semver": "7.8.6",
     "smol-toml": "1.9.1",
     "yaml": "2.9.1"
   },
@@ -71,6 +76,7 @@
     "@oh-my-pi/pi-coding-agent": "18.13.3",
     "@types/bun": "1.4.4",
     "@types/picomatch": "4.0.2",
+    "@types/semver": "7.8.0",
     "typescript": "7.0.2"
   },
   "bin": {
