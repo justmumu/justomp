@@ -10,6 +10,7 @@ import { resolveIntegrationTestConfig } from "../../src/config/integration-test/
 import { LEGACY_ESLINT_DEFAULTS } from "../../src/config/lint/javascript/legacy-defaults";
 import { resolveLintConfig } from "../../src/config/lint/resolve";
 import { loadConfig } from "../../src/config/load";
+import { RELEASE_DEFAULTS } from "../../src/config/release/defaults";
 import { resolveTestConfig } from "../../src/config/test/resolve";
 import { resolveTypecheckConfig } from "../../src/config/typecheck/resolve";
 
@@ -46,6 +47,7 @@ test("read does not flush, startup fills only absent attributes and is idempoten
     test: resolveTestConfig().policy,
     integration_test: resolveIntegrationTestConfig().policy,
     commit: COMMIT_DEFAULTS,
+    release: RELEASE_DEFAULTS,
     inspection_rules: { exclude: [], custom: true, include: ["**/*"] },
   });
   const stamp = (await stat(join(root, ".justomp/config.json"))).mtimeMs;
@@ -275,4 +277,17 @@ test("flushing JavaScript exclusions fills omissions while preserving explicit a
   expect(explicit.lint.javascript.exclude).toEqual([]);
   expect(explicit.typecheck.javascript.exclude).toEqual(["archive/**"]);
   expect(explicit.wrote).toBe(false);
+});
+
+test("release defaults preserve configured attributes without creating release files", async () => {
+  const root = await fixture({ release: { remote: "upstream", custom: true } });
+  const path = join(root, ".justomp/config.json");
+  const before = await readFile(path, "utf8");
+  expect((await loadConfig(root)).release.remote).toBe("upstream");
+  expect(await readFile(path, "utf8")).toBe(before);
+  const config = await loadConfig(root, { flush: true });
+  expect(config.release).toEqual({ ...RELEASE_DEFAULTS, remote: "upstream", custom: true });
+  expect(JSON.parse(await readFile(path, "utf8")).release).toEqual(config.release);
+  expect(await Bun.file(join(root, "VERSION")).exists()).toBe(false);
+  expect(await Bun.file(join(root, "CHANGELOG.md")).exists()).toBe(false);
 });

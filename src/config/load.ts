@@ -12,11 +12,14 @@ import { validateRules } from "./inspection/validate";
 import { resolveIntegrationTestConfig } from "./integration-test/resolve";
 import { type LintPolicy } from "./lint/model";
 import { lintPolicyKey, resolveLintConfig } from "./lint/resolve";
+import { type ReleasePolicy } from "./release/model";
+import { resolveReleaseConfig } from "./release/resolve";
 import { type TestPolicy } from "./test/model";
 import { resolveTestConfig, testPolicyKey } from "./test/resolve";
 import { type TypecheckPolicy } from "./typecheck/model";
 import { resolveTypecheckConfig, typecheckPolicyKey } from "./typecheck/resolve";
 export interface LoadedConfig {
+  release: ReleasePolicy;
   commit: CommitPolicy;
   format: FormatPolicy;
   formatKey: string;
@@ -87,12 +90,14 @@ async function readFile(path: string): Promise<{ text: string | null; identity: 
 }
 function resolvePolicies(object: Record<string, unknown>) {
   let format: ReturnType<typeof resolveFormatConfig>;
+  let release: ReturnType<typeof resolveReleaseConfig>;
   let commit: ReturnType<typeof resolveCommitConfig>;
   let lint: ReturnType<typeof resolveLintConfig>;
   let typecheck: ReturnType<typeof resolveTypecheckConfig>;
   let test: ReturnType<typeof resolveTestConfig>;
   let integrationTest: ReturnType<typeof resolveIntegrationTestConfig>;
   try {
+    release = resolveReleaseConfig(object.release);
     commit = resolveCommitConfig(object.commit);
     integrationTest = resolveIntegrationTestConfig(
       Object.hasOwn(object, "integration_test") ? object.integration_test : undefined,
@@ -104,7 +109,7 @@ function resolvePolicies(object: Record<string, unknown>) {
   } catch (error) {
     throw new ConfigError(`Invalid config.json: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return { format, commit, lint, typecheck, test, integrationTest };
+  return { format, release, commit, lint, typecheck, test, integrationTest };
 }
 async function publish(temporary: string, path: string, create: boolean): Promise<void> {
   if (create) {
@@ -130,6 +135,7 @@ async function read(root: string): Promise<{
   integrationTest: TestPolicy;
   format: FormatPolicy;
   storedLint: LintPolicy;
+  release: ReleasePolicy;
   commit: CommitPolicy;
   missing: boolean;
   identity: string | null;
@@ -150,12 +156,13 @@ async function read(root: string): Promise<{
   const exclude = Object.hasOwn(raw, "exclude") ? raw.exclude : INSPECTION_DEFAULTS.exclude;
   const rules = { include, exclude };
   validateRules(rules);
-  const { format, commit, lint, typecheck, test, integrationTest } = resolvePolicies(object);
+  const { format, release, commit, lint, typecheck, test, integrationTest } = resolvePolicies(object);
   return {
     text,
     object,
     rules,
     storedLint: lint.policy,
+    release: release.policy,
     commit: commit.policy,
     format: format.policy,
     lint: {
@@ -169,6 +176,7 @@ async function read(root: string): Promise<{
     test: test.policy,
     integrationTest: integrationTest.policy,
     missing:
+      release.missing ||
       commit.missing ||
       format.missing ||
       integrationTest.missing ||
@@ -185,6 +193,7 @@ async function execute(root: string, flush: boolean, signal?: AbortSignal): Prom
   const initial = await read(root);
   signal?.throwIfAborted();
   const result = {
+    release: initial.release,
     commit: initial.commit,
     format: initial.format,
     formatKey: formatPolicyKey(initial.format),
@@ -214,6 +223,7 @@ async function execute(root: string, flush: boolean, signal?: AbortSignal): Prom
   const raw = initial.object.inspection_rules ?? {};
   const object = {
     ...initial.object,
+    release: initial.release,
     commit: initial.commit,
     lint: initial.storedLint,
     format: initial.format,
