@@ -20,6 +20,7 @@ import { registerDependencyTools } from "./dependency-tools";
 import { registerFormatTools } from "./format-tools";
 import { registerLintTools } from "./lint-tools";
 import { registerProtection } from "./protection";
+import { registerReleaseTools } from "./release-tools";
 import { registerTestTools } from "./test-tools";
 import { registerTypecheckTools } from "./typecheck-tools";
 
@@ -242,6 +243,7 @@ export default function registerInspection(pi: ExtensionAPI): void {
   }
   registerDependencyTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
   registerCommitTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
+  registerReleaseTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
   registerFormatTools(pi, (root, signal, work) => track(withRoot(root, signal, work)));
   registerLintTools(pi, (root, signal, work) => track(withRoot(root, signal, work)), lintCoordinator);
   registerTypecheckTools(pi, (root, signal, work) => track(withRoot(root, signal, work)), typecheckCoordinator);

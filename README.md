@@ -55,7 +55,7 @@ Each tool/getter call rereads the small config file. Rule changes replace the wa
 
 A healthy native watcher invalidates the in-memory report when relevant manifests or directories change. The next getter refreshes it. Active lint, typecheck and test lifecycles refresh discovery and prepare newly discovered projects in the background. Ordinary source-file edits do not trigger inspection. The disk JSON is the last successful publication, not a cache input or a guarantee that the filesystem has stopped changing.
 
-`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_format`, `project_typecheck`, `project_test`, `project_integration_test` and `repo_commit` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
+`project_inspect` and `list_projects` declare OMP's `write` approval tier because they publish JSON. All five `dependency_*` tools, `project_lint`, `project_format`, `project_typecheck`, `project_test`, `project_integration_test`, `repo_commit`, `repo_changelog`, `repo_bump` and `repo_release_tag` declare `exec`, including inventory calls that can run native metadata commands. The session-start hook is trusted extension code: enabling the plugin permits config/snapshot writes and background native lint/typecheck/test preparation. Denying an individual tool does not disable this lifecycle. OMP tool approval does not sandbox lifecycle hooks. Filesystem permission failures remain errors; the extension does not bypass them.
 
 Watcher failure or an unverified filesystem disables cache reuse and uses full inspection per call. There is no polling fallback or debounce-driven scan. Shutdown releases subscriptions; sessions using the same root share the watcher until the last session releases it. Set `refresh: true` for an explicit full inspection.
 
@@ -149,3 +149,7 @@ Before adding expensive tests, follow the
 [test evidence and cost rule](compound-packs/testing/test-evidence-and-cost.md).
 It is activated as a repository CE pack, with an AGENTS.md reference for direct
 work and review paths that do not load packs automatically.
+
+## Repository releases
+
+Use `repo_changelog({})` for generated Unreleased notes, `repo_bump({increment: "patch"})` to prepare a common release, and `repo_release_tag({})` for a local annotated tag after review and merge. Bump does not commit; no release tool pushes or publishes. See [release tools and recovery](docs/release.md).

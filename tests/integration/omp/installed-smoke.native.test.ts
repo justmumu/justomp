@@ -54,6 +54,13 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       ]),
     );
     expect(testingExports).toBe(true);
+    const releaseExports = JSON.parse(
+      await command(installation, [
+        "-e",
+        'import * as api from "justomp/release"; import * as root from "justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof api[name] === "function" && root[name] === api[name]).sort()));',
+      ]),
+    );
+    expect(releaseExports).toEqual(["bumpRepository", "tagRepository", "updateRepositoryChangelog"]);
     const entry = join(installation, "node_modules/justomp/src/index.ts");
     expect(await realpath(entry)).toStartWith(await realpath(installation));
     for (const path of [
@@ -65,6 +72,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "docs/format.md",
       "docs/precommit.md",
       "docs/prepush.md",
+      "docs/release.md",
       "docs/lint-defaults.json",
       "docs/typecheck.md",
       "docs/typecheck-defaults.json",
@@ -93,6 +101,9 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         "project_lint",
         "project_format",
         "repo_commit",
+        "repo_changelog",
+        "repo_bump",
+        "repo_release_tag",
         "project_typecheck",
         "project_test",
         "project_integration_test",

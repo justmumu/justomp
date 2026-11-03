@@ -1180,5 +1180,11 @@
       "**/__pycache__",
       "**/__pypackages__"
     ]
+  },
+  "release": {
+    "version_file": "VERSION",
+    "changelog_file": "CHANGELOG.md",
+    "remote": "origin",
+    "history_start": null
   }
 }

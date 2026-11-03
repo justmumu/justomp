@@ -13,7 +13,7 @@ export async function nativeFixture(runner: "pytest" | "vitest" | "bun" | "go", 
   };
   try {
     if (runner === "vitest") {
-      await put(".npmrc", "audit=false\nfund=false\nprefer-offline=true\n");
+      await put(".npmrc", "audit=false\nfund=false\n");
     }
     if (runner === "go") {
       await put("go.mod", "module example.test/app\ngo 1.25\n");

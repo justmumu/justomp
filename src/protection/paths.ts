@@ -1,5 +1,8 @@
 import { lstat, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { loadConfig } from "../config/load";
+import { RELEASE_DEFAULTS } from "../config/release/defaults";
+import { type ReleasePolicy } from "../config/release/model";
 import { pnpmDirectories } from "../dependencies/executable";
 import { within } from "../dependencies/paths";
 import { LOCK_MANAGERS } from "../inspect/exclusions";
@@ -25,7 +28,10 @@ function metadataPath(root: string, path: string): string {
 }
 
 /** Project metadata decides the deny list; an ambiguous manager never picks one lock. */
-export function collectProtectedPaths(structure: ProtectionStructure): string[] {
+export function collectProtectedPaths(
+  structure: ProtectionStructure,
+  release: Pick<ReleasePolicy, "version_file"> = RELEASE_DEFAULTS,
+): string[] {
   if (!structure.complete) {
     throw new ProtectionPathError("incomplete-inspection", "Cannot protect paths from an incomplete inspection");
   }
@@ -44,6 +50,7 @@ export function collectProtectedPaths(structure: ProtectionStructure): string[] 
   ]) {
     add(join(".justomp", name));
   }
+  add(release.version_file);
   for (const project of structure.projects) {
     addProjectPaths(root, add, project);
   }
@@ -146,7 +153,8 @@ export function findProtectedPath(target: string, protectedPaths: readonly strin
 
 /** Caller supplies the current getPackagingStructure() snapshot for every general call. */
 export async function resolveProtectedPaths(structure: ProtectionStructure): Promise<string[]> {
-  const paths = new Set(collectProtectedPaths(structure));
+  const config = await loadConfig(structure.root);
+  const paths = new Set(collectProtectedPaths(structure, config.release));
   await addDiscoveredPaths(structure, paths);
   await addDeclarationPaths(structure, paths);
   await addCanonicalPaths(paths);

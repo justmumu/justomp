@@ -147,3 +147,14 @@ test("matches protected files and affected ancestors without prefix collisions",
   expect(findProtectedPath("/repo/apps/api/pyproject.toml.backup", protectedPaths)).toBeUndefined();
   expect(findProtectedPath("/repo/apps/api-other", protectedPaths)).toBeUndefined();
 });
+
+test("protects the configured release version record while leaving changelogs editable", () => {
+  const defaults = collectProtectedPaths(structure([]));
+  expect(defaults).toContain("/repo/VERSION");
+  expect(defaults).not.toContain("/repo/CHANGELOG.md");
+  const custom = collectProtectedPaths(structure([]), { version_file: "release/version.txt" });
+  expect(custom).toContain("/repo/release/version.txt");
+  expect(custom).not.toContain("/repo/VERSION");
+  expect(findProtectedPath("/repo/release", custom)).toBe("/repo/release/version.txt");
+  expect(() => collectProtectedPaths(structure([]), { version_file: "../VERSION" })).toThrow("outside");
+});

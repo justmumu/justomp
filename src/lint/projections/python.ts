@@ -4,7 +4,7 @@ import { LintError } from "../model";
 
 const PROJECT_FIELDS = new Set(["src", "target-version"]);
 
-interface Statement {
+export interface Statement {
   text: string;
   path?: string[];
   table?: boolean;
@@ -77,7 +77,7 @@ function tablePath(value: string): string[] {
   return keyPath(value.slice(start, quotedKeyEnd(value, start, "]")));
 }
 /** Parse complete statements, so header-like text in multiline strings is inert. */
-function statements(text: string): Statement[] {
+export function statements(text: string): Statement[] {
   const lines = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
   const result: Statement[] = [];
   let section: string[] = [];

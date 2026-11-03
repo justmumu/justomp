@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Adapter } from "../../../../src/dependencies/model";
+import { releaseHandoff } from "./release-handoff";
 import { fixture, gitSource, type Variant } from "./yarn-bun-fixture";
 
 export function nativeScenarios(variant: Variant, adapter: Adapter) {
@@ -100,6 +101,7 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
         join(f.root, "local/package.json"),
         JSON.stringify({
           name: "u6-local",
+          packageManager: JSON.parse(await readFile(join(f.root, "package.json"), "utf8")).packageManager,
           version: "1.0.0",
           dependencies: { "u6-child": "1.0.0" },
           main: "index.js",
@@ -137,6 +139,7 @@ export function nativeScenarios(variant: Variant, adapter: Adapter) {
       });
       expect((await f.manifest()).dependencies?.["u6-local"]).toContain("file:");
       await f.operate(adapter, { operation: "sync" });
+      await releaseHandoff(await f.context());
     } finally {
       await f.close();
     }

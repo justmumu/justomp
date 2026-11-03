@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type Adapter } from "../../../../src/dependencies/model";
 import { fixture } from "./npm-pnpm-fixture";
+import { releaseHandoff } from "./release-handoff";
 export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
   test(`${manager} preserves constraints, pins exact downgrades and reads graph without installation`, async () => {
     const f = await fixture(manager);
@@ -181,6 +182,7 @@ export function managerCases(manager: "npm" | "pnpm", adapter: Adapter) {
         "packages/a",
       );
       expect((await f.manifest("packages/a")).dependencies?.["local-b"]).toMatch(/^file:/);
+      await releaseHandoff(await f.context("packages/a"));
     } finally {
       await f.close();
     }

@@ -27,6 +27,7 @@ Go protects module/workspace metadata and checksum files. Justomp's shared confi
 inspection/preparation state and generated lint/typecheck configs are protected.
 This includes `biome.justomp.jsonc` and `prettier.justomp.json` before creation;
 the legacy owned ESLint projection stays protected during migration.
+The configured `release.version_file` (default `VERSION`) is protected before creation. Trusted `repo_bump` can update it; the changelog remains editable. See [release tools](release.md).
 Newly discovered projects enter the next call's target list. Incomplete inspection
 or an unsafe path fails the call instead of returning an old allow decision.
 
