@@ -1,10 +1,12 @@
 import { join } from "node:path";
 import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "../lint/files";
+import { type NativeConfigOwnership, normalizeNativeOwnership } from "../native-config/ownership";
 import { type ToolVersions } from "./adapters/types";
 import { type TypecheckEcosystem, TypecheckError } from "./model";
 import { validateToolVersions } from "./versions";
 
 export interface ProjectReceipt {
+  native_configs?: NativeConfigOwnership;
   ecosystem: TypecheckEcosystem;
   tools: ToolVersions;
   policy_hash: string;
@@ -57,6 +59,7 @@ function validateReceipt(id: string, value: unknown): void {
     throw new Error("Invalid typecheck receipt");
   }
   validateToolVersions(receipt.tools);
+  normalizeNativeOwnership(receipt as { ready: boolean; native_configs?: unknown });
 }
 function validateWave(ecosystem: string, value: unknown): void {
   const wave = dataObject(value);

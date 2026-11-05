@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { type NativeConfigOwnership, normalizeNativeOwnership } from "../native-config/ownership";
 import { type ToolVersions } from "./adapters/types";
 import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "./files";
 import { nativeJavascriptTools } from "./javascript/tools";
@@ -6,6 +7,7 @@ import { type LintEcosystem, LintError } from "./model";
 import { sameVersions, validateToolVersions } from "./versions";
 
 export interface ProjectReceipt {
+  native_configs?: NativeConfigOwnership;
   ecosystem: LintEcosystem;
   tools: ToolVersions;
   policy_hash: string;
@@ -81,6 +83,7 @@ function parseReceipt(value: unknown, id: string, schema: number): ProjectReceip
     policy_hash: receipt.policy_hash,
     tools,
   };
+  normalizeNativeOwnership(parsed);
   if (parsed.ecosystem === "javascript") {
     parsed.tools = nativeJavascriptTools(tools);
     if (schema !== 3 || !Object.keys(parsed.tools).length) {
