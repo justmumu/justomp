@@ -68,7 +68,7 @@ def retained(tokens):
 def main():
     # Match python -m pytest import context while keeping this helper packaged.
     sys.path.insert(0, str(Path.cwd()))
-    payload = json.loads(sys.argv[1])
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     _, _, ini, _ = determine_setup(
         inifile=None, args=payload["selected"], rootdir_cmd_arg=None,
         invocation_dir=Path.cwd(), override_ini=[],
@@ -78,7 +78,25 @@ def main():
     if isinstance(addopts, str):
         addopts = shlex.split(addopts)
     options = retained([*addopts, *shlex.split(os.environ.pop("PYTEST_ADDOPTS", ""))])
-    return pytest.main([*options, *payload["args"]])
+    measurement = payload.get("coverage")
+    if measurement is None:
+        return pytest.main([*options, *payload["args"]])
+    from coverage import Coverage
+    sources = measurement["sources"]
+    collector = Coverage(
+        data_file=measurement["data_file"], branch=False,
+        source=sorted({str(Path(source).parent) for source in sources}),
+        omit=[], config_file=True,
+    )
+    collector.set_option("report:include_namespace_packages", measurement["include_namespace_packages"])
+    collector.start()
+    try:
+        result = pytest.main([*options, *payload["args"]])
+    finally:
+        collector.stop()
+        collector.save()
+        collector.json_report(morfs=sources, outfile=measurement["report"], include=sources, omit=[])
+    return result
 
 if __name__ == "__main__":
     try:

@@ -76,7 +76,11 @@ test("TypeScript checks every configuration read-only and retains earlier diagno
   expect(f.run).toHaveBeenCalledTimes(2);
   for (const call of f.run.mock.calls) {
     expect(call[1]).toContain("--noEmit");
-    expect(call[1].slice(-2)).toEqual(["--incremental", "false"]);
+    for (const flag of ["--incremental", "--composite"]) {
+      const index = call[1].indexOf(flag);
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(call[1][index + 1]).toBe("false");
+    }
   }
 });
 for (const [name, result] of [

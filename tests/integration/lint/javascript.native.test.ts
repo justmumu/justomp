@@ -25,7 +25,7 @@ for (const manager of ["npm", "yarn-modern"] as const) {
     });
     expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(["passed", "passed"]);
     if (manager === "npm") {
-      // Root, same-project and nested user configs must not replace the managed policy.
+      // Reconcile discovered native configs to the central policy before checking sources.
       const foreign = JSON.stringify({
         root: false,
         formatter: { enabled: true },
@@ -49,11 +49,11 @@ for (const manager of ["npm", "yarn-modern"] as const) {
       await mkdir(join(cwd, ".private"));
       await writeFile(join(cwd, ".private/archive.ts"), untouched);
       ctx.policy.javascript.exclude = [".private/**"];
-      await f.project();
       await writeFile(join(f.root, childPath, "child.ts"), untouched);
       await writeFile(join(cwd, "src/values.ts"), "export const a = 1;\nexport const z = 2;\n");
       const source = 'import { z, a } from "./values.js";\nexport const values={z,a};\n';
       await writeFile(join(cwd, "src/index.ts"), source);
+      await f.project();
       const metadata = await readFile(join(cwd, "package.json"), "utf8");
       // A shell environment cannot replace the selected managed binary/config.
       ctx.target.scope.env.BIOME_BINARY = "/does-not-exist/foreign-biome";
@@ -87,7 +87,12 @@ for (const manager of ["npm", "yarn-modern"] as const) {
       expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(["passed", "failed"]);
       expect(await readFile(join(f.root, childPath, "child.ts"), "utf8")).toBe(untouched);
       expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(metadata);
-      expect(await readFile(join(cwd, "src/biome.jsonc"), "utf8")).toBe(foreign);
+      expect(JSON.parse(await readFile(join(cwd, "src/biome.jsonc"), "utf8"))).toMatchObject({
+        root: false,
+        formatter: { enabled: false },
+        linter: { enabled: true },
+        assist: { enabled: true },
+      });
       await writeFile(
         join(cwd, "src/index.ts"),
         await formatPrettier(fixed, "typescript", ctx.policy.javascript.prettier),

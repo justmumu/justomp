@@ -26,7 +26,7 @@ export const pythonTestAdapter: TestAdapter = {
   verify: verifyPython,
   async run(context) {
     const config = pythonConfig(context);
-    await writeFile(config.rc, config.config);
+    await writeFile(config.request, JSON.stringify(config.payload));
     const process = await runProcess(pythonBinary(context.target), config.args, {
         cwd: context.target.scope.cwd,
         env: config.env,

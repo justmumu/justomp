@@ -12,6 +12,7 @@ import { retainTestCoordinator, waitForTestPreparation } from "./coordinator";
 import { testDeadline } from "./execution";
 import { goTestAdapter } from "./go/adapter";
 import { bunTestAdapter } from "./javascript/bun";
+import { VITEST_CONFIG_NAMES } from "./javascript/native-config";
 import { vitestTestAdapter } from "./javascript/vitest";
 import {
   type ProjectIntegrationTestResult,
@@ -24,6 +25,7 @@ import {
 } from "./model";
 import { suitePolicies, testingPolicyKey } from "./policy";
 import { testDomains, testIssue } from "./prepare";
+import { planTestProjection } from "./projection";
 import { pythonTestAdapter } from "./python/adapter";
 import { parseTestRequest } from "./request";
 import { coverageVerdict, testResult } from "./result";
@@ -82,6 +84,8 @@ const metadataNames = [
   ".npmrc",
   ".yarnrc.yml",
   "tsconfig.json",
+  ".coveragerc",
+  ...VITEST_CONFIG_NAMES,
 ];
 async function metadata(target: TestTarget) {
   const hash = createHash("sha256");
@@ -256,6 +260,9 @@ async function runLocked(call: TestCall): Promise<void> {
   await verifyAlignment(target, state, receipt);
   if (!(await adapter.verify({ target, tools: receipt.tools, signal }))) {
     throw new TestError("not-ready", "Native test tools changed after preparation");
+  }
+  if (!(await planTestProjection(target, current, receipt.native_configs)).current) {
+    throw new TestError("not-ready", "Native test configuration changed after preparation");
   }
   outcome.runner_version = receipt.tools[target.runner] ?? null;
   outcome.coverage = coverageVerdict(mode, policy.coverage, target.runner === "go" ? "statements" : "lines");

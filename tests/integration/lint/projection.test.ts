@@ -7,7 +7,7 @@ import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { formatPrettier } from "../../../src/format/engines/prettier";
 import { formatterFor } from "../../../src/format/selection";
 import { type PackagingStructure, type Project } from "../../../src/inspect/model";
-import { applyProjection, planProjection } from "../../../src/lint/projection";
+import { applyProjection, planProjection, retireProjection } from "../../../src/lint/projection";
 import { JS_MARKER } from "../../../src/lint/projections/javascript";
 import { collectLintScope } from "../../../src/lint/scope";
 import { resolveLintTarget } from "../../../src/lint/targets";
@@ -78,12 +78,10 @@ test("owned source files include hidden source, exclude children, generated file
   expect(scope.hasTypescript).toBe(true);
 });
 
-test("generated projection conflicts, freshness and policy reconciliation are explicit", async () => {
+test("native projection freshness and policy reconciliation preserve unrelated settings", async () => {
   const { root, target } = await fixture("go");
   const policy = resolveLintConfig().policy;
-  await writeFile(join(root, "golangci.justomp.yml"), "version: '2'\n# not owned\n");
-  await expect(planProjection(target, policy, { "@biomejs/biome": "2.6.3" })).rejects.toThrow("owned");
-  await rm(join(root, "golangci.justomp.yml"));
+  await writeFile(join(root, ".golangci.yml"), "version: '2'\n# project configuration\n");
   const plan = await planProjection(target, policy, {
     "@biomejs/biome": "2.6.3",
   });
@@ -100,6 +98,10 @@ test("generated projection conflicts, freshness and policy reconciliation are ex
     },
     issues: {
       fix: false,
+      new: false,
+      "new-from-rev": "",
+      "new-from-merge-base": "",
+      "new-from-patch": "",
       "max-issues-per-linter": 0,
       "max-same-issues": 0,
       "uniq-by-line": false,
@@ -117,9 +119,9 @@ test("generated projection conflicts, freshness and policy reconciliation are ex
     "@biomejs/biome": "2.6.3",
   });
   expect(changed.current).toBe(false);
-  await writeFile(join(root, "golangci.justomp.yml"), "foreign replacement\n");
+  await writeFile(join(root, ".golangci.yml"), "foreign replacement\n");
   await expect(applyProjection(changed)).rejects.toThrow("changed");
-  expect(await readFile(join(root, "golangci.justomp.yml"), "utf8")).toBe("foreign replacement\n");
+  expect(await readFile(join(root, ".golangci.yml"), "utf8")).toBe("foreign replacement\n");
 });
 
 test("JavaScript projection executes as data and preserves explicit empty rules", async () => {
@@ -161,7 +163,7 @@ test("JavaScript projection executes as data and preserves explicit empty rules"
 test("projection refuses symlinked config filenames", async () => {
   const { root, target } = await fixture("go");
   await writeFile(join(root, "other.yml"), "foreign config");
-  await symlink("other.yml", join(root, "golangci.justomp.yml"));
+  await symlink("other.yml", join(root, ".golangci.yml"));
   await expect(planProjection(target, resolveLintConfig().policy)).rejects.toThrow();
   expect(await readFile(join(root, "other.yml"), "utf8")).toBe("foreign config");
 });
@@ -273,23 +275,26 @@ test("Biome publication retires only unchanged owned legacy config after replace
   await writeFile(legacy, `${JS_MARKER}export default [];\n`);
   await writeFile(user, '{"linter":{"enabled":false}}');
   await writeFile(managed, "unowned");
-  await expect(planProjection(target, policy, versions)).rejects.toThrow("owned");
+  const untouched = await planProjection(target, policy, versions);
+  expect(untouched.retired?.some((file) => file.path === managed)).toBe(false);
   expect(await Bun.file(legacy).exists()).toBe(true);
-  await rm(managed);
+  await writeFile(managed, `${JS_MARKER}{}`);
   const plan = await planProjection(target, policy, versions);
   const changes = await applyProjection(plan);
+  await retireProjection(plan, changes);
   expect(changes).toContainEqual({
     project_id: target.project.project_id,
     path: "eslint.justomp.config.mjs",
     kind: "removed",
   });
   expect(await Bun.file(legacy).exists()).toBe(false);
-  expect(await Bun.file(managed).exists()).toBe(true);
-  expect(await readFile(user, "utf8")).toBe('{"linter":{"enabled":false}}');
+  expect(await Bun.file(managed).exists()).toBe(false);
+  expect(Bun.JSONC.parse(await readFile(user, "utf8"))).toMatchObject({ linter: { enabled: true } });
   await writeFile(legacy, `${JS_MARKER}export default [];\n`);
   const pending = await planProjection(target, policy, versions);
   await writeFile(legacy, "user replacement");
-  await expect(applyProjection(pending)).rejects.toThrow("changed");
+  await applyProjection(pending);
+  await expect(retireProjection(pending)).rejects.toThrow("changed");
   expect(await readFile(legacy, "utf8")).toBe("user replacement");
   expect((await planProjection(target, policy, versions)).current).toBe(true);
 });

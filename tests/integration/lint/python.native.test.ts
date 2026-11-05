@@ -8,6 +8,7 @@ import { collectFormatScope } from "../../../src/format/scope";
 import { selectFormatFiles } from "../../../src/format/selection";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
+import { applyProjection } from "../../../src/lint/projection";
 import { measureFixture } from "../../fixtures/cost-timing";
 import { VERSION } from "../../fixtures/lint/python/fixture";
 import { cleanups, fixture } from "./python-fixture";
@@ -123,6 +124,7 @@ test("managed Ruff config wins over project overrides and excludes unowned sourc
   await writeFile(join(f.root, ".private", "hidden.py"), "not valid python!\n");
   await mkdir(join(f.root, "tests"));
   await writeFile(join(f.root, "tests", "test_example.py"), "def test_example():\n    assert True\n");
+  await applyProjection((await f.checkContext()).projection);
   const checks = await pythonAdapter.check(await f.checkContext());
   const rules = checks[0]?.diagnostics.map((d) => d.rule);
   expect(rules).toContain("F401");

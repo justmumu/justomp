@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as processRunner from "../../../src/dependencies/runner";
+import * as projectionFiles from "../../../src/lint/files";
 import * as javascriptNative from "../../../src/lint/javascript/native";
 import * as runtime from "../../../src/lint/runtime";
 import { vitestTestAdapter } from "../../../src/testing/javascript/vitest";
@@ -12,6 +13,7 @@ for (const runner of ["pytest", "vitest"] as const) {
   test(`${runner} targeted adapter returns native success without reading coverage`, async () => {
     const ctx = context("targeted");
     ctx.target.scope.owner = "/project";
+    ctx.target.root = "/project";
     const process = {
       exit_code: 0,
       signal: null,
@@ -22,12 +24,12 @@ for (const runner of ["pytest", "vitest"] as const) {
     };
     const mocks = [
       spyOn(fs, "writeFile").mockResolvedValue(),
-      spyOn(fs, "access").mockRejectedValue(Object.assign(new Error("absent"), { code: "ENOENT" })),
+      spyOn(projectionFiles, "readProjectionFile").mockResolvedValue({ text: null, identity: null, mode: 420 }),
       spyOn(processRunner, "runProcess").mockResolvedValue(process),
       spyOn(runtime, "lintManagerContext").mockResolvedValue(
         {} as Awaited<ReturnType<typeof runtime.lintManagerContext>>,
       ),
-      spyOn(javascriptNative, "localTool").mockResolvedValue(process),
+      spyOn(javascriptNative, "nodeRun").mockResolvedValue(process),
     ];
     const evidence = spyOn(reports, "reportText").mockImplementation((path) => {
       return suppliedResponse(() => {

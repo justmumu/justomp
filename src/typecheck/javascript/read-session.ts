@@ -1,6 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { type AdapterContext, type ProcessResult } from "../../dependencies/model";
 import { lintManagerContext } from "../../lint/runtime";
 import { type TypecheckTarget } from "../targets";
@@ -31,43 +29,19 @@ export class JavascriptConfigRead {
   }
 
   /** Resolve imports without emitting or publishing a config into the project. */
-  async programFiles(
-    target: TypecheckTarget,
-    args: string[],
-    files: string[],
-    references: string[],
-  ): Promise<string[]> {
+  async programFiles(target: TypecheckTarget, args: string[], files: string[]): Promise<string[]> {
     this.signal.throwIfAborted();
     if (!files.length) {
       return [];
     }
-    const temporary = await mkdtemp(join(tmpdir(), "justomp-declaration-inputs-"));
-    try {
-      const config = join(temporary, "tsconfig.json");
-      const projectIndex = args.lastIndexOf("--project") + 1;
-      await writeFile(
-        config,
-        JSON.stringify({
-          extends: args[projectIndex],
-          files,
-          include: [],
-          exclude: [],
-          references: references.map((path) => ({ path })),
-        }),
-      );
-      const command = [...args, "--listFilesOnly"];
-      command[projectIndex] = config;
-      const result = await typescriptRun(target, command, this.signal, await this.native(target));
-      this.signal.throwIfAborted();
-      assertTypecheckNative(result, "Resolve declaration source imports");
-      return result.stdout
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((path) => resolve(target.scope.cwd, path));
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
-    }
+    const result = await typescriptRun(target, [...args, "--listFilesOnly"], this.signal, await this.native(target));
+    this.signal.throwIfAborted();
+    assertTypecheckNative(result, "Resolve declaration source imports");
+    return result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((path) => resolve(target.scope.cwd, path));
   }
 
   async showConfig(target: TypecheckTarget, args: string[]): Promise<ProcessResult> {

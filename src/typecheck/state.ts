@@ -27,7 +27,6 @@ export interface GeneratedTypeReceipt {
   project_ids: string[];
   input_hash: string;
   outputs: Record<string, string>;
-  declarations?: Record<string, string>;
   next: Record<string, NextTypeInputs>;
 }
 export interface TypecheckState {
@@ -96,9 +95,6 @@ function validateGenerated(value: unknown): void {
     !validStringValues(receipt.outputs) ||
     !validNext(receipt.next)
   ) {
-    throw new Error("Invalid generated type receipt");
-  }
-  if (receipt.declarations !== undefined && !validStringValues(receipt.declarations)) {
     throw new Error("Invalid generated type receipt");
   }
 }

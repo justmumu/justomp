@@ -15,7 +15,12 @@ import { planPythonProjection } from "../projections/python";
 import { collectTypecheckScope } from "../scope";
 import { type TypecheckTarget } from "../targets";
 import { fetchVersionJSON, stableVersion } from "../versions";
-import { type TypecheckAdapter, type TypecheckOperationContext, type TypecheckToolContext } from "./types";
+import {
+  type TypecheckAdapter,
+  type TypecheckCheckContext,
+  type TypecheckOperationContext,
+  type TypecheckToolContext,
+} from "./types";
 
 function binary(target: TypecheckTarget, name = "pyright"): string {
   return join(
@@ -145,6 +150,13 @@ async function checker(context: TypecheckToolContext) {
   }
   return { node, entry: info.entry, python };
 }
+async function assertCurrentProjection(context: TypecheckCheckContext): Promise<void> {
+  const current = await planPythonProjection(context.target, context.policy, context.signal);
+  const captured = context.projection.input_fingerprint;
+  if (!current.current || (captured !== undefined && captured !== current.input_fingerprint)) {
+    throw new TypecheckError("outdated-projection", "Pyright native config changed or needs preparation");
+  }
+}
 export const pythonAdapter: TypecheckAdapter = {
   async resolve(targets, _policy, signal) {
     const releases = object(object(await fetchVersionJSON("https://pypi.org/pypi/pyright/json", signal)).releases);
@@ -266,9 +278,7 @@ export const pythonAdapter: TypecheckAdapter = {
     const start = performance.now();
     try {
       const native = await checker(context);
-      if (!(await this.plan(context.target, context.policy, context.signal)).current) {
-        throw new TypecheckError("outdated-projection", "Pyright policy projection needs preparation");
-      }
+      await assertCurrentProjection(context);
       const config = context.projection.configs.check[0];
       if (!config) {
         throw new Error("Missing Pyright check configuration");
@@ -282,6 +292,7 @@ export const pythonAdapter: TypecheckAdapter = {
           signal: context.signal,
         },
       );
+      await assertCurrentProjection(context);
       check.exit_code = result.exit_code;
       check.truncated = result.truncated;
       check.cancelled = result.cancelled;

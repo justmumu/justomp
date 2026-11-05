@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parse } from "smol-toml";
 import { assertLocalPreparation, createLocalHost } from "./local-checkers";
 import { cleanups, fixture, heldRegistry, json, registry, until } from "./typecheck-fixture";
 
@@ -149,11 +150,12 @@ test("session policy updates reproject typecheck without a new tool version wave
       config = JSON.parse(await readFile(path, "utf8"));
     config.typecheck.python.pyright.diagnostics.reportUnusedImport = "warning";
     await writeFile(path, JSON.stringify(config));
-    await until(
-      async () =>
-        /"reportUnusedImport"\s*:\s*"warning"/.test(await readFile(join(f.root, "pyright.justomp.json"), "utf8")),
-      "policy was not reprojected",
-    );
+    await until(async () => {
+      const native = parse(await readFile(join(f.root, "pyproject.toml"), "utf8")) as {
+        tool?: { pyright?: { reportUnusedImport?: string } };
+      };
+      return native.tool?.pyright?.reportUnusedImport === "warning";
+    }, "policy was not reprojected");
     expect(network.mock.calls.filter((call) => String(call[0]).includes("pyright/json")).length).toBe(1);
   } finally {
     await h.close();

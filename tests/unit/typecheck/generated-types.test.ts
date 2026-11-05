@@ -229,7 +229,7 @@ test("required declaration missing from the current compiler response cannot be 
   expect(result.complete).toBe(false);
   expect(result.errors[0]?.message).toContain("missing from this invocation");
 });
-test("declaration ordering, arguments and rewritten references come from our supplied dependency graph", async () => {
+test("declaration ordering and arguments use the supplied native dependency graph without writing configs", async () => {
   const f = fixture(false),
     ui = f.add("ui"),
     core = f.add("core");
@@ -273,14 +273,12 @@ test("declaration ordering, arguments and rewritten references come from our sup
   const result = await prepareJavascriptTypes(f.context, plan, plan.project_ids);
   expect(result.complete).toBe(true);
   expect(compiled).toEqual([core.project.project_id, ui.project.project_id]);
-  const projected = required(f.documents.get(required(plan.declarations[1]).projection));
-  const data = JSON.parse(projected.slice(projected.indexOf("\n") + 1));
-  expect(data.references).toEqual([{ path: required(plan.declarations[0]).projection }]);
-  expect(data.compilerOptions).toMatchObject({
-    noEmit: false,
-    noCheck: false,
-    emitDeclarationOnly: true,
-  });
+  expect(f.compile.mock.calls.map((call) => call[1][call[1].lastIndexOf("--project") + 1])).toEqual([
+    coreNode.path,
+    uiNode.path,
+  ]);
+  expect([...f.documents.keys()].some((path) => path.includes("tsconfig.justomp"))).toBe(false);
+  expect(f.state.generated?.[f.selected.project.project_id]).not.toHaveProperty("declarations");
 });
 test("a dynamically discovered Next reference reacquires the expanded closure and preserves the first effects", async () => {
   const f = fixture();

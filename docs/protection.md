@@ -24,9 +24,11 @@ manifests and shared lock ownership. Python protects `pyproject.toml` and `uv.lo
 JavaScript protects `package.json`, detected manager locks (including configured
 pnpm lock directories) and workspace metadata;
 Go protects module/workspace metadata and checksum files. Justomp's shared config,
-inspection/preparation state and generated lint/typecheck configs are protected.
-This includes `biome.justomp.jsonc` and `prettier.justomp.json` before creation;
-the legacy owned ESLint projection stays protected during migration.
+inspection/preparation state and native tool configs are protected. Standard default
+paths are protected before creation, including `biome.json`, `.prettierrc.json`,
+`tsconfig.json`, `pyrightconfig.json`, `.golangci.yml` and `bunfig.toml`.
+Selected native config leaves and local inheritance/reference paths are included;
+trusted preparation can update them. Legacy config paths stay protected during migration.
 The configured `release.version_file` (default `VERSION`) is protected before creation. Trusted `repo_bump` can update it; the changelog remains editable. See [release tools](release.md).
 Newly discovered projects enter the next call's target list. Incomplete inspection
 or an unsafe path fails the call instead of returning an old allow decision.

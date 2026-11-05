@@ -13,7 +13,7 @@ bun run check --report "$RUNNER_TEMP/justomp-ci/check.json"
 bun run check:integration --report "$RUNNER_TEMP/justomp-ci/integration.json" --timeout-seconds 1800
 ```
 
-`check` runs lock consistency, preparation, format check, lint, strict typing and full unit tests with the configured 70% coverage minimum. Integration coverage remains disabled. CI does not run autofixes or install local Git hooks. The repo-only format policy excludes generated `biome.justomp.jsonc` and `tsconfig.justomp.*.json` projections; source files and the typecheck policy remain checked. Integration still runs after a failed check when native setup succeeded and the run was not cancelled; either failure leaves the platform unsuccessful.
+`check` runs lock consistency, preparation, format check, lint, strict typing and full unit tests with the configured 70% coverage minimum. Integration coverage remains disabled. CI does not run autofixes or install local Git hooks. Standard native configs are tracked and included in format checks. Runtime state, reports and generated compiler output remain separate; the repo-only `.private/**` exclusions and strict typecheck policy are retained. Integration still runs after a failed check when native setup succeeded and the run was not cancelled; either failure leaves the platform unsuccessful.
 
 The 45-minute job limit and 1800-second integration deadline are resource ceilings for cold runners, not performance targets. Individual native fixtures have their own deadlines. Command logs include wall time, and setup reports its own duration. Compare cold and warm runs on the same platform/toolchain; do not replace the local test-cost baseline with hosted-runner times or run the overlapping test aliases as additional full gates.
 

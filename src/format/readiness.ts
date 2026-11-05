@@ -11,7 +11,7 @@ export function hasProjectionMarker(text: string, marker: string): boolean {
 export async function equivalentConfig(
   before: string | null,
   expected: string,
-  parser: "toml" | "json" | "jsonc" | "yaml" | "babel",
+  parser: "toml" | "json" | "jsonc" | "yaml" | "babel" | "typescript" | "json5",
 ): Promise<boolean> {
   if (before === expected) {
     return true;
@@ -20,7 +20,7 @@ export async function equivalentConfig(
     return false;
   }
   try {
-    if (parser === "babel") {
+    if (parser === "babel" || parser === "typescript" || parser === "json5") {
       const [actual, wanted] = await Promise.all([
         formatPrettier(before, parser, {
           ...PRETTIER_DEFAULTS,

@@ -10,8 +10,8 @@ as the extension. Run managed tests with `bun scripts/development.ts test` or
 paths and `--timeout-seconds` sets the execution budget. Feature aliases overlap;
 do not combine them as the full gate. `bun run test:cost` runs both lanes once.
 
-The tracked `.justomp/config.json` owns this repo's policy. Generated configs and
-runtime receipts are ignored. Keep the repo-only `.private/**` exclusions and
+The tracked `.justomp/config.json` owns this repo's policy. Standard native tool configs are tracked project files; preparation updates their
+managed fields. Runtime receipts and reports remain ignored. Keep the repo-only `.private/**` exclusions and
 `skipLibCheck` exception; do not weaken shared rules or the 70% unit threshold.
 Hooks own routine verification; do not repeat a passing full gate without new
 changes or an unresolved failure. Setup preserves hook conflicts and may report

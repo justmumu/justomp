@@ -1,6 +1,6 @@
-import { access, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { localTool } from "../../lint/javascript/native";
+import { nodeRun } from "../../lint/javascript/native";
 import { lintManagerContext } from "../../lint/runtime";
 import { type TestAdapter } from "../adapters";
 import {
@@ -14,7 +14,8 @@ import {
 } from "../native-tools";
 import { reportText } from "../python/reports";
 import { latestNpm } from "../versions";
-import { vitestConfig } from "./config";
+import { vitestOptions } from "./config";
+import { findVitestConfig } from "./native-config";
 import { vitestCoverage, vitestReport } from "./reports";
 export const vitestTestAdapter: TestAdapter = {
   async resolve(_targets, signal) {
@@ -25,15 +26,23 @@ export const vitestTestAdapter: TestAdapter = {
   prepare: prepareJavascript,
   verify: verifyJavascript,
   async run(context) {
-    const userConfig = await findUserConfig(context.target);
-    const config = join(context.artifacts, "vitest.config.mjs");
-    await writeFile(config, vitestConfig(context, userConfig));
+    const config = await findVitestConfig(context.target);
+    const request = join(context.artifacts, "vitest-request.json");
+    await writeFile(
+      request,
+      JSON.stringify({ root: context.target.scope.cwd, config, options: vitestOptions(context) }),
+    );
     const native = await lintManagerContext(context.target, context.signal),
-      process = await localTool(
+      process = await nodeRun(
         context.target,
         native,
-        { package: "vitest", binary: "vitest" },
-        ["run", "--config", config],
+        [
+          "--input-type=module",
+          "-e",
+          "const {runVitest}=await import(process.argv[1]);await runVitest(process.argv[2]);",
+          new URL("./vitest-runner.mjs", import.meta.url).href,
+          request,
+        ],
         context.signal,
       ),
       result = nativeResult(process);
@@ -59,26 +68,3 @@ export const vitestTestAdapter: TestAdapter = {
     return result;
   },
 };
-
-async function findUserConfig(target: import("../targets").TestTarget): Promise<string | undefined> {
-  let userConfig = target.configFile;
-  for (const base of ["vitest", "vite"]) {
-    if (userConfig) {
-      break;
-    }
-    for (const extension of ["ts", "mts", "cts", "js", "mjs", "cjs"]) {
-      const path = join(target.scope.cwd, `${base}.config.${extension}`);
-      try {
-        await access(path);
-        userConfig = path;
-        break;
-      } catch {
-        /* Missing or inaccessible candidates do not select a native config. */
-      }
-    }
-    if (userConfig) {
-      break;
-    }
-  }
-  return userConfig;
-}

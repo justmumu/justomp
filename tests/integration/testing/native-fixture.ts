@@ -1,8 +1,13 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveIntegrationTestConfig } from "../../../src/config/integration-test/resolve";
+import { type LoadedConfig } from "../../../src/config/load";
+import { resolveTestConfig } from "../../../src/config/test/resolve";
+import { type NativeConfigOwnership } from "../../../src/native-config/ownership";
 import { closePackagingStructure, getPackagingStructure } from "../../../src/packaging/get-structure";
 import { type TestAdapter, type TestRunContext } from "../../../src/testing/adapters";
+import { applyTestProjection, planTestProjection } from "../../../src/testing/projection";
 import { resolveTestTarget } from "../../../src/testing/targets";
 import { measureFixture } from "../../fixtures/cost-timing";
 export async function nativeFixture(runner: "pytest" | "vitest" | "bun" | "go", adapter: TestAdapter) {
@@ -52,6 +57,31 @@ export async function nativeFixture(runner: "pytest" | "vitest" | "bun" | "go", 
       }
     });
     let calls = 0;
+    let ownership: NativeConfigOwnership | undefined;
+    const prepareConfig = async (configFile?: string) => {
+      const config = {
+        test: resolveTestConfig().policy,
+        integrationTest: resolveIntegrationTestConfig().policy,
+      } as LoadedConfig;
+      const plan = await planTestProjection(
+        { ...target, ...(configFile ? { configFile: join(root, configFile) } : {}) },
+        config,
+        ownership,
+      );
+      await applyTestProjection(plan, []);
+      ownership = plan.ownership;
+      if (
+        !(
+          await planTestProjection(
+            { ...target, ...(configFile ? { configFile: join(root, configFile) } : {}) },
+            config,
+            ownership,
+          )
+        ).current
+      ) {
+        throw new Error("Native test policy was not stable after publication");
+      }
+    };
     const run = async (
       tests: string[],
       sources: string[],
@@ -92,12 +122,13 @@ export async function nativeFixture(runner: "pytest" | "vitest" | "bun" | "go", 
           },
         },
       };
-      return adapter.run(context);
+      return runPreservingNativeConfig(adapter, context, ownership);
     };
     return {
       root,
       put,
       run,
+      prepareConfig,
       dispose: async () => {
         await closePackagingStructure(root);
         await measureFixture(`test-${runner}:cleanup`, () => rm(root, { recursive: true, force: true }));
@@ -108,4 +139,23 @@ export async function nativeFixture(runner: "pytest" | "vitest" | "bun" | "go", 
     await rm(root, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function runPreservingNativeConfig(
+  adapter: TestAdapter,
+  context: TestRunContext,
+  ownership: NativeConfigOwnership | undefined,
+) {
+  const paths = (ownership?.configs ?? []).map((entry) => join(context.target.root, entry.path));
+  const before = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+  const result = await adapter.run(context);
+  const after = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    throw new Error("Test execution changed stable native configuration");
+  }
+  const artifactsWritten = await readdir(context.artifacts);
+  if (["coverage.ini", "vitest.config.mjs", "bunfig.toml"].some((name) => artifactsWritten.includes(name))) {
+    throw new Error("Test execution produced an alternate policy configuration");
+  }
+  return result;
 }

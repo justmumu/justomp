@@ -39,6 +39,12 @@ Bun full coverage uses a reusable dynamic importer in global teardown, after use
 
 Go retains the native `go test` default vet checks. Ambient `GOFLAGS` cannot disable them. Go file selection maps active native test files to runnable declarations with a packaged AST helper, then uses exact names within the normal package. `TestMain`, package initialization and private-function access remain intact. Full runs count identical internal/external test names separately; individual file attribution is omitted when native events cannot distinguish it. An internal/external name collision that cannot distinguish selected files returns `unsupported-test-selection`; helper-only selections do not run the whole package. Fuzz seeds can run as normal tests; benchmark and fuzz campaigns are not started. Supported build flags such as tags and race settings remain in effect; unsupported execution controls are reported.
 
+Preparation writes durable policy into standard configs: native coverage sections for Python, the active Vitest/Vite config (default `vitest.config.ts`), and real `bunfig.toml`. Project setup, plugins and unrelated settings are preserved. A separate explicit integration config keeps its own suite policy. Unsupported dynamic configuration is reported rather than replaced by a wrapper.
+
+Invocations pass exact files, coverage activation and report destinations through runner APIs/arguments. Python uses the public Coverage API; Vitest loads the project-local `vitest/node` API. Private request JSON files carry invocation data, not alternate native config. Native config bytes stay unchanged between full, targeted and integration runs.
+
+Bun coverage stays off through the native default: preparation removes the `test.coverage` key because an explicit `false` overrides `--coverage` in the supported runtime. Full managed runs enable it with the CLI flag. Targeted and coverage-disabled runs omit that flag; no config is rewritten. Plain `bun test` does not imply Justomp's coverage gate.
+
 Native setup/fixture/import configuration remains active where compatible. Justomp owns selection, report locations, retry/fail-fast and coverage controls. Unsupported native options produce errors instead of silently discarding their effect. It does not change explicit skip/todo/only declarations in test code.
 
 ## Results and API
