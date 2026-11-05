@@ -9,6 +9,20 @@ An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, m
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
 
+Published packages use GitHub Packages under `@justmumu/justomp`. Configure the
+registry and authenticate with a GitHub personal access token (classic) with
+`read:packages` before installing:
+
+```bash
+npm config set @justmumu:registry https://npm.pkg.github.com
+npm login --scope=@justmumu --auth-type=legacy --registry=https://npm.pkg.github.com
+omp plugin install '@justmumu/justomp@0.2.0'
+```
+
+GitHub Packages requires authentication even for public packages. See
+[release and package access](docs/release.md#github-packages-publication).
+For development from a local checkout:
+
 ```sh
 bun install --frozen-lockfile
 omp plugin install /absolute/path/to/justomp
@@ -66,7 +80,7 @@ Keep the generated snapshot out of version control if desired. The extension doe
 Other extension tools should use the getter rather than reading the JSON file:
 
 ```ts
-import { getPackagingStructure, retainPackagingStructure } from "justomp/packaging";
+import { getPackagingStructure, retainPackagingStructure } from "@justmumu/justomp/packaging";
 
 const release = await retainPackagingStructure(root);
 try {
@@ -121,7 +135,7 @@ Only this repo excludes `.private/**` from JS lint/typecheck and enables `skipLi
 
 The integration suite uses temporary projects. Native dependency suites require the explicit [tested manager versions and provisioning](docs/dependencies.md#reproducing-native-tests); missing managers fail the suite instead of silently skipping it. Its installed-package smoke test packs and installs this package into a temporary directory with lifecycle scripts disabled; it may download missing npm dependencies. OMP integration tests use the real runner and approval wrapper with isolated temporary auth storage, without a model request. Native and installed-package cases exercise the file loader; local ownership cases bind the real extension factory with injected tool adapters.
 
-The installed `justomp-lint --root <directory> --project-id <id>` CLI and `checkProjectLint` API are check-only. They require prepared tools and do not install, repair or write project metadata. The `justomp-typecheck` CLI defaults to full preparation and checking; pass `--check-only` for the readonly mode. `prepareProjectTypecheck`, `checkProjectTypecheck` and `typecheckProject` are exported from `justomp/typecheck`. OMP session start installs repository pre-commit and [pre-push hooks](docs/prepush.md). Pre-push checks all discovered projects: lock consistency, format, lint, typecheck and unit tests with coverage. The [repository CI workflow](docs/ci.md) runs the complete managed check and integration suite on Linux and macOS for every PR, with explicit native environment preparation.
+The installed `justomp-lint --root <directory> --project-id <id>` CLI and `checkProjectLint` API are check-only. They require prepared tools and do not install, repair or write project metadata. The `justomp-typecheck` CLI defaults to full preparation and checking; pass `--check-only` for the readonly mode. `prepareProjectTypecheck`, `checkProjectTypecheck` and `typecheckProject` are exported from `@justmumu/justomp/typecheck`. OMP session start installs repository pre-commit and [pre-push hooks](docs/prepush.md). Pre-push checks all discovered projects: lock consistency, format, lint, typecheck and unit tests with coverage. The [repository CI workflow](docs/ci.md) runs the complete managed check and integration suite on Linux and macOS for every PR, with explicit native environment preparation.
 
 See [inspection details and measurements](docs/inspection.md) for the supported relationship rules and measured costs.
 

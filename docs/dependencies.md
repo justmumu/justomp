@@ -147,9 +147,9 @@ These environment overrides are test-harness inputs, not agent tool parameters. 
 
 ## Shared API
 
-`justomp/dependencies` exports `executeDependency`, `listProjects`, the shared `schemas`, request types and the installed `adapters` registry. Callers provide a canonical session root and cancellation signal, retain/release inspection through `justomp/packaging`, and keep the call alive until cancellation settles. For example:
+`@justmumu/justomp/dependencies` exports `executeDependency`, `listProjects`, the shared `schemas`, request types and the installed `adapters` registry. Callers provide a canonical session root and cancellation signal, retain/release inspection through `@justmumu/justomp/packaging`, and keep the call alive until cancellation settles. For example:
 
 ```ts
-import { adapters, executeDependency } from "justomp/dependencies";
+import { adapters, executeDependency } from "@justmumu/justomp/dependencies";
 const result = await executeDependency(root, "list", { project_id }, adapters, signal);
 ```

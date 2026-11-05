@@ -54,7 +54,7 @@ Results contain `suite` (`unit` or `integration`), project identity, runner/vers
 Each invocation creates a fresh private report directory and removes it after execution. Old reports cannot satisfy a new call. Changes to project sources, ownership or configuration during execution invalidate the result without an automatic rerun. Process-local queues coordinate Justomp calls in the same host, not arbitrary external editors or another process.
 
 ```ts
-import { testProject, integrationTestProject } from "justomp/testing";
+import { testProject, integrationTestProject } from "@justmumu/justomp/testing";
 const result = await testProject(root, { project_id }, abortSignal);
 const integration = await integrationTestProject(root, { project_id }, abortSignal);
 ```
