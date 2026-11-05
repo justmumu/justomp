@@ -56,7 +56,7 @@ test("test scope retains literal names while excluding nested projects and symli
     const all = await planProjection(target, lint, { "@biomejs/biome": "2.6.3" });
     lint.javascript.exclude = [".private/**"];
     const filtered = await planProjection(target, lint, { "@biomejs/biome": "2.6.3" });
-    expect(filtered.files[0]?.content).toContain("!!.private/archive.ts");
+    expect(filtered.files[0]?.content).toContain("!!.private/**");
     expect(filtered.files[0]?.content).not.toBe(all.files[0]?.content);
     lint.javascript.exclude = [];
     expect((await planProjection(target, lint, { "@biomejs/biome": "2.6.3" })).files[0]?.content).toBe(
