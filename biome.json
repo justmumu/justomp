@@ -104,7 +104,7 @@
       "types": "none"
     }
   },
-  "$schema": "https://biomejs.dev/schemas/2.6.4/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.5/schema.json",
   "root": true,
   "files": {
     "includes": [
@@ -137,18 +137,7 @@
       "!!**/biome.justomp.jsonc",
       "!!**/prettier.justomp.json",
       "!!**/golangci.justomp.yml",
-      "!!.private/file-protection/implementation-boundary.mjs",
-      "!!.private/self-managed/add-blocks.cjs",
-      "!!.private/self-managed/conform-empty-tests.cjs",
-      "!!.private/self-managed/conform-test-async.cjs",
-      "!!.private/self-managed/conform.ts",
-      "!!.private/self-managed/coverage-detail.ts",
-      "!!.private/self-managed/coverage.ts",
-      "!!.private/self-managed/diagnose.ts",
-      "!!.private/self-managed/prepare.ts",
-      "!!.private/test-evidence-cost/design-pass/javascript-outcomes.native.before.ts",
-      "!!.private/test-evidence-cost/design-pass/python.native.before.ts",
-      "!!.private/test-evidence-cost/design-pass/typecheck-javascript.native.before.ts"
+      "!!.private/**"
     ]
   },
   "vcs": {
