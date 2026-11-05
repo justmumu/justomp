@@ -42,7 +42,7 @@ Each getter reads config contents before making a cache decision. Equal file siz
 
 Patterns use root-relative `/` paths, literals, `*` and `**`. Absolute paths, escaping `..`, negation and other glob syntax are rejected. Exclusions win over includes, including an excluded ancestor. Required ancestors of an include can be traversed. A matching directory rule applies to its subtree. `**/node_modules` matches the exact directory name at every depth, not `my_node_modules_notes`. Generic names such as `build`, `dist`, `vendor` and `env` are not excluded by default.
 
-The scanner and watcher apply the same rules before descending or creating child subscriptions. Default dot exclusion covers `.git`, `.venv` and other hidden names without metadata exceptions. Removing that exclusion permits hidden projects. Every `.justomp` subtree, projection temporary file and managed lint config filename remains excluded as a discovery input, even with `exclude: []`. This keeps downloaded tools and generated metadata out of project discovery.
+The scanner and watcher apply the same rules before descending or creating child subscriptions. Default dot exclusion covers `.git`, `.venv` and other hidden names without metadata exceptions. Removing that exclusion permits hidden projects. Every `.justomp` subtree, publication temporary file and legacy Justomp lint config filename remains excluded as a discovery input, even with `exclude: []`. Standard tool configs remain ordinary project files; config discovery reads their native paths independently of the inspection dot-file exclusion. This keeps downloaded tools and generated metadata out of project discovery.
 
 ## Cache, publication and failure
 

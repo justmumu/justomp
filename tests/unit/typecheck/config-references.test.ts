@@ -27,6 +27,11 @@ function keep<T extends { mockRestore(): void }>(spy: T): T {
 function fixture() {
   const selected = target("javascript");
   const files = new Map<string, string>();
+  keep(
+    spyOn(Bun, "file").mockImplementation(((path: unknown) => ({
+      exists: async () => files.has(String(path)),
+    })) as typeof Bun.file),
+  );
   const stats = (path: unknown) =>
     ({
       isDirectory: () => !String(path).endsWith(".json"),

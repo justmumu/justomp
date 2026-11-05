@@ -78,9 +78,7 @@ export async function pythonFixture(workspace = false, declaration = "") {
     bytes() {
       return suppliedResponse(() => {
         return Promise.all(
-          ["pyproject.toml", "uv.lock", "module.py", "pyright.justomp.json", ".venv/pyvenv.cfg"].map((p) =>
-            readFile(join(root, p), "utf8"),
-          ),
+          ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readFile(join(root, p), "utf8")),
         );
       });
     },

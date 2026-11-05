@@ -114,7 +114,7 @@ function fixture(ecosystem: "python" | "javascript" = "python") {
     },
   };
   const run = () => prepareTypecheck("/repo", { [ecosystem]: adapter }, new AbortController().signal);
-  return { add, run, controls, state, installed, lint, members, structure };
+  return { add, run, controls, state, installed, lint, members, structure, adapter, store, persisted: () => persisted };
 }
 
 for (const ecosystem of ["python", "javascript"] as const) {
@@ -176,3 +176,73 @@ test("verified TypeScript alignment releases an older lint-owned compiler after 
   expect(f.lint.state.waves.javascript?.versions["javascript:a"]).toEqual({ biome: "2.0.0" });
   expect(f.lint.state.waves.javascript?.complete).toBe(false);
 });
+
+for (const failSave of [false, true]) {
+  test(`native config publication ${failSave ? "keeps legacy files on receipt failure" : "saves ownership before retiring legacy files"}`, async () => {
+    const f = fixture();
+    expect((await f.run()).complete).toBe(true);
+    const prior = {
+      version: 1 as const,
+      configs: [{ role: "pyright", path: "a/pyproject.toml", fields: [["tool", "pyright", "oldRule"]] }],
+    };
+    const next = {
+      version: 1 as const,
+      configs: [{ role: "pyright", path: "a/pyproject.toml", fields: [["tool", "pyright", "typeCheckingMode"]] }],
+    };
+    const receipts: Partial<TypecheckState["projects"]> = f.state.projects;
+    const receipt = receipts["python:a"];
+    if (!receipt) {
+      throw new Error("Missing receipt");
+    }
+    receipt.native_configs = prior;
+    let published = false;
+    let retired = false;
+    const seen: unknown[] = [];
+    f.adapter.plan = (selected) => {
+      seen.push(receipts["python:a"]?.native_configs);
+      return Promise.resolve({
+        target: selected,
+        files: [],
+        current: retired,
+        configs: { check: [] },
+        native_configs: next,
+        retired: [],
+      });
+    };
+    keep(
+      spyOn(projection, "applyProjection").mockImplementation((plan, changes = []) => {
+        published = true;
+        changes.push({ project_id: plan.target.project.project_id, path: "a/pyproject.toml", kind: "updated" });
+        return Promise.resolve(changes);
+      }),
+    );
+    const retire = keep(
+      spyOn(projection, "retireProjection").mockImplementation((_plan, changes = []) => {
+        expect(f.persisted().projects["python:a"]?.native_configs).toEqual(next);
+        expect(f.persisted().projects["python:a"]?.ready).toBe(false);
+        retired = true;
+        return Promise.resolve(changes);
+      }),
+    );
+    if (failSave) {
+      const save = f.store.save.bind(f.store);
+      keep(
+        spyOn(f.store, "save").mockImplementation(() =>
+          published ? Promise.reject(new Error("Receipt write failed")) : save(),
+        ),
+      );
+    }
+    const result = await f.run();
+    expect(seen[0]).toEqual(prior);
+    expect(result.changes).toContainEqual({ project_id: "python:a", path: "a/pyproject.toml", kind: "updated" });
+    expect(f.controls.resolves).toBe(1);
+    if (failSave) {
+      expect(result.complete).toBe(false);
+      expect(retire).not.toHaveBeenCalled();
+    } else {
+      expect(result.complete).toBe(true);
+      expect(retired).toBe(true);
+      expect(receipts["python:a"]?.native_configs).toEqual(next);
+    }
+  });
+}

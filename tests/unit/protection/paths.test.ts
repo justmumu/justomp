@@ -60,18 +60,28 @@ test("protects manifests, shared owner locks and owned projections in mixed repo
     "pyproject.toml",
     "uv.lock",
     "apps/api/pyright.justomp.json",
+    "apps/api/ruff.toml",
+    "apps/api/.ruff.toml",
+    "apps/api/.coveragerc",
     "apps/web/package.json",
     "package.json",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "apps/web/eslint.justomp.config.mjs",
     "apps/web/biome.justomp.jsonc",
+    "apps/web/biome.json",
+    "apps/web/biome.jsonc",
+    "apps/web/.prettierrc.json",
+    "apps/web/bunfig.toml",
+    "apps/web/vitest.config.ts",
+    "apps/web/tsconfig.build.json",
     "apps/web/prettier.justomp.json",
     "services/api/go.mod",
     "services/api/go.sum",
     "services/go.work",
     "services/go.work.sum",
     "services/api/golangci.justomp.yml",
+    "services/api/.golangci.yml",
     ".justomp/config.json",
     ".justomp/typecheck_state.json",
   ]) {
@@ -79,8 +89,8 @@ test("protects manifests, shared owner locks and owned projections in mixed repo
   }
   expect(paths).not.toContain("/repo/apps/web/pnpm-lock.yaml");
   expect(paths).not.toContain("/repo/services/go.mod");
-  expect(paths).not.toContain("/repo/apps/api/pyrightconfig.json");
-  expect(paths).not.toContain("/repo/apps/web/tsconfig.json");
+  expect(paths).toContain("/repo/apps/api/pyrightconfig.json");
+  expect(paths).toContain("/repo/apps/web/tsconfig.json");
   expect(paths).toEqual([...new Set(paths)].sort());
 });
 

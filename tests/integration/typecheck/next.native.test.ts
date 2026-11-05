@@ -39,9 +39,11 @@ test("public Next preparation generates custom-path route types consumed by the 
     dist = "generated-next";
   expect((await checkProjectTypecheck(f.root, "javascript:package.json")).complete).toBe(false);
   expect(await Bun.file(join(f.root, dist, "types/validator.ts")).exists()).toBe(false);
+  expect(await Bun.file(join(f.root, "tsconfig.json")).exists()).toBe(false);
   const prepared = await prepareProjectTypecheck(f.root, "javascript:package.json");
   expect(prepared.errors).toEqual([]);
   expect(prepared.complete).toBe(true);
+  expect(await Bun.file(join(f.root, "tsconfig.json")).exists()).toBe(false);
   const result = await checkProjectTypecheck(f.root, "javascript:package.json");
   expect(result.complete).toBe(true);
   expect(result.checks[0]?.status).toBe("failed");

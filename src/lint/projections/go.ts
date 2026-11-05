@@ -65,6 +65,10 @@ export function projectGo(policy: GoPolicy): string {
     issues: {
       ...issues,
       fix: false,
+      new: false,
+      "new-from-rev": "",
+      "new-from-merge-base": "",
+      "new-from-patch": "",
       "max-issues-per-linter": 0,
       "max-same-issues": 0,
       "uniq-by-line": false,

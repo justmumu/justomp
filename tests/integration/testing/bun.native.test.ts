@@ -18,8 +18,11 @@ test("Bun exact selection reports pass/fail and imports unused sources in global
       "import {test,expect} from 'bun:test'; test('fails',()=>expect(1).toBe(2)); test('passes',()=>expect(globalThis.nativeSetup).toBe(true));",
     );
     await f.put("chosen.test.ts.other.test.ts", "throw new Error('foreign test executed');");
+    await f.prepareConfig();
     const full = await f.run(["chosen.test.ts"], ["src/unused.ts"]);
-    expect(full.errors).toEqual([{ code: "test-failed", message: "One or more tests failed" }]);
+    expect(full.errors, `${full.stdout}\n${full.stderr}`).toEqual([
+      { code: "test-failed", message: "One or more tests failed" },
+    ]);
     expect(full.tests).toMatchObject({ total: 2, passed: 1, failed: 1 });
     expect(full.executed_files).toEqual(["chosen.test.ts"]);
     expect(full.coverage?.total).toBeGreaterThan(0);
@@ -37,6 +40,7 @@ test("Bun exact selection reports pass/fail and imports unused sources in global
       "tests/integration/flow.test.ts",
       "import {test,expect} from 'bun:test';test('flow',()=>expect(globalThis.nativeSetup).toBe(true));",
     );
+    await f.prepareConfig("integration.toml");
     const integration = await f.run(["tests/integration/flow.test.ts"], ["missing.ts"], "full", {
       suite: "integration",
       configFile: "integration.toml",

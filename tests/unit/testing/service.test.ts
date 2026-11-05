@@ -9,6 +9,7 @@ import { type NativeTestResult, type TestAdapter } from "../../../src/testing/ad
 import * as artifacts from "../../../src/testing/artifacts";
 import { type TestSuite } from "../../../src/testing/model";
 import { preparationReport } from "../../../src/testing/prepare";
+import * as projection from "../../../src/testing/projection";
 import * as scopeModule from "../../../src/testing/scope";
 import { runTestTarget } from "../../../src/testing/service";
 import { TestStateStore } from "../../../src/testing/state";
@@ -66,6 +67,12 @@ test("service preserves native and cleanup errors, rejects changed policy, and r
     },
   };
   const mocks = [
+    spyOn(projection, "planTestProjection").mockImplementation(async (selected) => ({
+      target: selected,
+      files: [],
+      current: true,
+      ownership: { version: 1, configs: [] },
+    })),
     spyOn(configModule, "loadConfig").mockImplementation(() => {
       return suppliedResponse(() => {
         const unit = structuredClone(policy);

@@ -13,7 +13,7 @@ import {
   type TypecheckOperationContext,
 } from "./adapters/types";
 import { TypecheckError, type TypecheckPreparation } from "./model";
-import { applyProjection } from "./projection";
+import { publishTypecheckProjections } from "./publish";
 import { readyTypecheckProjection } from "./readiness";
 import { TypecheckStateStore } from "./state";
 import { resolveTypecheckTarget, type TypecheckTarget } from "./targets";
@@ -128,6 +128,19 @@ async function prepareCohort(
     for (const batch of batches(selected)) {
       await prepareBatch(batch, adapter, context, store, report, ecosystem);
     }
+    // Dependencies can acquire real build entries during their own migration.
+    // Reconcile references against that final graph before certifying the cohort.
+    if (
+      ecosystem === "javascript" &&
+      selected.length > 1 &&
+      selected.every((target) => !report.projects[target.project.project_id]?.errors.length)
+    ) {
+      try {
+        await projectBatch(selected, adapter, context, store, report);
+      } catch (error) {
+        reportBatchFailure(selected, report, error);
+      }
+    }
   }
   return verifyCohort(selected, adapter, context, store, report, ecosystem, policyHash, preflightFailed);
 }
@@ -219,6 +232,7 @@ function initializeReceipts(
     store.state.projects[id] = {
       ecosystem,
       tools,
+      ...(previous?.native_configs ? { native_configs: previous.native_configs } : {}),
       policy_hash: policyHash,
       ready: previous?.ready === true && previous.policy_hash === policyHash && sameVersions(previous.tools, tools),
     };
@@ -275,7 +289,7 @@ async function prepareBatch(
       }
       await adapter.prepareBatch({ ...context, targets: batch });
     }
-    await projectBatch(batch, adapter, context, report);
+    await projectBatch(batch, adapter, context, store, report);
   } catch (error) {
     reportBatchFailure(batch, report, error);
   } finally {
@@ -545,21 +559,24 @@ async function projectBatch(
   batch: TypecheckTarget[],
   adapter: TypecheckAdapter,
   context: TypecheckOperationContext,
+  store: TypecheckStateStore,
   report: PreparationReport,
 ): Promise<void> {
   const { signal } = context;
-  const policy = { typecheck: context.policy };
+  const plans = [];
   for (const target of batch) {
     signal.throwIfAborted();
-    const plan = await adapter.plan(target, policy.typecheck, signal);
+    plans.push(await adapter.plan(target, context.policy, signal));
+  }
+  for (const plan of plans) {
     if (!plan.current) {
-      const result = report.projects[target.project.project_id];
+      const result = report.projects[plan.target.project.project_id];
       if (result) {
         result.action = "prepared";
       }
     }
-    await applyProjection(plan, report.changes);
   }
+  await publishTypecheckProjections(plans, store, report.changes);
 }
 
 async function verifyTarget(
@@ -591,7 +608,8 @@ async function verifyTarget(
       policy: policy.typecheck,
       signal,
     };
-    receipt.ready = !preflightFailed && Boolean(await readyTypecheckProjection(adapter, toolContext));
+    receipt.ready =
+      !preflightFailed && !result.errors.length && Boolean(await readyTypecheckProjection(adapter, toolContext));
     if (!receipt.ready) {
       throw new TypecheckError("not-ready", `Native typecheck environment is not ready: ${id}`);
     }

@@ -26,6 +26,32 @@ export function scopeIgnores(project: Project, projects: readonly Project[]): st
     ...childProjectRoots(project, projects).map((path) => `${literalGlobPath(path)}/**`),
   ];
 }
+/** Preserve literal directory globs; richer picomatch syntax keeps exact native fallbacks. */
+export function sourceIgnores(
+  owned: readonly string[],
+  selected: ReadonlySet<string>,
+  exclude: readonly string[],
+): string[] {
+  const directories = [
+    ...new Set(
+      exclude.filter(
+        (pattern) =>
+          /^[A-Za-z0-9_. /-]+\/\*\*$/.test(pattern) &&
+          pattern
+            .slice(0, -3)
+            .split("/")
+            .every((part) => part !== "" && part !== "." && part !== ".."),
+      ),
+    ),
+  ];
+  const prefixes = directories.map((pattern) => pattern.slice(0, -2));
+  return [
+    ...directories,
+    ...owned
+      .filter((file) => !selected.has(file) && !prefixes.some((prefix) => file.startsWith(prefix)))
+      .map(literalGlobPath),
+  ];
+}
 export interface LintScope {
   /** Explicit source arguments, relative to target.scope.cwd. */
   files: string[];
@@ -65,7 +91,7 @@ export async function collectLintScope(target: LintTarget, exclude: readonly str
     childRoots,
     ignores: [
       ...scopeIgnores(target.project, target.structure.projects),
-      ...owned.filter((file) => !selected.has(file)).map(literalGlobPath),
+      ...sourceIgnores(owned, selected, exclude),
       ...dependencyRoots.map((path) => `${literalGlobPath(path)}/**`),
     ],
     hasTypescript: files.some((file) => /\.(?:[cm]?ts|tsx)$/i.test(file)),

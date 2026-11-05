@@ -120,11 +120,10 @@ test("native declaration chain emits only required types and preserves earlier e
     "javascript:packages/ui/package.json",
     "javascript:apps/web/package.json",
   ]);
-  expect(first.preparation.changes).toContainEqual({
-    project_id: "javascript:apps/web/package.json",
-    path: "apps/web/tsconfig.justomp.0.json",
-    kind: "updated",
-  });
+  expect(first.preparation.changes.every((change) => !change.path.includes("tsconfig.justomp"))).toBe(true);
+  expect(await Bun.file(join(f.root, "packages/core/tsconfig.types.json")).exists()).toBe(true);
+  const packageMetadata = JSON.parse(await readFile(join(f.root, "packages/core/package.json"), "utf8"));
+  expect(packageMetadata.scripts["build:types"]).toBe("tsc --project tsconfig.types.json");
   expect(first.preparation.changes.some((c) => c.path === "packages/core/types/index.d.ts")).toBe(true);
   expect(await Bun.file(join(f.root, "packages/unrelated/types/index.d.ts")).exists()).toBe(false);
   expect(await Bun.file(join(f.root, "packages/core/lib/index.js")).exists()).toBe(false);

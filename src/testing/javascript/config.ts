@@ -38,34 +38,20 @@ export function vitestOptions(context: TestRunContext) {
     typecheck: { enabled: false },
   };
 }
-export function vitestConfig(context: TestRunContext, userConfig?: string): string {
-  const options = JSON.stringify(vitestOptions(context));
-  return `import {createRequire} from 'node:module';\nimport {pathToFileURL} from 'node:url';\nconst req=createRequire(${JSON.stringify(join(context.target.scope.cwd, "package.json"))});\nconst vitestReq=createRequire(req.resolve('vitest/package.json'));\nconst {loadConfigFromFile}=await import(pathToFileURL(vitestReq.resolve('vite')).href);\nconst loaded=${userConfig ? `await loadConfigFromFile({command:'serve',mode:'test'},${JSON.stringify(userConfig)},${JSON.stringify(context.target.scope.cwd)})` : "undefined"};\nconst base=loaded?.config??{}; if(base.test) {base.test={...base.test};delete base.test.workspace;delete base.test.projects;}\nexport default {...base,root:${JSON.stringify(context.target.scope.cwd)},test:{...base.test,...${options},testNamePattern:undefined,changed:undefined,related:undefined,shard:undefined}};\n`;
-}
-export function bunConfig(context: TestRunContext, existing: Record<string, unknown>, preload?: string) {
-  const { rerunEach: _rerunEach, ...nativeTest } = object(existing.test);
-  const test = {
-    ...nativeTest,
-    root: context.target.scope.cwd,
-    coverage: coverageEnabled(context),
-    coverageThreshold: 0,
-    coverageReporter: ["lcov"],
-    coverageDir: join(context.artifacts, "coverage"),
-    coverageSkipTestFiles: true,
-    coveragePathIgnorePatterns: [],
-    retry: 0,
-    bail: 0,
-    reporter: { junit: join(context.artifacts, "junit.xml") },
-  };
-  const preloads = object(existing.test).preload;
+/** Stable native Bun policy. Per-run paths and coverage enablement belong to CLI flags. */
+export function bunConfig(existing: Record<string, unknown>) {
+  const { rerunEach: _rerunEach, coverage: _coverage, ...native } = object(existing.test);
   return {
     ...existing,
     test: {
-      ...test,
-      preload: [
-        ...(Array.isArray(preloads) ? preloads : typeof preloads === "string" ? [preloads] : []),
-        ...(preload ? [preload] : []),
-      ],
+      ...native,
+      root: ".",
+      coverageThreshold: 0,
+      coverageReporter: ["lcov"],
+      coverageSkipTestFiles: true,
+      coveragePathIgnorePatterns: [],
+      retry: 0,
+      bail: 0,
     },
   };
 }

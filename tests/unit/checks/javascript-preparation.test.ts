@@ -267,8 +267,8 @@ test("Biome readiness verifies exact declaration, lock, installed package and na
       files: [],
       current: true,
       configs: {
-        lint: "/repo/biome.justomp.jsonc",
-        format: "/repo/prettier.justomp.json",
+        lint: "/repo/biome.json",
+        format: "/repo/.prettierrc.json",
       },
     },
   };

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createMatcher } from "../../../src/inspect/exclusions";
 import { type Project } from "../../../src/inspect/model";
-import { scopeIgnores } from "../../../src/lint/scope";
+import { scopeIgnores, sourceIgnores } from "../../../src/lint/scope";
 import { excludeSourceFiles } from "../../../src/packaging/source-exclusions";
 
 const project = (path: string, ecosystem: Project["ecosystem"]): Project => ({
@@ -57,4 +57,26 @@ test("source exclusions match project-relative dot paths without changing the ow
   expect(excludeSourceFiles(owned, [".private/**", "src/**/.hidden/**"])).toEqual(["src/a.ts", "tests/a.test.ts"]);
   expect(excludeSourceFiles(owned, [])).toEqual(owned);
   expect(owned).toHaveLength(4);
+});
+
+test("native directory exclusions stay identical with and without ignored local files", () => {
+  const selected = new Set(["src/index.ts"]);
+  const patterns = [".private/**", "docs/generated/**"];
+  expect(sourceIgnores(["src/index.ts", ".private/draft.ts", "docs/generated/api.ts"], selected, patterns)).toEqual(
+    patterns,
+  );
+  expect(sourceIgnores(["src/index.ts"], selected, patterns)).toEqual(patterns);
+});
+
+test("complex and noncanonical exclusion syntax retains exact escaped file fallbacks", () => {
+  const owned = ["src/index.ts", "src/[draft].ts", "src/draft.js"];
+  expect(
+    sourceIgnores(owned, new Set(["src/index.ts"]), [
+      "src/!(index).*",
+      "/src/**",
+      "src/../other/**",
+      "./src/**",
+      "src//x/**",
+    ]),
+  ).toEqual(["src/\\[draft\\].ts", "src/draft.js"]);
 });

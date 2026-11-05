@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { access, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AgentTool } from "@oh-my-pi/pi-agent-core";
@@ -34,6 +34,9 @@ test("real OMP delegation gates every patch target, allows source writes and tru
   const nativePatch = new EditTool(session, "apply_patch");
   const nativeEdit = new EditTool(session);
   await writeFile(join(root, "package.json"), '{"name":"proof","packageManager":"bun@1.4.2"}');
+  await mkdir(join(root, "config"));
+  await writeFile(join(root, "tsconfig.json"), '{"extends":"./config/shared.json"}');
+  await writeFile(join(root, "config/shared.json"), '{"compilerOptions":{"strict":true}}');
   const h = await createHost(
     root,
     undefined,
@@ -93,6 +96,7 @@ test("real OMP delegation gates every patch target, allows source writes and tru
         parameters: pi.zod.object({}),
         async execute() {
           await writeFile(join(root, "package.json"), '{"name":"custom"}');
+          await writeFile(join(root, "biome.json"), '{"linter":{"enabled":true}}');
           return { content: [], details: {} };
         },
       });
@@ -135,6 +139,8 @@ test("real OMP delegation gates every patch target, allows source writes and tru
     await call("write", { path: "source.txt", content: "source" });
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe("source");
     await expect(call("write", { path: "package.json", content: "wrong" })).rejects.toThrow("protected");
+    await expect(call("write", { path: "biome.json", content: "wrong" })).rejects.toThrow("protected");
+    await expect(call("write", { path: "config/shared.json", content: "wrong" })).rejects.toThrow("protected");
     await expect(
       call("apply_patch", {
         input: "*** Begin Patch\n*** Add File: untouched.txt\n+new\n*** Delete File: package.json\n*** End Patch",
@@ -167,6 +173,7 @@ test("real OMP delegation gates every patch target, allows source writes and tru
     expect(await readFile(join(root, "source.txt"), "utf8")).toBe("updated");
     await call("trusted_update", {});
     expect(await readFile(join(root, "package.json"), "utf8")).toBe('{"name":"custom"}');
+    expect(await readFile(join(root, "biome.json"), "utf8")).toBe('{"linter":{"enabled":true}}');
     const denied = await call("bash", {
       command: "printf wrong > package.json",
     });

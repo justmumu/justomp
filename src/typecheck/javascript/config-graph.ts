@@ -6,9 +6,11 @@ import { safePath, within } from "../../dependencies/paths";
 import { nodeRun, succeeded } from "../../lint/javascript/native";
 import { TypecheckError } from "../model";
 import { collectTypecheckScope, type TypecheckScope } from "../scope";
-import { TypecheckStateStore } from "../state";
+import { type NextTypeInputs, TypecheckStateStore } from "../state";
 import { type TypecheckTarget } from "../targets";
+import { inheritedBuild, nativeBuildNodes, typesConfigPath } from "./entrypoints";
 import { assertTypecheckNative, typecheckNative, typescriptRun } from "./native";
+import { nextTypescriptEntry } from "./next-entry";
 import { JavascriptConfigRead } from "./read-session";
 
 /** Interpret one compiler response without reading files or starting a process. */
@@ -49,6 +51,7 @@ export interface JavascriptConfigNode {
   inherited: { path: string; text: string }[];
 }
 export interface JavascriptConfigGraph {
+  entry?: string;
   nodes: JavascriptConfigNode[];
   roots: string[];
   generatedFiles?: string[];
@@ -125,14 +128,8 @@ export function readJavascriptConfigGraph(
   return typecheckNative(async () => {
     const scope = await collectTypecheckScope(target, exclude);
     const state = await TypecheckStateStore.load(target.root);
-    const next =
-      state.state.generated?.[target.project.project_id]?.next[target.project.project_id] ??
-      Object.values(state.state.generated ?? {})
-        .map((receipt) => receipt.next[target.project.project_id])
-        .find(Boolean);
-    if (!entryConfig && next) {
-      entryConfig = resolve(target.root, next.config);
-    }
+    const next = nextInput(target, state);
+    entryConfig = await selectedEntry(target, entryConfig, next);
     const generatedFiles: string[] = [];
     await nextSources(target, next, scope, generatedFiles);
     const candidates = await configCandidates(target, scope, entryConfig);
@@ -150,6 +147,7 @@ export function readJavascriptConfigGraph(
       const node = await readNode(target, path, signal, read);
       const references = node.references;
       nodes.set(path, node);
+      await visitBuildEntries(node, visit);
       for (const reference of references) {
         await visit(reference);
       }
@@ -168,7 +166,13 @@ export function readJavascriptConfigGraph(
           path === resolve(target.scope.cwd, entryConfig ?? "tsconfig.json"),
       )
       .sort();
-    return { nodes: [...nodes.values()], roots, scope, generatedFiles };
+    return {
+      nodes: [...nodes.values()],
+      roots,
+      scope,
+      generatedFiles,
+      ...(entryConfig ? { entry: resolve(target.scope.cwd, entryConfig) } : {}),
+    };
   });
 }
 /** Scope membership is separate from imported diagnostics and reference ownership. */
@@ -191,8 +195,10 @@ export function javascriptCheckContexts(
   for (const path of graph.roots) {
     visit(path);
   }
+  const builds = nativeBuildNodes(graph.nodes);
   const nodes = graph.nodes.filter(
     (node) =>
+      !builds.has(node.path) &&
       active.has(node.path) &&
       node.project_id === target.project.project_id &&
       (node.files.length > 0 || node.references.length === 0),
@@ -297,7 +303,11 @@ async function configCandidates(
 ): Promise<Set<string>> {
   const candidates = new Set<string>();
   if (entryConfig) {
-    candidates.add(await configPath(target, resolve(target.scope.cwd, entryConfig)));
+    const entry = await nativeCheckEntry(resolve(target.scope.cwd, entryConfig));
+    await safePath(target.root, entry);
+    if (await Bun.file(entry).exists()) {
+      candidates.add(await configPath(target, entry));
+    }
   } else {
     const directories = sourceDirectories(target, scope);
     await discoverConfigs(directories, candidates);
@@ -446,4 +456,53 @@ async function discoverConfigs(directories: Set<string>, candidates: Set<string>
       }
     }
   }
+}
+
+function nextInput(target: TypecheckTarget, store: TypecheckStateStore): NextTypeInputs | undefined {
+  return (
+    store.state.generated?.[target.project.project_id]?.next[target.project.project_id] ??
+    Object.values(store.state.generated ?? {})
+      .map((receipt) => receipt.next[target.project.project_id])
+      .find(Boolean)
+  );
+}
+async function selectedEntry(
+  target: TypecheckTarget,
+  explicit: string | undefined,
+  next: NextTypeInputs | undefined,
+): Promise<string | undefined> {
+  if (explicit) {
+    return explicit;
+  }
+  return (await nextTypescriptEntry(target)) ?? (next ? resolve(target.root, next.config) : undefined);
+}
+async function visitBuildEntries(node: JavascriptConfigNode, visit: (path: string) => Promise<void>): Promise<void> {
+  const build = inheritedBuild(node);
+  if (build) {
+    await visit(build);
+  }
+  const parent = build ?? node.path;
+  const types = typesConfigPath(parent);
+  if (types === node.path || !(await Bun.file(types).exists())) {
+    return;
+  }
+  const raw = parseJavascriptConfig(await readFile(types, "utf8"), types);
+  if (
+    typeof raw.extends === "string" &&
+    resolve(dirname(types), raw.extends) === parent &&
+    object(raw.compilerOptions).emitDeclarationOnly === true
+  ) {
+    await visit(types);
+  }
+}
+async function nativeCheckEntry(entry: string): Promise<string> {
+  if (!entry.endsWith(".build.json")) {
+    return entry;
+  }
+  const check = entry.replace(/\.build\.json$/, ".json");
+  if (!(await Bun.file(check).exists())) {
+    return entry;
+  }
+  const raw = parseJavascriptConfig(await readFile(check, "utf8"), check);
+  return typeof raw.extends === "string" && resolve(dirname(check), raw.extends) === entry ? check : entry;
 }

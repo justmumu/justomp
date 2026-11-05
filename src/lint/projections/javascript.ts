@@ -34,14 +34,12 @@ export function projectJavascript(
   }
   add(["**/*.{test,spec}.{js,jsx,ts,tsx}", "**/__tests__/**"], biome.test_rules);
   return (
-    JS_MARKER +
     JSON.stringify(
       {
         $schema: `https://biomejs.dev/schemas/${stableVersion(version)}/schema.json`,
         root: true,
-        // Explicit --config-path still discovers nested configs unless the scanner ignores them.
         files: {
-          includes: ["**", "!!**/biome.json", "!!**/biome.jsonc", ...scope.ignores.map((path) => `!!${path}`)],
+          includes: ["**", ...scope.ignores.map((path) => `!!${path}`)],
         },
         vcs: { enabled: false },
         formatter: { enabled: false },
@@ -68,7 +66,6 @@ export function projectJavascript(
       },
       null,
       2,
-    ) +
-    "\n"
+    ) + "\n"
   );
 }

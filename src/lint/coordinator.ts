@@ -4,6 +4,7 @@ import { FSWatcher } from "chokidar";
 import { lintPolicyKey } from "../config/lint/resolve";
 import { loadConfig } from "../config/load";
 import { withDomains } from "../dependencies/queue";
+import { nativeInputsCurrent } from "../native-config/inputs";
 import {
   getPackagingStructure,
   retainPackagingStructure,
@@ -424,7 +425,11 @@ async function verifyAfter(
     ...context,
     projection: await planProjection(target, policy, versions),
   };
-  if (!after.projection.current || !(await adapter.verify(after))) {
+  if (
+    !after.projection.current ||
+    !(await nativeInputsCurrent(target.root, retained.projection.inputs)) ||
+    !(await adapter.verify(after))
+  ) {
     throw new LintError("not-ready", "Native lint environment changed during the check; prepare again");
   }
   if (lintPolicyKey((await loadConfig(target.root, { signal })).lint[target.project.ecosystem]) !== policyHash) {

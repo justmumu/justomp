@@ -5,6 +5,7 @@ import { resolveTestConfig } from "../../../src/config/test/resolve";
 import * as packaging from "../../../src/packaging/get-structure";
 import { type TestAdapter, type TestTools } from "../../../src/testing/adapters";
 import { prepareTests } from "../../../src/testing/prepare";
+import * as projection from "../../../src/testing/projection";
 import { TestStateStore } from "../../../src/testing/state";
 import * as targets from "../../../src/testing/targets";
 import { target } from "../checks/fixture";
@@ -81,6 +82,14 @@ for (const runner of ["pytest", "vitest"] as const) {
       } as config.LoadedConfig),
     );
     keep(spyOn(TestStateStore, "load").mockResolvedValue(store));
+    keep(
+      spyOn(projection, "planTestProjection").mockImplementation(async (selected) => ({
+        target: selected,
+        files: [],
+        current: true,
+        ownership: { version: 1, configs: [] },
+      })),
+    );
     const adapter: TestAdapter = {
       resolve() {
         return suppliedResponse(() => {

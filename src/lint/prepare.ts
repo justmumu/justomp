@@ -13,7 +13,7 @@ import {
   type ToolVersions,
 } from "./adapters/types";
 import { type LintEcosystem, LintError, type LintPreparation } from "./model";
-import { applyProjection, planProjection } from "./projection";
+import { applyProjection, type ProjectionPlan, planProjection, retireProjection } from "./projection";
 import { type LintState, LintStateStore, type LintWave } from "./state";
 import { type LintTarget, resolveLintTarget } from "./targets";
 import { sameVersions, validateToolVersions } from "./versions";
@@ -163,12 +163,17 @@ async function prepareBatch(
   report: PreparationReport,
   wave: { complete: boolean },
 ): Promise<void> {
-  const { signal, versions, policy } = context;
+  const { signal } = context;
   const state = store.state;
   try {
     signal.throwIfAborted();
     const { stale, nativeStale } = await inspectBatch(batch, adapter, context);
     if (!stale.length) {
+      const plans = await planBatch(batch, context);
+      for (const plan of plans) {
+        recordOwnership(plan, state);
+      }
+      await store.save();
       return;
     }
     // Workspace adapters must see every member before resolving shared pins/locks.
@@ -178,15 +183,36 @@ async function prepareBatch(
     if (nativeStale) {
       await adapter.prepareBatch({ ...context, targets: batch });
     }
-    for (const target of batch) {
+    const plans = await planBatch(batch, context);
+    for (const plan of plans) {
       signal.throwIfAborted();
-      await applyProjection(await planProjection(target, policy, versions[target.project.project_id]), report.changes);
+      await applyProjection(plan, report.changes);
+      recordOwnership(plan, state);
+    }
+    await store.save();
+    for (const plan of plans) {
+      signal.throwIfAborted();
+      await retireProjection(plan, report.changes);
     }
   } catch (error) {
     report.errors.push(preparationFailure(error));
     for (const target of batch) {
       report.projects[target.project.project_id]?.errors.push(preparationFailure(error, target.project.project_id));
     }
+  }
+}
+async function planBatch(batch: LintTarget[], context: LintOperationContext): Promise<ProjectionPlan[]> {
+  const plans: ProjectionPlan[] = [];
+  for (const target of batch) {
+    context.signal.throwIfAborted();
+    plans.push(await planProjection(target, context.policy, context.versions[target.project.project_id]));
+  }
+  return plans;
+}
+function recordOwnership(plan: ProjectionPlan, state: LintState): void {
+  const receipt = state.projects[plan.target.project.project_id];
+  if (receipt && plan.native_configs) {
+    receipt.native_configs = plan.native_configs;
   }
 }
 async function inspectBatch(batch: LintTarget[], adapter: LintAdapter, context: LintOperationContext) {
@@ -235,7 +261,8 @@ async function verifyTarget(
       throw new LintError("policy-changed", "Lint policy changed during preparation; reconcile again");
     }
     const check = await checkContext(target, receipt.tools, context);
-    receipt.ready = !preflightFailed && check.projection.current && (await adapter.verify(check));
+    receipt.ready =
+      !preflightFailed && !result.errors.length && check.projection.current && (await adapter.verify(check));
     if (!receipt.ready) {
       throw new LintError("not-ready", `Native lint environment is not ready: ${id}`);
     }
@@ -410,6 +437,7 @@ function initializeReceipts(
     state.projects[id] = {
       ecosystem,
       tools,
+      ...(previous?.native_configs ? { native_configs: previous.native_configs } : {}),
       policy_hash: policyHash,
       ready: previous?.ready === true && previous.policy_hash === policyHash && sameVersions(previous.tools, tools),
     };

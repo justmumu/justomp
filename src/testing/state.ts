@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "../lint/files";
+import { type NativeConfigOwnership, normalizeNativeOwnership } from "../native-config/ownership";
 import { toolMembership } from "../packaging/tool-membership";
 import { type TestTools } from "./adapters";
 import { TestError, type TestRunner } from "./model";
@@ -10,6 +11,7 @@ export interface TestWave {
   pending: string[];
 }
 export interface TestReceipt {
+  native_configs?: NativeConfigOwnership;
   runner: TestRunner;
   tools: TestTools;
   policy_hash: string;
@@ -91,6 +93,7 @@ function validateReceipts(state: TestState): void {
     ) {
       throw new Error("receipt");
     }
+    normalizeNativeOwnership(item);
   }
   for (const [name, wave] of Object.entries(state.waves)) {
     if (

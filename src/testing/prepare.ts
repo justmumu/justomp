@@ -7,6 +7,7 @@ import { getPackagingStructure } from "../packaging/get-structure";
 import { type TestAdapter, type TestAdapters, type TestTools } from "./adapters";
 import { TestError, type TestIssue, type TestPreparation, type TestRunner } from "./model";
 import { testingPolicyKey } from "./policy";
+import { applyTestProjection, planTestProjection } from "./projection";
 import { nextWave, TestStateStore } from "./state";
 import { resolveTestTarget, type TestTarget } from "./targets";
 export function testIssue(error: unknown, project_id?: string): TestIssue {
@@ -100,6 +101,10 @@ async function prepareLocked(request: PreparationRequest): Promise<void> {
   }
   const store = await TestStateStore.load(structure.root);
   pruneState(store, structure, targets);
+  // Preflight every selected configuration before installing tools or publishing any native policy.
+  for (const target of targets) {
+    await planTestProjection(target, config, store.state.projects[target.project.project_id]?.native_configs);
+  }
   await store.save();
   for (const runner of ["pytest", "vitest", "bun", "go"] as TestRunner[]) {
     await prepareRunner(runner, { store, structure, targets, adapters, signal, config, report, onProgress });
@@ -184,12 +189,16 @@ async function prepareRuntime(
     if (!(await adapter.verify(ctx))) {
       throw new TestError("runtime-unavailable", `${runner} runtime is unavailable`);
     }
+    const previous = store.state.projects[target.project.project_id];
     store.state.projects[target.project.project_id] = {
+      ...(previous?.native_configs ? { native_configs: previous.native_configs } : {}),
       runner,
       tools,
       policy_hash: testingPolicyKey(config, target.project.ecosystem),
-      ready: true,
+      ready: false,
     };
+    await store.save();
+    await prepareConfiguration(target, context);
     report.tools[target.project.project_id] = tools;
   }
   await store.save();
@@ -260,7 +269,9 @@ async function prepareMember(
   const id = target.project.project_id,
     ctx = { target, tools, signal };
   report.tools[id] = tools;
+  const previous = store.state.projects[id];
   store.state.projects[id] = {
+    ...(previous?.native_configs ? { native_configs: previous.native_configs } : {}),
     runner,
     tools,
     policy_hash: testingPolicyKey(config, target.project.ecosystem),
@@ -283,7 +294,28 @@ async function prepareMember(
       throw new TestError("not-ready", `Prepared ${id} does not match the selected runner tools`);
     }
   }
-  store.state.projects[id].ready = true;
+  await prepareConfiguration(target, context);
+}
+
+async function prepareConfiguration(target: TestTarget, context: PreparationContext): Promise<void> {
+  const { store, config, signal, report } = context;
+  signal.throwIfAborted();
+  const receipt = store.state.projects[target.project.project_id];
+  if (!receipt) {
+    throw new TestError("not-ready", "Missing test preparation receipt");
+  }
+  const plan = await planTestProjection(target, config, receipt.native_configs);
+  if (!plan.current) {
+    report.action = "prepared";
+  }
+  await applyTestProjection(plan, report.changes);
+  receipt.native_configs = plan.ownership;
+  await store.save();
+  signal.throwIfAborted();
+  if (!(await planTestProjection(target, config, receipt.native_configs)).current) {
+    throw new TestError("not-ready", "Native test configuration changed during preparation");
+  }
+  receipt.ready = true;
   await store.save();
 }
 

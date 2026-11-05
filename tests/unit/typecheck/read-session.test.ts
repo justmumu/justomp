@@ -103,7 +103,7 @@ test("cancellation rejects a retained manager context and an in-flight config co
   await expect(new JavascriptConfigRead(other.signal).showConfig(target, [])).rejects.toThrow("during read");
 });
 
-test("import discovery uses a temporary selected-entry config and cleans it after success or native failure", async () => {
+test("import discovery reads the native config without creating alternate configurations", async () => {
   const { run } = spies();
   const directory = spyOn(fs, "mkdtemp").mockResolvedValue("/scratch/declarations");
   const write = spyOn(fs, "writeFile").mockResolvedValue(undefined);
@@ -119,30 +119,17 @@ test("import discovery uses a temporary selected-entry config and cleans it afte
     ...success,
     stdout: "/repo/app/index.ts\n/repo/app/private/helper.ts\n",
   });
-  expect(await read.programFiles(target, args, ["/repo/app/index.ts"], ["/repo/lib/tsconfig.json"])).toEqual([
+  expect(await read.programFiles(target, args, ["/repo/app/index.ts"])).toEqual([
     "/repo/app/index.ts",
     "/repo/app/private/helper.ts",
   ]);
-  expect(JSON.parse(String(write.mock.calls[0]?.[1]))).toEqual({
-    extends: "/repo/app/tsconfig.json",
-    files: ["/repo/app/index.ts"],
-    include: [],
-    exclude: [],
-    references: [{ path: "/repo/lib/tsconfig.json" }],
-  });
-  expect(run.mock.calls[0]?.[1]).toEqual([
-    "--project",
-    "/scratch/declarations/tsconfig.json",
-    "--rootDir",
-    "/repo/app",
-    "--composite",
-    "false",
-    "--listFilesOnly",
-  ]);
-  expect(remove).toHaveBeenCalledTimes(1);
+  expect(directory).not.toHaveBeenCalled();
+  expect(write).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+  expect(run.mock.calls[0]?.[1]).toEqual([...args, "--listFilesOnly"]);
   run.mockResolvedValue({ ...success, truncated: true });
-  await expect(read.programFiles(target, args, ["/repo/app/index.ts"], [])).rejects.toThrow("truncated");
-  expect(remove).toHaveBeenCalledTimes(2);
-  expect(await read.programFiles(target, args, [], [])).toEqual([]);
+  await expect(read.programFiles(target, args, ["/repo/app/index.ts"])).rejects.toThrow("truncated");
+  expect(remove).not.toHaveBeenCalled();
+  expect(await read.programFiles(target, args, [])).toEqual([]);
   expect(run).toHaveBeenCalledTimes(2);
 });

@@ -1,0 +1,7 @@
+"test"."root" = "."
+"test"."coverageThreshold" = 0
+"test"."coverageReporter" = ["lcov"]
+"test"."coverageSkipTestFiles" = true
+"test"."coveragePathIgnorePatterns" = []
+"test"."retry" = 0
+"test"."bail" = 0

@@ -147,13 +147,13 @@ export const javascriptAdapter: TypecheckAdapter = {
     }
     const start = performance.now();
     try {
-      if (!(await this.plan(context.target, context.policy, context.signal)).current) {
-        throw new TypecheckError("outdated-projection", "TypeScript policy projection needs preparation");
-      }
+      const before = await this.plan(context.target, context.policy, context.signal);
+      assertNativeConfiguration(context, before);
       if (!context.projection.configs.check.length) {
         throw new TypecheckError("missing-config", "Missing TypeScript check configuration");
       }
       await runConfigurations(context, check);
+      assertNativeConfiguration(context, await this.plan(context.target, context.policy, context.signal));
       check.status = check.diagnostics.length ? "failed" : "passed";
     } catch (error) {
       check.status = "not-run";
@@ -289,7 +289,21 @@ async function runConfigurations(context: TypecheckCheckContext, check: Typechec
   for (const path of context.projection.configs.check) {
     const result = await typescriptRun(
       context.target,
-      ["--project", path, "--pretty", "false", "--noEmit", "--incremental", "false"],
+      [
+        "--project",
+        path,
+        "--pretty",
+        "false",
+        "--noEmit",
+        "--noCheck",
+        "false",
+        "--emitDeclarationOnly",
+        "false",
+        "--incremental",
+        "false",
+        "--composite",
+        "false",
+      ],
       context.signal,
     );
     acceptCompilerResult(context, check, result);
@@ -336,4 +350,17 @@ function acceptCompilerResult(
     throw new TypecheckError("invalid-diagnostics", `TypeScript exited ${result.exit_code} without diagnostics`);
   }
   check.diagnostics.push(...diagnostics);
+}
+
+function assertNativeConfiguration(context: TypecheckCheckContext, current: TypecheckCheckContext["projection"]): void {
+  if (!current.current) {
+    throw new TypecheckError("outdated-projection", "TypeScript policy projection needs preparation");
+  }
+  const captured = context.projection.input_fingerprint;
+  if (captured !== undefined && current.input_fingerprint !== captured) {
+    throw new TypecheckError(
+      "config-changed",
+      "Native TypeScript configuration or inherited inputs changed during the check; prepare again",
+    );
+  }
 }

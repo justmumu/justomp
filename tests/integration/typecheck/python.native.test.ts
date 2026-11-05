@@ -14,6 +14,8 @@ afterEach(async () => {
 });
 test("native Pyright checks sources and tests strictly, retains imports, and writes nothing", async () => {
   const f = await fixture();
+  f.context.policy.python.pyright.diagnostics.reportUnknownParameterType = "error";
+  f.context.policy.python.pyright.strictListInference = true;
   await mkdir(join(f.root, "tests"));
   await mkdir(join(f.root, "native"));
   const manifest = join(f.root, "pyproject.toml");

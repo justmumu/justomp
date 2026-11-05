@@ -43,14 +43,7 @@ test("CLI defaults to full preparation; explicit check-only is readonly and shar
   expect(first.exit, JSON.stringify(first)).toBe(0);
   expect(first.result.preparation.changes.length).toBeGreaterThan(0);
   await writeFile(join(f.root, "module.py"), 'answer: int = "bad"\n');
-  const files = [
-    "module.py",
-    "pyproject.toml",
-    "uv.lock",
-    "pyright.justomp.json",
-    ".justomp/config.json",
-    ".justomp/typecheck_state.json",
-  ];
+  const files = ["module.py", "pyproject.toml", "uv.lock", ".justomp/config.json", ".justomp/typecheck_state.json"];
   const bytes = () => Promise.all(files.map((path) => readFile(join(f.root, path), "utf8")));
   const before = await bytes(),
     api = await checkProjectTypecheck(f.root, "python:pyproject.toml"),

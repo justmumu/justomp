@@ -1,14 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parse, stringify } from "smol-toml";
-import { readOptional } from "../../dependencies/executable";
 import { runProcess } from "../../dependencies/runner";
 import { type TestAdapter, type TestToolContext } from "../adapters";
 import { TestError } from "../model";
 import { classifyResult, coverageEnabled, nativeResult, parseEvidence, requireNative } from "../native-tools";
 import { junitReport, lcovReport, reportText } from "../python/reports";
 import { stableVersion } from "../versions";
-import { bunConfig, bunPreload } from "./config";
+import { bunPreload } from "./config";
 
 async function runtime(context: Pick<TestToolContext, "target" | "signal">) {
   const command = Bun.which("bun", {
@@ -56,11 +54,7 @@ export const bunTestAdapter: TestAdapter = {
     if (preload) {
       await writeFile(preload, bunPreload(context));
     }
-    const existing = parse(
-      (await readOptional(context.target.configFile ?? join(context.target.scope.cwd, "bunfig.toml"))) ?? "",
-    );
-    const config = join(context.artifacts, "bunfig.toml");
-    await writeFile(config, stringify(bunConfig(context, existing, preload)));
+    const config = context.target.configFile ?? join(context.target.scope.cwd, "bunfig.toml");
     const { command } = await runtime(context),
       process = await runProcess(
         command,
@@ -68,6 +62,10 @@ export const bunTestAdapter: TestAdapter = {
           "test",
           `--config=${config}`,
           "--retry=0",
+          ...(enabled
+            ? ["--coverage", "--coverage-reporter=lcov", `--coverage-dir=${join(context.artifacts, "coverage")}`]
+            : []),
+          ...(preload ? ["--preload", preload] : []),
           "--reporter=junit",
           `--reporter-outfile=${join(context.artifacts, "junit.xml")}`,
           ...context.scope.selected.map((file) => `./${file}`),

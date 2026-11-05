@@ -1,12 +1,20 @@
 import { lstat, readdir, readlink, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { loadConfig } from "../config/load";
 import { RELEASE_DEFAULTS } from "../config/release/defaults";
 import { type ReleasePolicy } from "../config/release/model";
 import { pnpmDirectories } from "../dependencies/executable";
+import { object } from "../dependencies/inventory";
 import { within } from "../dependencies/paths";
 import { LOCK_MANAGERS } from "../inspect/exclusions";
 import { type PackagingStructure, type Project, type Workspace } from "../inspect/model";
+import { readProjectionFile } from "../lint/files";
+import { LintStateStore } from "../lint/state";
+import { type NativeConfigOwnership } from "../native-config/ownership";
+import { BIOME_CONFIGS, GO_CONFIGS, PRETTIER_CONFIGS } from "../native-config/selection";
+import { VITEST_CONFIG_NAMES } from "../testing/javascript/native-config";
+import { TestStateStore } from "../testing/state";
 import { TypecheckStateStore } from "../typecheck/state";
 
 type ProtectionStructure = Pick<PackagingStructure, "root" | "complete" | "projects" | "workspaces">;
@@ -76,23 +84,54 @@ function addProjectPaths(root: string, add: (path: string) => void, project: Pro
   const cwd = metadataPath(root, project.path);
   const owner = metadataPath(root, project.managerRoot);
   const managers = [...project.managerCandidates, ...(project.manager ? [project.manager] : [])];
+  addProjectConfigNames(add, cwd, project.ecosystem);
   if (project.ecosystem === "python") {
     add(join(owner, "pyproject.toml"));
     add(join(owner, "uv.lock"));
-    add(join(cwd, "pyright.justomp.json"));
     addLocks(add, owner, managers);
   } else if (project.ecosystem === "javascript") {
     add(join(owner, "package.json"));
     addLocks(add, owner, managers);
-    add(join(cwd, "eslint.justomp.config.mjs"));
-    add(join(cwd, "biome.justomp.jsonc"));
-    add(join(cwd, "prettier.justomp.json"));
   } else {
     // go.sum belongs to the module, even when a go.work owner is above it.
     add(join(cwd, "go.sum"));
-    add(join(cwd, "golangci.justomp.yml"));
   }
 }
+function projectConfigNames(ecosystem: Project["ecosystem"]): readonly string[] {
+  if (ecosystem === "python") {
+    return [
+      "pyright.justomp.json",
+      "pyrightconfig.json",
+      "ruff.toml",
+      ".ruff.toml",
+      ".coveragerc",
+      "setup.cfg",
+      "tox.ini",
+    ];
+  }
+  if (ecosystem === "javascript") {
+    return [
+      "eslint.justomp.config.mjs",
+      "biome.justomp.jsonc",
+      "prettier.justomp.json",
+      ...BIOME_CONFIGS,
+      ...PRETTIER_CONFIGS,
+      "bunfig.toml",
+      "tsconfig.json",
+      "jsconfig.json",
+      "tsconfig.build.json",
+      "tsconfig.types.json",
+      ...VITEST_CONFIG_NAMES,
+    ];
+  }
+  return ["golangci.justomp.yml", ...GO_CONFIGS];
+}
+function addProjectConfigNames(add: (path: string) => void, cwd: string, ecosystem: Project["ecosystem"]): void {
+  for (const name of projectConfigNames(ecosystem)) {
+    add(join(cwd, name));
+  }
+}
+
 function addWorkspacePaths(root: string, add: (path: string) => void, workspace: Workspace): void {
   add(workspace.declaration);
   const owner = metadataPath(root, workspace.path);
@@ -156,7 +195,7 @@ export async function resolveProtectedPaths(structure: ProtectionStructure): Pro
   const config = await loadConfig(structure.root);
   const paths = new Set(collectProtectedPaths(structure, config.release));
   await addDiscoveredPaths(structure, paths);
-  await addDeclarationPaths(structure, paths);
+  await addNativeConfigPaths(structure, paths);
   await addCanonicalPaths(paths);
   return [...paths].sort();
 }
@@ -179,16 +218,120 @@ async function addDiscoveredPaths(structure: ProtectionStructure, paths: Set<str
     }
   }
 }
-async function addDeclarationPaths(structure: ProtectionStructure, paths: Set<string>): Promise<void> {
-  // Declaration configs may live beside a nested native tsconfig. Reuse the
-  // existing receipts instead of starting another recursive repository scan.
-  const store = await TypecheckStateStore.load(await realpath(structure.root));
-  if (store.recovery) {
-    throw new ProtectionPathError("invalid-typecheck-state", store.recovery);
+async function addNativeConfigPaths(structure: ProtectionStructure, paths: Set<string>): Promise<void> {
+  const root = await realpath(structure.root);
+  const stores = await Promise.all([
+    LintStateStore.load(root),
+    TypecheckStateStore.load(root),
+    TestStateStore.load(root),
+  ]);
+  for (const store of stores) {
+    if (store.recovery) {
+      throw new ProtectionPathError("invalid-native-state", store.recovery);
+    }
+    addOwnedNativePaths(structure.root, Object.values(store.state.projects), paths);
   }
+  const typecheck = stores[1];
+  if (typecheck instanceof TypecheckStateStore) {
+    addLegacyDeclarations(structure.root, typecheck, paths);
+  }
+  const seen = new Set<string>();
+  for (const path of [...paths]) {
+    const canonical = await canonicalProtectionPath(path);
+    if (within(root, canonical)) {
+      await addNativeParents(root, canonical, paths, seen);
+    }
+  }
+}
+function addOwnedNativePaths(
+  root: string,
+  receipts: { native_configs?: NativeConfigOwnership }[],
+  paths: Set<string>,
+): void {
+  for (const receipt of receipts) {
+    for (const entry of receipt.native_configs?.configs ?? []) {
+      paths.add(metadataPath(root, entry.path));
+    }
+  }
+}
+function addLegacyDeclarations(root: string, store: TypecheckStateStore, paths: Set<string>): void {
   for (const receipt of Object.values(store.state.generated ?? {})) {
-    for (const path of Object.values(receipt.declarations ?? {})) {
-      paths.add(metadataPath(structure.root, path));
+    for (const path of Object.values(object(object(receipt).declarations))) {
+      if (typeof path === "string" && /^tsconfig\.justomp\.declarations\.[^.]+\.json$/.test(basename(path))) {
+        paths.add(metadataPath(root, path));
+      }
+    }
+  }
+}
+interface NativeParent {
+  value: unknown;
+  relative: boolean;
+  pyright?: boolean;
+}
+function configParents(value: Record<string, unknown>, relativePaths = false): NativeParent[] {
+  const parents: unknown[] = Array.isArray(value.extends) ? value.extends : [value.extends];
+  const references: unknown[] = Array.isArray(value.references) ? value.references : [];
+  return [
+    ...parents.map((parent) => ({ value: parent, relative: relativePaths, pyright: relativePaths })),
+    ...references.map((reference) => ({ value: object(reference).path, relative: true })),
+  ];
+}
+async function readNativeParents(root: string, path: string, pyright: boolean): Promise<NativeParent[]> {
+  const snapshot = await readProjectionFile(root, path);
+  if (snapshot.text === null) {
+    return [];
+  }
+  let value: Record<string, unknown>;
+  try {
+    value = object(path.endsWith(".toml") ? parseToml(snapshot.text) : Bun.JSONC.parse(snapshot.text));
+  } catch {
+    return [];
+  }
+  if (path.endsWith(".toml")) {
+    const tool = object(value.tool);
+    const ruff = basename(path) === "pyproject.toml" ? object(tool.ruff) : value;
+    return [...configParents(object(tool.pyright), true), { value: ruff.extend, relative: true }];
+  }
+  return configParents(value, pyright || basename(path) === "pyrightconfig.json");
+}
+async function localNativeParent(root: string, path: string, candidate: NativeParent): Promise<string | undefined> {
+  const value = candidate.value;
+  if (typeof value !== "string" || (!candidate.relative && !value.startsWith(".") && !isAbsolute(value))) {
+    return undefined;
+  }
+  let next = resolve(dirname(path), value);
+  if (!within(root, next) || next.split("/").includes("node_modules")) {
+    return undefined;
+  }
+  try {
+    if ((await stat(next)).isDirectory()) {
+      next = join(next, "tsconfig.json");
+    }
+  } catch (error) {
+    requireMissing(error);
+    if (!next.endsWith(".json") && !next.endsWith(".jsonc")) {
+      next += ".json";
+    }
+  }
+  return next;
+}
+async function addNativeParents(
+  root: string,
+  path: string,
+  paths: Set<string>,
+  seen: Set<string>,
+  pyright = false,
+): Promise<void> {
+  const key = `${path}:${pyright}`;
+  if (seen.has(key) || !/\.(?:jsonc?|toml)$/.test(path) || path.includes("/.justomp/")) {
+    return;
+  }
+  seen.add(key);
+  for (const candidate of await readNativeParents(root, path, pyright)) {
+    const next = await localNativeParent(root, path, candidate);
+    if (next) {
+      paths.add(next);
+      await addNativeParents(root, next, paths, seen, candidate.pyright ?? false);
     }
   }
 }
@@ -240,7 +383,7 @@ async function addJavaScriptPaths(
     pnpmOwners.add(owner);
   }
   for (const name of await readdir(cwd)) {
-    if (/^tsconfig\.justomp\..+\.json$/.test(name)) {
+    if (/^(?:ts|js)config(?:\.[^.]+)*\.json$/.test(name)) {
       paths.add(join(cwd, name));
     }
   }

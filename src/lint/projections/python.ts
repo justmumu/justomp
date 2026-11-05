@@ -209,10 +209,14 @@ function replaceRuff(
   return output;
 }
 /** Replace policy-owned Ruff fields only; every other statement retains its bytes. */
-export function projectPython(before: string, policy: PythonPolicy): string {
+export function projectPython(
+  before: string,
+  policy: PythonPolicy,
+  previouslyOwned: ReadonlySet<string> = new Set(),
+): string {
   const parsed = parse(before);
   const parts = statements(before);
-  const owned = new Set(Object.keys(policy.ruff));
+  const owned = new Set([...Object.keys(policy.ruff), ...previouslyOwned]);
   const rootTable = parts.find((part) => part.table && part.path?.length === 2 && isRuff(part.path));
   validateLocalRuff(parts, parsed, rootTable, owned);
   const eol = before.includes("\r\n") ? "\r\n" : "\n";

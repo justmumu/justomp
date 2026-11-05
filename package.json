@@ -55,12 +55,14 @@
     "check:integration": "bun scripts/development.ts integration"
   },
   "dependencies": {
+    "@babel/parser": "^8.1.0",
     "@commitlint/lint": "21.2.4",
     "@oh-my-pi/omptype": "18.13.3",
     "chokidar": "6.0.0",
     "conventional-changelog-conventionalcommits": "10.4.1",
     "conventional-changelog-writer": "9.3.0",
     "conventional-commits-parser": "7.1.4",
+    "jsonc-parser": "^3.3.1",
     "picomatch": "4.0.7",
     "prettier": "3.9.10",
     "prettier-plugin-toml": "2.0.6",
@@ -72,7 +74,7 @@
     "@oh-my-pi/pi-coding-agent": "18.13.3"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
+    "@biomejs/biome": "2.6.5",
     "@oh-my-pi/pi-coding-agent": "18.13.3",
     "@types/bun": "1.4.4",
     "@types/picomatch": "4.0.2",

@@ -51,7 +51,8 @@ test("resolves root aliases, missing paths, dynamic and receipt-owned projection
   await symlink(join(root, "actual"), join(root, "alias"));
   await writeFile(join(root, "actual/package.json"), "{}");
   await writeFile(join(root, "actual/tsconfig.justomp.2.json"), "{}");
-  await writeFile(join(root, "actual/tsconfig.json"), "{}");
+  await writeFile(join(root, "actual/tsconfig.json"), '{"references":[{"path":"config/shared.json"}]}');
+  await writeFile(join(root, "actual/config/shared.json"), "{}");
   await writeFile(
     join(root, "actual/.justomp/typecheck_state.json"),
     JSON.stringify({
@@ -78,7 +79,8 @@ test("resolves root aliases, missing paths, dynamic and receipt-owned projection
   expect(paths).toContain(join(root, "actual/package-lock.json"));
   expect(paths).toContain(join(root, "actual/tsconfig.justomp.2.json"));
   expect(paths).toContain(join(root, "actual/config/tsconfig.justomp.declarations.abc.json"));
-  expect(paths).not.toContain(join(root, "actual/tsconfig.json"));
+  expect(paths).toContain(join(root, "actual/tsconfig.json"));
+  expect(paths).toContain(join(root, "actual/config/shared.json"));
   expect(findProtectedPath(await canonicalProtectionPath(join(root, "alias/package.json")), paths)).toBeDefined();
 });
 
@@ -127,4 +129,20 @@ test("pnpm redirected locks follow the same effective config as dependency opera
   const paths = await resolveProtectedPaths(snapshot);
   expect(paths).toContain(join(root, "shared/pnpm-lock.yaml"));
   expect(paths).not.toContain(join(root, "locks/pnpm-lock.yaml"));
+});
+
+test("protects Python native inheritance from embedded TOML and JSON configs", async () => {
+  const root = await fixture();
+  await mkdir(join(root, "config"));
+  await writeFile(join(root, "pyproject.toml"), '[project]\nname="app"\n[tool.pyright]\nextends="config/base.json"\n');
+  await writeFile(join(root, "config/base.json"), '{"extends":"common.json"}');
+  await writeFile(join(root, "config/common.json"), "{}");
+  const embedded = await resolveProtectedPaths(structure(root, "python"));
+  expect(embedded).toContain(join(root, "config/base.json"));
+  expect(embedded).toContain(join(root, "config/common.json"));
+  await writeFile(join(root, "pyrightconfig.json"), '{"extends":"config/override.json"}');
+  await writeFile(join(root, "config/override.json"), '{"extends":"common.json"}');
+  const standalone = await resolveProtectedPaths(structure(root, "python"));
+  expect(standalone).toContain(join(root, "config/override.json"));
+  expect(standalone).toContain(join(root, "config/common.json"));
 });
