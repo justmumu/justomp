@@ -1,7 +1,6 @@
 {
-  "name": "justomp",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@justmumu/justomp",
+  "version": "0.2.0",
   "type": "module",
   "packageManager": "bun@1.4.2",
   "engines": {
@@ -86,5 +85,12 @@
     "justomp-prepush": "./src/prepush/cli.ts",
     "justomp-lint": "./src/lint/cli.ts",
     "justomp-typecheck": "./src/typecheck/cli.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justmumu/justomp.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   }
 }

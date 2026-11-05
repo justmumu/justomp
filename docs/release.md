@@ -1,6 +1,6 @@
 # Repository releases
 
-Justomp prepares one common version for the repository. It exposes three OMP tools and the same services through `justomp/release`. Release libraries are dependencies of Justomp, not of the projects it manages.
+Justomp prepares one common version for the repository. It exposes three OMP tools and the same services through `@justmumu/justomp/release`. Release libraries are dependencies of Justomp, not of the projects it manages.
 
 | Tool               | Input                      | Effect                                                                                        |
 | ------------------ | -------------------------- | --------------------------------------------------------------------------------------------- |
@@ -20,7 +20,7 @@ All three tools use OMP's `exec` approval tier. They do not stage files, commit,
 
 The tag tool reads the configured remote's live symbolic HEAD. Both the current branch name and commit must match it; a stale remote-tracking ref is insufficient. It checks committed versions and release notes, refuses existing local or remote tags and never replaces them. Git records its configured identity as the annotation's tagger; configure the repository with the desired GitHub noreply email before tagging. No identity is invented by Justomp.
 
-Tag push, GitHub Release and npm publishing automation are separate follow-up work. OMP's GitHub PR/CI features can help with review, but are not a dependency of these release services.
+The repository's tag-push workflow publishes Justomp to GitHub Packages and creates a GitHub Release. The reusable release services themselves still perform only local preparation and tagging.
 
 ## Common version and supported projects
 
@@ -68,8 +68,37 @@ Results include `success`, `status`, `changed_files`, `participants`, `affected_
 On failure or cancellation, inspect the reported files or tag before retrying. Native work can leave partial changes. Justomp performs uncancelled readback, does not reset/stash/roll back, and never describes incomplete work as success. Process-local leases coordinate its own dependency, commit and release calls; external editors and other processes are not locked out.
 
 ```ts
-import { bumpRepository, updateRepositoryChangelog, tagRepository } from "justomp/release";
+import { bumpRepository, updateRepositoryChangelog, tagRepository } from "@justmumu/justomp/release";
 
 const result = await bumpRepository(root, { increment: "minor" }, signal);
 // Inspect result and diff; commit/merge separately before tagRepository(root, {}, signal).
 ```
+
+## GitHub Packages publication
+
+Justomp is published as `@justmumu/justomp` to `https://npm.pkg.github.com`.
+The `repository` field connects the package to `justmumu/justomp`, and
+`publishConfig.registry` fixes the destination. The package contains its TypeScript
+sources and native resources; OMP loads them directly, so publication needs no
+separate JavaScript build.
+
+After the release preparation PR passes Linux and macOS CI and merges, update
+local `main`, create its annotated tag with `repo_release_tag`, then push that
+tag. `.github/workflows/release.yml` runs only on `v*` tag pushes. It verifies an
+annotated tag reachable from `main`, matching stable versions in the tag,
+`VERSION` and package metadata, and a nonempty generated changelog section.
+It packs the package, publishes it using the workflow's `GITHUB_TOKEN`, then
+creates the GitHub Release with those notes and the same tarball as an asset.
+No local registry login or additional publishing secret is needed by Actions.
+
+A failed package publication fails the workflow and prevents GitHub Release
+creation. If publishing succeeds but Release creation fails, create the missing
+GitHub Release from the existing tag and changelog; do not replace the published
+package version or move the tag. Publish fixes under a new version.
+
+GitHub Packages initially gives packages private visibility. The owner can
+change visibility in the package settings. Installing even a public npm package
+from GitHub Packages requires authentication with a GitHub personal access token
+(classic) with `read:packages`; configure the `@justmumu` scope to use
+`https://npm.pkg.github.com`. Never put a literal token into tracked config.
+See [GitHub's registry and access documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry).

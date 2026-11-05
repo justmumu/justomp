@@ -181,7 +181,7 @@ An unrelated ecosystem's setup error does not prevent a ready selected project f
 The public API works without OMP:
 
 ```ts
-import { checkProjectLint, prepareLintProjects } from "justomp/lint";
+import { checkProjectLint, prepareLintProjects } from "@justmumu/justomp/lint";
 
 // Explicit setup for all inspected projects; may install and change metadata.
 const preparation = await prepareLintProjects(root, signal);

@@ -1,0 +1,85 @@
+name: Justomp Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: GitHub Packages and Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Node and configure GitHub Packages
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26.0.0"
+          package-manager-cache: false
+          registry-url: https://npm.pkg.github.com
+          scope: "@justmumu"
+
+      - name: Verify release identity and extract notes
+        run: |
+          test "$(git cat-file -t "$GITHUB_REF")" = tag
+          git merge-base --is-ancestor HEAD origin/main
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const version = fs.readFileSync("VERSION", "utf8").trim();
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) ||
+              pkg.version !== version || process.env.GITHUB_REF_NAME !== `v${version}` ||
+              pkg.name !== "@justmumu/justomp" || pkg.private === true ||
+              pkg.publishConfig?.registry !== "https://npm.pkg.github.com") {
+            throw new Error("Tag, VERSION and GitHub Packages metadata must agree");
+          }
+          const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+          const start = `<!-- justomp:release:${version}:start -->`;
+          const end = `<!-- justomp:release:${version}:end -->`;
+          const sections = changelog.split(start);
+          if (sections.length !== 2 || sections[1].split(end).length !== 2) {
+            throw new Error("Expected one generated changelog section for the release");
+          }
+          const notes = sections[1].split(end)[0].trim();
+          if (!notes) throw new Error("Release notes must not be empty");
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, "release-notes.md"), notes + "\n");
+          NODE
+
+      - name: Pack release artifact
+        run: |
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/package-pack.json"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const [pkg] = JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP, "package-pack.json"), "utf8"));
+          fs.appendFileSync(process.env.GITHUB_ENV, `PACKAGE_TARBALL=${path.join(process.env.RUNNER_TEMP, pkg.filename)}\n`);
+          NODE
+
+      - name: Publish to GitHub Packages
+        run: npm publish "$PACKAGE_TARBALL" --ignore-scripts --registry=https://npm.pkg.github.com
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" "$PACKAGE_TARBALL" --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

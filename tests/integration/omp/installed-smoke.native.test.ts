@@ -36,32 +36,32 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       JSON.stringify({
         private: true,
         type: "module",
-        dependencies: { justomp: `file:${archive}` },
+        dependencies: { "@justmumu/justomp": `file:${archive}` },
       }),
     );
     await command(installation, ["install", "--ignore-scripts"]);
     const exported = JSON.parse(
       await command(installation, [
         "-e",
-        'import * as api from "justomp/typecheck"; import * as root from "justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof root[name] === "function").sort()));',
+        'import * as api from "@justmumu/justomp/typecheck"; import * as root from "@justmumu/justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof root[name] === "function").sort()));',
       ]),
     );
     expect(exported).toEqual(["checkProjectTypecheck", "prepareProjectTypecheck", "typecheckProject"]);
     const testingExports = JSON.parse(
       await command(installation, [
         "-e",
-        'import {testProject} from "justomp/testing"; import {formatProject} from "justomp/format"; import * as root from "justomp"; console.log(JSON.stringify(typeof testProject === "function" && root.testProject === testProject && root.formatProject === formatProject));',
+        'import {testProject} from "@justmumu/justomp/testing"; import {formatProject} from "@justmumu/justomp/format"; import * as root from "@justmumu/justomp"; console.log(JSON.stringify(typeof testProject === "function" && root.testProject === testProject && root.formatProject === formatProject));',
       ]),
     );
     expect(testingExports).toBe(true);
     const releaseExports = JSON.parse(
       await command(installation, [
         "-e",
-        'import * as api from "justomp/release"; import * as root from "justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof api[name] === "function" && root[name] === api[name]).sort()));',
+        'import * as api from "@justmumu/justomp/release"; import * as root from "@justmumu/justomp"; console.log(JSON.stringify(Object.keys(api).filter(name => typeof api[name] === "function" && root[name] === api[name]).sort()));',
       ]),
     );
     expect(releaseExports).toEqual(["bumpRepository", "tagRepository", "updateRepositoryChangelog"]);
-    const entry = join(installation, "node_modules/justomp/src/index.ts");
+    const entry = join(installation, "node_modules/@justmumu/justomp/src/index.ts");
     expect(await realpath(entry)).toStartWith(await realpath(installation));
     for (const path of [
       "docs/dependencies.md",
@@ -84,11 +84,11 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
       "src/lint/javascript/result.ts",
       "src/config/lint/javascript/migrate.ts",
     ]) {
-      expect(await Bun.file(join(installation, "node_modules/justomp", path)).exists()).toBe(true);
+      expect(await Bun.file(join(installation, "node_modules/@justmumu/justomp", path)).exists()).toBe(true);
     }
-    const api = await import(join(installation, "node_modules/justomp/src/dependencies/index.ts"));
+    const api = await import(join(installation, "node_modules/@justmumu/justomp/src/dependencies/index.ts"));
     expect(Object.keys(api.adapters).sort()).toEqual(["bun", "go", "npm", "pnpm", "uv", "yarn-classic", "yarn-modern"]);
-    const lintApi = await import(join(installation, "node_modules/justomp/src/lint/index.ts"));
+    const lintApi = await import(join(installation, "node_modules/@justmumu/justomp/src/lint/index.ts"));
     expect(typeof lintApi.checkProjectLint).toBe("function");
     expect(typeof lintApi.prepareLintProjects).toBe("function");
     const host = await createHost(project, entry);

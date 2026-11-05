@@ -79,7 +79,7 @@ Every check runs the compiler again. Source or required dependency changes durin
 The public API works without OMP:
 
 ```ts
-import { prepareProjectTypecheck, checkProjectTypecheck, typecheckProject } from "justomp/typecheck";
+import { prepareProjectTypecheck, checkProjectTypecheck, typecheckProject } from "@justmumu/justomp/typecheck";
 
 const projectId = "javascript:apps/web/package.json";
 
