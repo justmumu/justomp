@@ -1,6 +1,6 @@
 # ESLint to Biome rule inventory
 
-This is the reviewed migration snapshot for Justomp's managed JavaScript/TypeScript lint policy, checked against Biome 2.6.3 rule names and options. The runtime selects current stable latest when a new project joins; it does not expand presets automatically. See [lint configuration and migration](lint.md) for lifecycle, custom-policy handling and native limitations.
+This is the reviewed migration snapshot for Justomp's managed JavaScript/TypeScript lint policy, checked against Biome 2.6.3 rule names and options. Runtime Biome is pinned by Justomp's `package.json` (currently 2.6.5); preparation does not query latest or expand presets automatically. The ownership cutover does not change this rule inventory. See [lint configuration and migration](lint.md) for lifecycle, custom-policy handling and native limitations.
 
 The table covers 225 previous entries, including disabled overrides: 150 named counterparts (125 active, 25 off), 41 partial mappings (36 active, 5 off), and 34 unavailable mappings (33 active, 1 off). A named counterpart does not guarantee identical semantics. Partial mappings use Biome's native behavior and the option differences below. Unavailable checks are omitted from the shipped baseline. The table describes migration intent, not a catalogue of rule-semantics tests.
 

@@ -44,7 +44,9 @@ async function verify(target: Target, versions: Record<string, string>, tool: st
   }
 }
 /** Keep real host, watcher, projection and ownership behavior; supply local tool outcomes. */
-export function localPythonCheckers() {
+export function localPythonCheckers(nativeLint = false) {
+  const prepareLint = lintAdapters.python.prepareBatch;
+  const verifyLint = lintAdapters.python.verify;
   const mocks = [
     spyOn(pythonTestAdapter, "resolve").mockResolvedValue({
       pytest: "9.0.2",
@@ -53,8 +55,15 @@ export function localPythonCheckers() {
     spyOn(pythonTestAdapter, "preflight").mockResolvedValue(undefined),
     spyOn(pythonTestAdapter, "verify").mockResolvedValue(true),
     spyOn(lintAdapters.python, "preflight").mockResolvedValue(undefined),
-    spyOn(lintAdapters.python, "prepareBatch").mockImplementation((ctx) => install(ctx, "ruff")),
-    spyOn(lintAdapters.python, "verify").mockImplementation((ctx) => verify(ctx.target, ctx.versions, "ruff")),
+    spyOn(lintAdapters.python, "prepareBatch").mockImplementation(async (ctx) => {
+      if (nativeLint) {
+        await prepareLint(ctx);
+      }
+      await install(ctx, "ruff");
+    }),
+    spyOn(lintAdapters.python, "verify").mockImplementation(
+      async (ctx) => (await verify(ctx.target, ctx.versions, "ruff")) && (!nativeLint || (await verifyLint(ctx))),
+    ),
     spyOn(lintAdapters.python, "check").mockImplementation(async (ctx) => [
       {
         kind: "lint",

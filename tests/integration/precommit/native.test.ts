@@ -2,13 +2,13 @@ import { expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type ProcessResult } from "../../../src/dependencies/model";
+import { ruffArtifact } from "../../../src/lint/ruff-install";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { git, gitText } from "../../../src/precommit/git";
 import { installPrecommit } from "../../../src/precommit/install";
 import { type PrecommitResult } from "../../../src/precommit/model";
 import { nativeOperations } from "../../../src/precommit/operations";
 import { measureFixture } from "../../fixtures/cost-timing";
-import { VERSION as RUFF } from "../../fixtures/lint/python/fixture";
 import { VERSION as PYRIGHT, pythonFixture } from "../../fixtures/typecheck/python/fixture";
 import { suppliedResponse } from "../../response";
 
@@ -28,10 +28,13 @@ test("installed hook composes native fixes, checks and staging across failure an
   try {
     // Pin only registry selection during setup; the hook runs real installed tools.
     globalThis.fetch = Object.assign(
-      (input: Parameters<typeof fetch>[0]) => {
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        if (String(input).startsWith(`${ruffArtifact().base}/`)) {
+          return original(input, init);
+        }
         return suppliedResponse(() => {
           const name = String(input).split("/").at(-2);
-          const version = name === "ruff" ? RUFF : name === "pyright" ? PYRIGHT : undefined;
+          const version = name === "pyright" ? PYRIGHT : undefined;
           if (!version) {
             throw new Error(`Unexpected registry ${input}`);
           }
@@ -43,7 +46,7 @@ test("installed hook composes native fixes, checks and staging across failure an
     const prepared = await measureFixture("precommit.native.prepare", () =>
       nativeOperations.prepare(root, new AbortController().signal),
     );
-    expect(prepared.success).toBe(true);
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     globalThis.fetch = original;
     await gitText(root, ["init", "-q"]);
     await gitText(root, ["config", "user.name", "Test"]);
@@ -64,6 +67,7 @@ test("installed hook composes native fixes, checks and staging across failure an
       "typecheck",
       "dependency",
     ]);
+    expect(await gitText(root, ["ls-tree", "-r", "--name-only", "HEAD"])).not.toContain(".justomp/tools/");
     expect(await gitText(root, ["show", "HEAD:module.py"])).toBe(
       '"""An example module."""\n\nVALUE: str = "example"\n',
     );

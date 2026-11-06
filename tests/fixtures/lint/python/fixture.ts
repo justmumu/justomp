@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveLintConfig } from "../../../../src/config/lint/resolve";
+import { readOptional } from "../../../../src/dependencies/executable";
 import { type PackagingStructure, type Project } from "../../../../src/inspect/model";
 import { pythonAdapter } from "../../../../src/lint/adapters/python";
 import { type LintOperationContext } from "../../../../src/lint/adapters/types";
@@ -77,7 +78,7 @@ export async function pythonFixture(workspace = false, declaration = "") {
     bytes() {
       return suppliedResponse(() => {
         return Promise.all(
-          ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readFile(join(root, p), "utf8")),
+          ["pyproject.toml", "uv.lock", "module.py", ".venv/pyvenv.cfg"].map((p) => readOptional(join(root, p))),
         );
       });
     },

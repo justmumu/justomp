@@ -5,7 +5,7 @@ projects. In OMP, `repo_commit({message})` validates a Conventional Commit messa
 and runs the same native hook through a trusted entry. See [commit checks,
 automatic staging and existing-hook handling](docs/precommit.md).
 
-An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint and type policy, formatting files, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and lint, typecheck and test preparation can install packages and run native lifecycle scripts.
+An OMP extension for inspecting Python, JavaScript/TypeScript and Go projects, managing their dependencies with installed native package managers, checking lint and type policy, formatting files, and running project unit and integration tests. It discovers projects, workspace membership and local sources below the session directory. Dependency operations and typecheck/test preparation can install project packages and run native lifecycle scripts. Lint/format tools belong to Justomp and do not require project lint dependencies.
 
 Developed against OMP **18.13.3** and Bun **1.4.2**. From this checkout:
 
@@ -32,9 +32,11 @@ Start a new OMP session in the project you want to inspect. Local installation l
 
 Start with `list_projects({})` to get project IDs, then `dependency_list({project_id})` to inspect declarations and supported groups. Use `dependency_add`, `dependency_remove`, `dependency_update` and `dependency_sync` for native changes. Each operation selects its manager from project metadata; the agent supplies no executable, command or working directory. See [dependency tools and tested capabilities](docs/dependencies.md) for request examples, approval behavior and native limits.
 
-Use `project_lint({project_id})` for a selected project’s lint and format checks. Pass `fix: true` to apply Ruff or Biome safe fixes before checking; Go reports that autofix is unsupported and still checks. Formatting remains a separate `project_format` call. It can prepare native dev tools and shared configuration before checking. Python uses Ruff, JS/TS uses Biome + Prettier, and Go uses golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
+Use `project_lint({project_id})` for a selected project’s lint and format checks. Pass `fix: true` to apply Ruff or Biome safe fixes before checking; Go reports that autofix is unsupported and still checks. Formatting remains a separate `project_format` call. It can prepare Justomp-owned tools and shared native configuration before checking. Python uses standalone Ruff, JS/TS uses bundled native Biome + Prettier, and Go uses owned golangci-lint with gofumpt/goimports. See [lint setup, API/CLI and tested limits](docs/lint.md).
 
 Use `project_format({project_id})` to format and save a selected project’s files, or pass `files: ["src/main.py", "pyproject.toml"]` for exact project-relative selection. Python uses Ruff, Go uses gofumpt/goimports, and bundled Prettier handles JS/TS, TOML and common document/config formats. See [format selection, shared settings and partial results](docs/format.md).
+
+Lint/format alone needs no Python, uv or Node installation. Justomp runs under Bun; Go lint/format still needs compatible Go and application dependencies. Full startup and hooks also prepare typechecking and tests, whose existing runtimes and project dependencies remain required.
 
 Use `project_typecheck({project_id})` to prepare and check a selected project with native Pyright, TypeScript or Go. Full preparation includes required Next types and local declarations; Go compiles tests without running them. See [typecheck setup, API/CLI and verified limits](docs/typecheck.md).
 

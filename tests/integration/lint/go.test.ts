@@ -18,7 +18,7 @@ test("checksum, interrupted download and archive paths cannot publish an executa
   const bytes = Buffer.from("invalid checksum payload");
   let transport = artifactTransport(bytes, "0".repeat(64));
   try {
-    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toThrow("SHA-256");
+    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toMatchObject({ code: "checksum-mismatch" });
   } finally {
     transport.mockRestore();
   }
@@ -55,7 +55,7 @@ test("checksum, interrupted download and archive paths cannot publish an executa
   const bad = Buffer.from(await new Bun.Archive({ "../escaped-binary": "bad" }, { compress: "gzip" }).bytes());
   transport = artifactTransport(bad);
   try {
-    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toThrow("expected Go lint binary");
+    await expect(goLintAdapter.prepareBatch(f.context)).rejects.toMatchObject({ code: "invalid-archive" });
   } finally {
     transport.mockRestore();
   }

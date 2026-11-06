@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createHost } from "./host";
 
 async function command(cwd: string, args: string[]) {
@@ -39,7 +39,7 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
         dependencies: { "@justmumu/justomp": `file:${archive}` },
       }),
     );
-    await command(installation, ["install", "--ignore-scripts"]);
+    await command(installation, ["install", "--production", "--ignore-scripts"]);
     const exported = JSON.parse(
       await command(installation, [
         "-e",
@@ -165,6 +165,85 @@ test("packed extension exposes APIs, resources, OMP tools and CLI launchers outs
     } finally {
       await host.close();
     }
+    const javascript = join(temporary, "native-javascript");
+    const python = join(temporary, "native-python");
+    await mkdir(javascript);
+    await mkdir(python);
+    await writeFile(
+      join(javascript, "package.json"),
+      JSON.stringify({ name: "packed-native", version: "1.0.0", type: "module", packageManager: "npm@11.12.1" }),
+    );
+    await writeFile(join(javascript, "index.js"), "export const answer=42;\n");
+    await writeFile(
+      join(python, "pyproject.toml"),
+      '[project]\nname="packed-native"\nversion="0.1.0"\n[tool.uv]\npackage=false\n',
+    );
+    await writeFile(join(python, "module.py"), '"""Packed module."""\n\nanswer=42\n');
+    const native = JSON.parse(
+      await command(installation, [
+        "-e",
+        `
+          import { prepareLintProjects, checkProjectLint } from "@justmumu/justomp/lint";
+          import { formatProject } from "@justmumu/justomp/format";
+          import { closePackagingStructure } from "@justmumu/justomp/packaging";
+          import { bundledBiome } from ${JSON.stringify(join(installation, "node_modules/@justmumu/justomp/src/lint/toolchain.ts"))};
+          process.env.PATH = "";
+          process.env.BIOME_BINARY = "/untrusted/project-biome";
+          const results = [];
+          for (const [root, id, file] of ${JSON.stringify([
+            [javascript, "javascript:package.json", "index.js"],
+            [python, "python:pyproject.toml", "module.py"],
+          ])}) {
+            try {
+              const prepared = await prepareLintProjects(root);
+              const before = await checkProjectLint(root, id);
+              const formatted = await formatProject(root, id, { files: [file] });
+              const after = await checkProjectLint(root, id);
+              results.push({ prepared, before, formatted, after });
+            } finally {
+              await closePackagingStructure(root);
+            }
+          }
+          console.log(JSON.stringify({ biomePath: await bundledBiome(), results }));
+        `,
+      ]),
+    );
+    expect(await realpath(native.biomePath)).toStartWith(await realpath(installation));
+    for (const result of native.results) {
+      expect(result.prepared.complete, JSON.stringify(result.prepared)).toBe(true);
+      expect(result.before.checks.map((check: { status: string }) => check.status)).toEqual(["passed", "failed"]);
+      expect(result.formatted.success, JSON.stringify(result.formatted)).toBe(true);
+      expect(result.after.success, JSON.stringify(result.after)).toBe(true);
+    }
+    for (const [root, path] of [
+      [javascript, "node_modules"],
+      [javascript, "package-lock.json"],
+      [python, ".venv"],
+      [python, "uv.lock"],
+    ] as const) {
+      await expect(lstat(join(root, path))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+    await rm(dirname(native.biomePath), { recursive: true });
+    const unavailable = JSON.parse(
+      await command(installation, [
+        "-e",
+        `
+          import { prepareLintProjects } from "@justmumu/justomp/lint";
+          import { closePackagingStructure } from "@justmumu/justomp/packaging";
+          process.env.PATH = "";
+          const root = ${JSON.stringify(javascript)};
+          try {
+            console.log(JSON.stringify(await prepareLintProjects(root)));
+          } finally {
+            await closePackagingStructure(root);
+          }
+        `,
+      ]),
+    );
+    expect(unavailable.complete).toBe(false);
+    expect(unavailable.projects["javascript:package.json"].errors).toContainEqual(
+      expect.objectContaining({ code: "missing-tool", message: expect.stringContaining("optional dependencies") }),
+    );
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

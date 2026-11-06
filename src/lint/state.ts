@@ -4,10 +4,12 @@ import { type ToolVersions } from "./adapters/types";
 import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "./files";
 import { nativeJavascriptTools } from "./javascript/tools";
 import { type LintEcosystem, LintError } from "./model";
+import { lintToolchainId } from "./toolchain";
 import { sameVersions, validateToolVersions } from "./versions";
 
 export interface ProjectReceipt {
   native_configs?: NativeConfigOwnership;
+  toolchain_id?: string | undefined;
   ecosystem: LintEcosystem;
   tools: ToolVersions;
   policy_hash: string;
@@ -76,7 +78,7 @@ function parseReceipt(value: unknown, id: string, schema: number): ProjectReceip
   }
   validateSelection(receipt.tools, receipt.ecosystem === "javascript" && !receipt.ready);
   const tools = receipt.tools as ToolVersions;
-  const parsed = {
+  const parsed: ProjectReceipt = {
     ...receipt,
     ecosystem: receipt.ecosystem,
     ready: receipt.ready,
@@ -84,6 +86,13 @@ function parseReceipt(value: unknown, id: string, schema: number): ProjectReceip
     tools,
   };
   normalizeNativeOwnership(parsed);
+  if (receipt.toolchain_id !== undefined && typeof receipt.toolchain_id !== "string") {
+    parsed.ready = false;
+    parsed.toolchain_id = undefined;
+  }
+  if (parsed.toolchain_id !== lintToolchainId(parsed.ecosystem)) {
+    parsed.ready = false;
+  }
   if (parsed.ecosystem === "javascript") {
     parsed.tools = nativeJavascriptTools(tools);
     if (schema !== 3 || !Object.keys(parsed.tools).length) {

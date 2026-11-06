@@ -5,13 +5,14 @@ import { type AdapterContext, type ProcessResult, redact } from "../../dependenc
 import { runProcess } from "../../dependencies/runner";
 import { parseGo } from "../../inspect/readers/go";
 import { readonlyGoEnvironment, withGoEnvironment } from "../go/environment";
-import { golangciArtifact, installGolangci, latestGolangci, localGolangci } from "../go/install";
+import { golangciArtifact, installGolangci, localGolangci } from "../go/install";
 import { applyGoLintResult, applyGoReadiness } from "../go/result";
 import { type LintCheck, LintError } from "../model";
 import { projectGo } from "../projections/go";
 import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
 import { type LintTarget } from "../targets";
+import { GOLANGCI_VERSION } from "../toolchain";
 import { stableVersion } from "../versions";
 import { type LintAdapter } from "./types";
 
@@ -75,22 +76,21 @@ async function binaryVersion(path: string, target: LintTarget, version: string, 
   }
 }
 export const goLintAdapter: LintAdapter = {
-  async resolve(targets, _policy, signal, existing = {}) {
-    const missing = targets.some((target) => !existing[target.project.project_id]?.["golangci-lint"]);
-    const latest = missing ? await latestGolangci(signal) : "";
-    return Object.fromEntries(
-      targets.map((target) => [
-        target.project.project_id,
-        {
-          "golangci-lint": stableVersion(existing[target.project.project_id]?.["golangci-lint"] ?? latest),
-        },
-      ]),
-    );
+  resolve(targets, _policy, signal) {
+    return Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return Object.fromEntries(
+        targets.map((target) => [target.project.project_id, { "golangci-lint": GOLANGCI_VERSION }]),
+      );
+    });
   },
   async preflight(context) {
     projectGo(context.policy.go);
     for (const target of context.targets) {
       golangciArtifact(stableVersion(context.versions[target.project.project_id]?.["golangci-lint"]));
+      if (context.versions[target.project.project_id]?.["golangci-lint"] !== GOLANGCI_VERSION) {
+        throw new LintError("invalid-version", "Go lint preparation requires the Justomp release version");
+      }
       await runtime(target, context.signal);
     }
   },
@@ -110,6 +110,9 @@ export const goLintAdapter: LintAdapter = {
   },
   async verify(context) {
     try {
+      if (context.versions["golangci-lint"] !== GOLANGCI_VERSION) {
+        return false;
+      }
       projectGo(context.policy.go);
       await runtime(context.target, context.signal);
       const version = stableVersion(context.versions["golangci-lint"]);

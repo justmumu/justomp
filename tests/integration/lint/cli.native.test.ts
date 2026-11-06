@@ -3,7 +3,8 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
 import { checkProjectLint, prepareLintProjects } from "../../../src/lint/index";
-import { cleanups, cli, fixture, registry } from "./cli-fixture";
+import { ruffPath } from "../../../src/lint/ruff-install";
+import { cleanups, cli, fixture } from "./cli-fixture";
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
@@ -12,12 +13,7 @@ afterEach(async () => {
 });
 test("explicit preparation then API and CLI share native diagnostics without metadata writes", async () => {
   const f = await fixture();
-  const network = registry();
-  try {
-    expect((await prepareLintProjects(f.root)).complete).toBe(true);
-  } finally {
-    network.mockRestore();
-  }
+  expect((await prepareLintProjects(f.root)).complete).toBe(true);
   expect((await checkProjectLint(f.root, "python:pyproject.toml")).success).toBe(true);
   await writeFile(join(f.root, "module.py"), '"""Example module."""\n\nvalue=unknown\n');
   const before = await f.bytes();
@@ -36,12 +32,7 @@ test("explicit preparation then API and CLI share native diagnostics without met
 }, 30000);
 test("service preserves native diagnostics after cancellation and external readiness loss", async () => {
   const f = await fixture();
-  const network = registry();
-  try {
-    await prepareLintProjects(f.root);
-  } finally {
-    network.mockRestore();
-  }
+  await prepareLintProjects(f.root);
   await writeFile(join(f.root, "module.py"), '"""Example module."""\n\nvalue=unknown\n');
   const actualCheck = pythonAdapter.check;
   const controller = new AbortController();
@@ -61,7 +52,7 @@ test("service preserves native diagnostics after cancellation and external readi
   }
   const modifiedCheck = spyOn(pythonAdapter, "check").mockImplementation(async (context) => {
     const checks = await actualCheck(context);
-    await unlink(join(f.root, ".venv/bin/ruff"));
+    await unlink(ruffPath(f.root));
     return checks;
   });
   try {

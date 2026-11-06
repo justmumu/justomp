@@ -29,6 +29,8 @@ At first preparation, pytest/Vitest tools are installed as exact dev dependencie
 
 Session startup and later discovery may prepare tools and write manifests, locks and receipts. They never run tests. Setup changes and affected project IDs appear under `preparation`; those effects can include sibling workspaces. Tool denial does not disable the trusted session lifecycle. A caller can stop waiting for shared preparation while another session keeps it alive.
 
+Lint/format ownership does not centralize test runners. Their project dependencies, latest-version policy and runtime requirements are unchanged: Python tests need Python/uv, Node tests need their Node/manager environment, Bun tests need Bun, and Go tests need Go and application dependencies. Full startup and pre-push still prepare test tools even though isolated lint/format does not require Python, uv or Node.
+
 ## Configuration and coverage
 
 All fields under `test` in `.justomp/config.json` are optional. Startup/preparation fills missing attributes from [the defaults](test-defaults.json). Existing valid values, unknown keys, `false`, `0` and empty arrays are preserved. Arrays replace defaults. One policy per ecosystem applies to all its projects. Test files and application sources have separate include/exclude patterns, relative to each project.

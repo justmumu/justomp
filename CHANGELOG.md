@@ -41,6 +41,7 @@
 - **config:** use standard native tool configurations af43060
 - develop Justomp with its own managed checks 8c206a1
 - **lint:** replace managed ESLint with Biome 2775e50
+- **lint:** use release-pinned Justomp-owned Ruff and Biome without adding project lint dependencies; preserve legacy declarations and native configuration ownership
 - prepare repository for managed development checks 60fb563
 
 ### Documentation

@@ -16,6 +16,7 @@ import { type LintEcosystem, LintError, type LintPreparation } from "./model";
 import { applyProjection, type ProjectionPlan, planProjection, retireProjection } from "./projection";
 import { type LintState, LintStateStore, type LintWave } from "./state";
 import { type LintTarget, resolveLintTarget } from "./targets";
+import { lintToolchainId } from "./toolchain";
 import { sameVersions, validateToolVersions } from "./versions";
 
 export interface PreparationProgress {
@@ -335,7 +336,7 @@ async function prepareGroup(
       onProgress?.({
         ecosystem,
         affected_projects: group.map((t) => t.project.project_id),
-        message: `Checking ${ecosystem} lint preparation. New projects align latest tools across their consumers before checks.`,
+        message: `Checking ${ecosystem} lint preparation with Justomp-owned tools and shared policy.`,
       });
     } catch {
       /* Reporting cannot cancel preparation. */
@@ -436,10 +437,15 @@ function initializeReceipts(
     const previous = state.projects[id];
     state.projects[id] = {
       ecosystem,
+      toolchain_id: lintToolchainId(ecosystem),
       tools,
       ...(previous?.native_configs ? { native_configs: previous.native_configs } : {}),
       policy_hash: policyHash,
-      ready: previous?.ready === true && previous.policy_hash === policyHash && sameVersions(previous.tools, tools),
+      ready:
+        previous?.ready === true &&
+        previous.toolchain_id === lintToolchainId(ecosystem) &&
+        previous.policy_hash === policyHash &&
+        sameVersions(previous.tools, tools),
     };
     report.projects[id] = { ...initial(), tools, affected_projects: [id] };
   }
@@ -499,7 +505,11 @@ async function prepareEcosystem(
   const ids = selected.map((t) => t.project.project_id).sort();
   const state = store.state;
   const previousWave = state.waves[ecosystem];
-  const decision = toolMembership(previousWave, ids);
+  const membership = toolMembership(previousWave, ids);
+  const decision = {
+    ...membership,
+    resolve: membership.resolve || ids.some((id) => state.projects[id]?.toolchain_id !== lintToolchainId(ecosystem)),
+  };
   const versions = await resolveVersions(
     selected,
     adapter,

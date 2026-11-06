@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { formatPrettier, prettierVersion } from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { applyLintFix, pendingLintFix } from "../../../src/lint/fix";
+import { BIOME_VERSION } from "../../../src/lint/toolchain";
 import { cleanups, fixture } from "./javascript-fixture";
 
 afterEach(async () => {
@@ -12,17 +13,46 @@ afterEach(async () => {
   }
 });
 for (const manager of ["npm", "yarn-modern"] as const) {
-  test(`native ${manager} loads managed Biome and reports readonly lint/format diagnostics`, async () => {
+  const sourcePath = manager === "npm" ? "src/index.ts" : "index.js";
+  test(`bundled Biome preserves ${manager === "npm" ? "node_modules workspace" : "PnP loader"} source ownership and readonly diagnostics`, async () => {
     const f = await fixture(manager, manager === "npm" ? "next" : "js", manager === "npm");
+    const manifestPath = join(f.root, "package.json");
+    const original = JSON.parse(await readFile(manifestPath, "utf8"));
+    original.dependencies = { "@biomejs/biome": "1.9.4" };
+    original.scripts = { lint: "biome check ." };
+    await writeFile(manifestPath, JSON.stringify(original));
+    const foreignBinary = join(f.root, "node_modules/@biomejs/biome/bin/biome");
+    if (manager === "npm") {
+      await mkdir(join(f.root, "node_modules/@biomejs/biome/bin"), { recursive: true });
+      await writeFile(foreignBinary, "#!/bin/sh\nexit 79\n", { mode: 0o755 });
+      await writeFile(
+        join(f.root, "node_modules/@biomejs/biome/package.json"),
+        JSON.stringify({ name: "@biomejs/biome", version: "1.9.4", bin: { biome: "bin/biome" } }),
+      );
+      await writeFile(join(f.root, "node_modules/@biomejs/biome/generated.js"), "debugger;\n");
+      await mkdir(join(f.root, "packages/a/node_modules/application"), { recursive: true });
+      await writeFile(join(f.root, "packages/a/node_modules/application/generated.js"), "debugger;\n");
+    } else {
+      await mkdir(join(f.root, ".yarn/cache"), { recursive: true });
+      await writeFile(join(f.root, ".pnp.cjs"), "debugger;\n");
+      await writeFile(join(f.root, ".pnp.loader.mjs"), "debugger;\n");
+      await writeFile(join(f.root, ".yarn/cache/generated.js"), "debugger;\n");
+    }
+    const manifestBefore = await readFile(manifestPath, "utf8");
+    const lockPath = join(f.root, manager === "npm" ? "package-lock.json" : "yarn.lock");
+    const lock = manager === "npm" ? '{"lockfileVersion":3,"packages":{}}\n' : "# Existing project lock\n";
+    await writeFile(lockPath, lock);
+    for (const target of f.targets) {
+      target.scope.env.PATH = "";
+    }
     await f.prepare();
     const ctx = await f.checkContext(manager === "npm" ? 1 : 0);
     const cwd = ctx.target.scope.cwd;
     expect(await javascriptAdapter.verify(ctx)).toBe(true);
     const manifest = JSON.parse(await readFile(join(cwd, "package.json"), "utf8"));
-    expect(manifest.devDependencies).toEqual({
-      ...(manager === "npm" ? { typescript: "7.0.2" } : {}),
-      "@biomejs/biome": "2.6.3",
-    });
+    expect(manifest.devDependencies).toEqual(manager === "npm" ? { typescript: "7.0.2" } : undefined);
+    expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+    expect(await readFile(lockPath, "utf8")).toBe(lock);
     expect((await javascriptAdapter.check(ctx)).map((c) => c.status)).toEqual(["passed", "passed"]);
     if (manager === "npm") {
       // Reconcile discovered native configs to the central policy before checking sources.
@@ -75,7 +105,7 @@ for (const manager of ["npm", "yarn-modern"] as const) {
       expect(fix).toMatchObject({
         status: "completed",
         tool: "biome",
-        version: "2.6.3",
+        version: BIOME_VERSION,
         changed_files: ["packages/a/src/index.ts"],
         observation_complete: true,
       });
@@ -98,12 +128,11 @@ for (const manager of ["npm", "yarn-modern"] as const) {
         await formatPrettier(fixed, "typescript", ctx.policy.javascript.prettier),
       );
     }
-    const sourcePath = manager === "npm" ? "src/index.ts" : "index.js";
     await writeFile(join(cwd, sourcePath), "debugger;\nexport const value=1;\n");
     const before = await f.bytes();
     const checks = await javascriptAdapter.check(ctx);
     expect(checks.map((c) => c.status)).toEqual(["failed", "failed"]);
-    expect(checks[0]).toMatchObject({ tool: "biome", version: "2.6.3" });
+    expect(checks[0]).toMatchObject({ tool: "biome", version: BIOME_VERSION });
     expect(checks[0]?.diagnostics).toContainEqual(
       expect.objectContaining({
         project_path: sourcePath,
@@ -114,9 +143,9 @@ for (const manager of ["npm", "yarn-modern"] as const) {
     expect(checks[1]?.version).toBe(prettierVersion);
     expect(await f.bytes()).toEqual(before);
     if (manager === "npm") {
-      await unlink(join(f.root, "node_modules/@biomejs/biome/bin/biome"));
-      expect(await javascriptAdapter.verify(ctx)).toBe(false);
-      expect((await javascriptAdapter.check(ctx))[0]?.status).toBe("not-run");
+      await unlink(foreignBinary);
+      expect(await javascriptAdapter.verify(ctx)).toBe(true);
+      expect((await javascriptAdapter.check(ctx))[0]?.status).toBe("failed");
     }
   }, 180000);
 }

@@ -6,6 +6,7 @@ import { prepareLint } from "../../../src/lint/prepare";
 import * as projection from "../../../src/lint/projection";
 import { LintStateStore } from "../../../src/lint/state";
 import * as targets from "../../../src/lint/targets";
+import { lintToolchainId } from "../../../src/lint/toolchain";
 import * as packaging from "../../../src/packaging/get-structure";
 import { suppliedResponse } from "../../response";
 import { target } from "../checks/fixture";
@@ -41,6 +42,7 @@ test("scoped native preparation includes all Python projects but preserves other
           current.project.project_id,
           {
             ecosystem: current.project.ecosystem,
+            toolchain_id: lintToolchainId(current.project.ecosystem),
             tools,
             ready: true,
             policy_hash: lintPolicyKey(policy[current.project.ecosystem]),

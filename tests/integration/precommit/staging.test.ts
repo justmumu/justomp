@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { gitContext, gitText } from "../../../src/precommit/git";
+import { ruffPath } from "../../../src/lint/ruff-install";
+import { git, gitContext, gitText } from "../../../src/precommit/git";
 import { EffectLedger } from "../../../src/precommit/staging";
 
 test("effect ledger detects drift and excludes ignored untracked outputs", async () => {
@@ -28,6 +29,30 @@ test("effect ledger detects drift and excludes ignored untracked outputs", async
     expect(await gitText(root, ["ls-files"])).toBe("");
     await ledger.observe(["changed.txt"]);
     expect(await ledger.stage()).toEqual(["changed.txt"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("newly reported native tool caches stay unstaged without an ignore rule", async () => {
+  const root = await mkdtemp(join(tmpdir(), "justomp-cold-stage-"));
+  try {
+    await gitText(root, ["init", "-q"]);
+    await gitText(root, ["config", "core.excludesFile", "/dev/null"]);
+    const context = await gitContext(root);
+    if (!context) {
+      throw new Error("No Git context");
+    }
+    const ledger = new EffectLedger(context);
+    const executable = ruffPath(context.root);
+    const cache = relative(context.root, executable).replaceAll("\\", "/");
+    await mkdir(dirname(executable), { recursive: true });
+    await writeFile(executable, "new owned tool output\n", { mode: 0o755 });
+    await writeFile(join(context.root, "ruff.toml"), "line-length = 88\n");
+    expect((await git(context.root, ["check-ignore", "--", cache])).exit_code).toBe(1);
+    await ledger.observe([cache, "ruff.toml"]);
+    await ledger.stage();
+    expect(await gitText(context.root, ["ls-files"])).toBe("ruff.toml\n");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
