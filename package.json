@@ -1,6 +1,6 @@
 {
   "name": "@justmumu/justomp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "packageManager": "bun@1.4.2",
   "engines": {

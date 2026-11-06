@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.1] - 2026-11-06
+
+<!-- justomp:release:0.2.1:start -->
+
+### Refactoring
+
+- **lint:** establish owned native tool infrastructure (U1) 0315cb4
+- **lint:** run lint and format with owned tools adb888d
+
+### Documentation
+
+- **lint:** document release-owned toolchain boundaries (U6) da0464f
+
+### Maintenance
+
+- configure engineering workflows and document project standards 61c65e1
+
+<!-- justomp:release:0.2.1:end -->
+
 ## [0.2.0] - 2026-11-05
 
 <!-- justomp:release:0.2.0:start -->
