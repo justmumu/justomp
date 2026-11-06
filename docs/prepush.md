@@ -16,7 +16,9 @@ A failed or incomplete stage stops the push and identifies the project and stage
 
 The gate checks every discovered project in the current working tree. It does not select projects from pushed refs or changed files, require a clean tree, compare HEAD with a pushed commit, or create a separate checkout. Uncommitted changes participate in checks; success is not a certificate for an isolated commit.
 
-The gate does not fix lint, format, stage, stash, commit or roll back files. Existing preparation may install/update managed tools, project configuration and lock metadata. Type generation, test reports and caches may also be written. Those effects are reported and remain in the working tree; the hook does not stage them or add a new post-check dirty-tree restriction.
+The gate does not fix lint, format, stage, stash, commit or roll back files. Lint/format preparation installs Justomp-owned release-pinned tools and reconciles managed native configuration without changing project dependency declarations or locks. Typecheck/test preparation and dependency consistency checks retain their existing package, lock and runtime requirements. Type generation, test reports and caches may also be written. Those effects are reported and remain in the working tree; the hook does not stage them or add a new post-check dirty-tree restriction.
+
+The Bun launcher does not make this full gate independent of Python, uv, Node or project dependencies: typecheck/testing still need their existing environments. Go lint/format also requires compatible Go and application dependencies. Tool caches under `.justomp/tools/`, runtime receipts and reports should remain ignored.
 
 ## Existing hooks and repository boundaries
 

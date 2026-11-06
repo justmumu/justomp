@@ -464,3 +464,57 @@ Yerel raporlar mevcut `.private/test-cost/` altında kalır ve publish/staging k
 - `.private/**`, `skipLibCheck` istisnası, ortak kurallar ve %70 coverage eşiği korunmuş.
 - Fixture replacement kaydı, tam gate/cost raporu, docs ve changelog aynı PR kapsamına tamamlanmış.
 - Geçici scaffolding ve artık kullanılmayan lint-specific yollar kaldırılmış; kapsam dışı cleanup veya yetkisiz yayın yapılmamış.
+
+---
+
+## Uygulama Kanıtı
+
+### R11: Daraltılan Testlerin Sorumluluk Kaydı
+
+| Eski kanıt | Cutover sonrası sorumluluk ve replacement |
+|---|---|
+| Ruff PyPI ve Go latest-version keşfi | Lint artık remote latest seçmez; eski `tests/unit/checks/version-selection.test.ts` kaldırıldı. Ruff pin/preflight kararı `tests/unit/checks/python-preflight.test.ts`; platform kararı `tests/unit/lint/tool-platform.test.ts`; gerçek Go executable/checksum handoff’u `tests/integration/lint/go.test.ts` içinde korunur. Upstream sürüm keşfine replacement yoktur. |
+| JS latest/retained-version ve registry hata dalgaları | Bundled pin kararı `tests/unit/lint/javascript-selection.test.ts`; gerçek çalıştırma `tests/integration/lint/javascript.native.test.ts`. Registry keşfi lint’in sorumluluğu değildir. |
+| Her manager ile lint dependency ekleme/güncelleme ve partial install | Child lint kurulumu kaldırıldı. Koruma/no-manager kararları `tests/unit/checks/javascript-preparation.test.ts`; bağımsız runtime `tests/integration/lint/owned-tools.native.test.ts`. Dependency manager install/lock ve typecheck matrisleri korunur. |
+| Biome için child Node, dependency declaration ve lock readiness | Native paket çözümlemesi ve eksik optional dependency, production installed smoke ile kanıtlanır. Ortak Node compatibility helper’ları ve TypeScript tüketicileri korunur; lint için eski Node şartına replacement yoktur. |
+| Ruff için Python interpreter preflight | `tests/unit/checks/python-preflight.test.ts` owned binary/pin kararını kanıtlar. Pyright interpreter senaryoları korunur; Python/uv olmadan Ruff çalışması `owned-tools.native.test.ts` içindedir. |
+| Python lint dev install, workspace pin ve partial uv etkileri | `tests/integration/lint/python.native.test.ts` legacy metadata ve owned executable davranışını kanıtlar. Gerçek uv install/lock sorumluluğu dependency testlerinde kalır. |
+| Ruff custom environment executable seçimi | Ortam içindeki Ruff artık seçilmez. `tests/unit/format/engines.test.ts` ile Python native fixture’ları kaynak seçimini, ignored environment ve cancellation sınırlarını korur. |
+| JS node_modules, PnP ve custom pnpm içinden Biome executable arama | Executable kaynağı artık Justomp’tur. JS native layout senaryoları ve `tests/unit/format/prepare-scope.test.ts` kaynak sahipliğini korur; child executable lookup’a replacement yoktur. |
+| OMP kapanışında/root değişiminde uv lint install süreci | `tests/integration/omp/lint.native.test.ts` owned download iptalini, join ve publication sınırını kanıtlar. Gerçek process termination kanıtları typecheck ve dependency runner testlerinde korunur. |
+| OMP registry refresh sayıları ve progress wording | Latest-version keşfi kaldırıldı. `tests/integration/omp/lint.test.ts` startup/discovery, incomplete wave ve download reuse akışlarını korur; çağrı sayısı/wording için replacement yoktur. |
+| Diagnostic unit’inde kopyalanmış Biome sürüm literal’i | Result classification `tests/unit/checks/lint-outcomes.test.ts` içinde kalır. Gerçek raporlanan sürüm JS native handoff’unda doğrulanır. |
+
+CLI cancellation/readiness, formatter argümanları, Go integrity, receipt migration ve hook staging kanıtları kaldırılmadı; yeni sahipliğe uyarlandı veya güçlendirildi.
+
+### İnceleme Sonrası Eklenen Kanıt
+
+- Review finding #1 için `tests/unit/lint/tool-platform.test.ts` eklendi: 13 case geçti. Darwin/Linux x64/arm64 artifact/package seçimi, glibc/musl metadata ayrımı, unsupported platform ve başarılı seçimden sonra silinen executable ele alınır. Musl mapping unit’i yeni runtime desteği iddiası değildir.
+- Bun 1.4.2’de module cache her case için izole edilir ve eski giriş geri yüklenir. Test için production export veya selector parametresi eklenmedi.
+- `tests/integration/precommit/staging.test.ts` içinde yeni cold-cache case’i gerçek Git/filesystem ile geçti: ignore kuralı yokken yeni `.justomp/tools` dosyası stage edilmez; bildirilen `ruff.toml` stage edilir. Case’in setup/flow/cleanup dahil süresi 77 ms; üç staging case’i birlikte geçti.
+- Tam review tamamlandı. Cross-model reviewer çalıştırılmadı; sonuç bağımsız model onayı olarak sunulmaz.
+
+### Yerel Platform Kanıtı
+
+- macOS arm64: checkout dışında production-only kurulumdan gerçek JS/Python lint ve source format çalıştı; child Node/Python/uv erişimi olmadan başarı gözlendi.
+- Ubuntu 24.04 x64, glibc 2.39, Bun 1.4.2: yerel Docker Desktop üzerinde x64 CPU emülasyonuyla aynı gerçek native akış çalıştı. Production dependency kurulumu 17,005 sn; runtime proof 6,067 sn sürdü. Bu ölçüm warm gate süresine karıştırılmaz.
+- Linux’ta Biome 2.6.5 ve Ruff 0.17.3 için ilk check lint-pass/format-fail verdi; format kaynak dosyasını değiştirdi ve sonraki check iki kontrolü de geçirdi. `PATH` boştu; foreign `BIOME_BINARY` seçilmedi.
+- Child manifest dependency alanları korundu; child `node_modules`, package lock, `.venv` ve `uv.lock` oluşmadı. Aynı process içinde optional native paket silinince actionable `missing-tool` ve incomplete preparation gözlendi.
+- Diğer OS/architecture eşlemeleri unit kanıtıdır. Hosted GitHub CI bu yerel çalışma sırasında çalıştırılmadı; emülasyon kanıtı hosted runner sonucu diye sunulmaz.
+
+### Son Tam Gate ve Maliyet Kararı
+
+`bun run test:cost --baseline .private/test-cost/baseline-61c65e1-biome-2.6.5.json` tek check ve integration traversal’ını tamamladı. Check ve integration exit 0; 760 unit ve 299 integration case’inde failure/error/skip yok. Line coverage %72,52; %70 eşiği korunuyor.
+
+| Ölçüm | Eşleşen baseline | Son aday | Hedef |
+|---|---|---|---|
+| Warm tam gate | 302,935 sn | 287,255 sn | En fazla 300 sn |
+| Süre azalması | — | %5,18 | En az %60 |
+
+Cost komutu yalnız %60 azalma hedefi sağlanmadığı için exit 1 verdi. Karşılaştırma `matching-workload`; baseline fixture’ının Biome sürümü 2.6.5’e eşlendi, production davranışı, coverage ve concurrency değiştirilmedi. Orijinal baseline ayrıca korundu.
+
+En pahalı kalan dosyalar typecheck references (23,00 sn), JS typecheck (17,94 sn), native Go lint (16,77 sn), Yarn dependency (15,52 sn), Next typecheck (13,98 sn) ve production installed smoke (13,87 sn). Bunlar ayrı dosya ölçümleridir; paralel çalışmada toplam wall time diye toplanmaz.
+
+Tam receipt `.private/test-cost/2026-11-06T15-47-36.875Z/report.json`, caller özeti `owned-tools-final-evidence.json` ve Linux kanıtı `owned-tools-linux-evidence.json` aynı private dizinde tutulur. Bu kanıt kaydı dışında son gate sonrası runtime/test/config değişikliği yapılmadı.
+
+Kullanıcı “Kapsamı koru, istisnayı kaydet” kararını verdi: Bu refactor için %60 hızlanma koşulunun karşılanmadığı açık maliyet istisnası olarak kabul edildi. Kalan değişiklikler yerel commitlere alınır; genel performans hedefi değiştirilmez ve ek optimizasyon yapılmaz. Push/PR yetkisi verilmedi.

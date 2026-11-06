@@ -19,7 +19,7 @@ The 45-minute job limit and 1800-second integration deadline are resource ceilin
 
 ## Fresh preparation and checkout changes
 
-A fresh checkout has no managed readiness state. Normal preparation resolves latest managed tools and can update `package.json`, `bun.lock` or the shared config. Frozen dependency installation does not suppress that later preparation.
+A fresh checkout has no managed readiness state. Lint/format preparation uses Justomp release pins, without latest queries or changes to project dependency declarations and locks; managed native configuration may still change. Typecheck/testing keep their latest-version policies and project dependency ownership, so their preparation can update `package.json`, `bun.lock` or the shared config. Frozen dependency installation does not suppress that later preparation.
 
 CI records Git state before installation and after installation, managed checks and integration tests. Tracked changes, staged changes and nonignored untracked files fail the run. Earlier observations stay failed even if a later command makes the tree clean. Git-ignored cache/coverage outputs do not fail this check. CI never restores files or commits generated updates automatically.
 
@@ -41,7 +41,7 @@ Installations live under `$RUNNER_TEMP/justomp-tools`, outside the checkout. Ver
 
 Linux explicitly installs bubblewrap and enables the required unprivileged-user-namespace setting if the ephemeral runner's AppArmor policy restricts it. Both platforms exercise Justomp's real sandbox command: an ordinary write must work and a protected write must fail without changing its file. Missing capabilities fail setup; there is no unsandboxed fallback. macOS requires `/usr/bin/sandbox-exec`.
 
-Native fixtures install their own compiler/linter/framework packages. Some testing fixtures resolve current pytest/Vitest versions. Public registry/release access and loopback servers are needed; production services, OMP model credentials and repository secrets are not.
+Native dependency, compiler, test-runner and framework fixtures install project packages. Lint/format fixtures use Justomp-owned tools: official Ruff/Go releases and bundled native Biome/Prettier. Some testing fixtures resolve current pytest/Vitest versions. Public registry/release access and loopback servers are needed; production services, OMP model credentials and repository secrets are not. Python, uv and Node remain required by the complete gate and fixtures even though isolated lint/format does not need them.
 
 For a local setup rehearsal, first provide the pinned runtimes and a temporary `RUNNER_TEMP`, `GITHUB_ENV` file and `GITHUB_PATH` file. Run `bun scripts/ci/setup.ts configure`, restore any desired download cache, then `bun scripts/ci/setup.ts`. The exported environment and PATH must be applied to subsequent commands; GitHub Actions does this automatically. A plain local shell does not. For ordinary local tests, follow the existing [native dependency setup](dependencies.md#reproducing-native-tests) and [typecheck fixture setup](typecheck.md).
 

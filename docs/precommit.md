@@ -19,6 +19,8 @@ No unit or integration tests run in this hook. Native dependency validation may
 install environment files; it must not repair inconsistent dependency metadata.
 Go workspace members receive separate module checks.
 
+Lint/format uses Justomp-owned release pins and does not add project lint dependencies. Typecheck preparation and dependency validation retain their existing project-package and runtime requirements; this hook is not runtime-independent. Bun runs the launcher, Go checks still need compatible Go and application dependencies, and Python/JS typechecks still need their existing runtimes and managers.
+
 ## Staging and failures
 
 Checks read the working tree. They do not create an isolated staged-tree copy.

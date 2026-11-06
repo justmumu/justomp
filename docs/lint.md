@@ -43,7 +43,7 @@ If a source disappears or cannot be safely read afterward, `observation_complete
 
 ## Preparation and lifecycle
 
-After startup inspection completes, the extension starts tracked background preparation outside the inspection handler's 24-second deadline. Preparation can install development tools, change manifests and lockfiles, and publish native configuration. Enabling the plugin authorizes this trusted lifecycle code; OMP tool approval does not sandbox it. Native installation retains the package manager's lifecycle-script policy.
+After startup inspection completes, the extension starts tracked background preparation outside the inspection handler's 24-second deadline. Lint/format preparation installs Justomp-owned tools and reconciles managed native configuration; it does not add project lint dependencies or change dependency groups, `packageManager`, scripts or locks. Full startup also prepares typecheck and testing, which can still install project packages, change manifests/locks and run native lifecycle scripts under the package manager's existing policy. Enabling the plugin authorizes this trusted lifecycle code; OMP tool approval does not sandbox it.
 
 A discovered manifest makes a new project eligible for preparation. An empty folder does not. The coordinator also watches the exact `.justomp/config.json` path, without including hidden directories in ordinary discovery. A `project_lint` call waits for preparation or retries it before checking its selected project. Progress and completion/failure reports appear in the OMP UI or headless console, including the projects that preparation may affect.
 
@@ -51,25 +51,31 @@ The inspection getter itself never installs tools. Without a healthy watcher, au
 
 Preparation and checks share the dependency tools' process-local resource queue. A check verifies its environment before and after execution. Cancellation closes native processes before releasing their queue lease. Cancelling a tool's wait can leave shared preparation running for another active session; the cancelled result says its effects are not yet final. Closing the last owning session cancels and joins preparation. Root changes release the old root before using the new one.
 
-Resolved exact tool targets are saved before compatibility checks or installation; readiness receipts persist in `.justomp/lint_state.json`. Receipts alone never establish readiness: native declarations, resolutions, executables and projected configuration are checked again. Damaged configuration or environments are repaired with retained versions. Invalid state triggers an explicit recovery report and full verification; lost targets can require a new resolution.
+Readiness receipts persist in `.justomp/lint_state.json`. They bind the current Justomp tool provider, ecosystem and release pin, together with policy, native configuration ownership and project membership. Receipts alone never establish readiness: executables and projected configuration are checked again. Old receipts without the current tool identity are stale; preparation revalidates them without discarding healthy installations or unrelated state.
 
-Every newly discovered project selects latest for its managed lint family and aligns existing consumers of those tools. A new ID replaces an incomplete selection on the next serialized preparation pass. Retrying unchanged membership keeps the saved exact targets, including after incompatibility. Deletion-only changes do not refresh latest; removing the last member clears the group. Current membership and every member's target must be verified before lint or native formatting proceeds. Existing valid targets are retained until the next discovery. Legacy ESLint readiness is invalidated during the Biome migration; its tool selection cannot satisfy Biome preparation. Python and Go state remain intact.
+New projects join the current release-pinned tool group; discovery does not query remote latest. Current membership and every member's target must be verified before lint or native formatting proceeds. Policy/config-only repair does not reinstall a healthy executable. Check-only calls fail explicitly on stale readiness without downloading tools or repairing configuration.
+
+Downloaded tool pins live in `src/lint/toolchain.ts`: Ruff **0.17.3** and golangci-lint **2.15.0**. Runtime npm versions come from Justomp's `package.json`: Biome **2.6.5**, Prettier **3.9.10** and the TOML plugin **2.0.6**. These pins change with a Justomp release, not project discovery. Typecheck and test-runner version policies are unchanged.
 
 ### Python versions
 
-The first Python preparation resolves the latest stable, non-yanked Ruff once. Discovering another Python project, including a moved manifest, starts a new wave: every Python project is aligned to the same exact Ruff release. Restarting with the same projects or running ordinary checks does not query latest again.
+Ruff is a standalone executable downloaded from the official release with SHA-256 verification, version validation and atomic publication. It lives below the repository root at `.justomp/tools/ruff/<version>/<platform>/ruff`; this is a repository-local cache, not a shared global installation. Supported download targets are Darwin/Linux on x64/arm64.
 
-Ruff is a native `dev` dependency. In a uv workspace, all member declarations are changed with frozen native adds before one shared lock solve and environment sync. A partial failure leaves completed native changes visible. Retry uses the already resolved wave target. No project can report a successful Python check while the required wave remains incomplete.
-
-Existing Ruff declarations in another group, conditional or non-registry declarations, and source overrides require explicit reconciliation; preparation does not silently move or replace them. Missing uv or an incompatible installed Python is an error, not a request to install a runtime.
+Isolated Python lint/format requires neither Python nor uv. Justomp does not consult PyPI metadata or select Ruff from the project environment or `PATH`. Managed Ruff fields in `ruff.toml`, `.ruff.toml` or `pyproject.toml` are still reconciled; that configuration ownership does not authorize dependency changes.
 
 ### JavaScript and TypeScript versions
 
-A newly discovered JS/TS project selects `@biomejs/biome` from its stable npm `latest` tag once and aligns all managed JS/TS projects to that exact version. It is a development dependency installed through the existing npm, pnpm, Yarn Classic, modern Yarn or Bun adapter. Ordinary restarts and retries with unchanged membership reuse the persisted target. Missing binaries or damaged environments are repaired at that version. Node must be installed for the package-local launcher; unsupported runtime/native binary combinations fail visibly rather than selecting an older release.
+Biome comes from Justomp's runtime dependencies. Justomp resolves the official native platform optional package relative to its own installed package and invokes the executable directly under the Bun-hosted extension. It does not use the Node wrapper, child `node_modules`, PnP or `PATH` to find a lint executable. Missing optional packages fail explicitly rather than falling back to a project/global binary. Platform selection stays within Darwin/Linux x64/arm64; it adds no Windows or musl support guarantee.
 
 All managed JavaScript, TypeScript, JSX, TSX, React and Next.js projects use this engine. Biome does not depend on the typescript-eslint compiler API, and lint preparation neither installs nor downgrades TypeScript. This removes that compiler-peer coupling; it does not promise that Biome supports every future TypeScript syntax feature. Native parser failures are reported as source diagnostics. [Project typechecking](typecheck.md) remains a separate service with its own compiler preparation.
 
 Prettier is bundled with Justomp and shared with [project_format](format.md). Its settings come from `format.prettier`, with per-attribute fallback to legacy `lint.javascript.prettier` and then defaults. Lint does not install or verify a target Prettier package; existing user dependencies remain untouched. Biome's formatter is disabled for both checking and fixing.
+
+### Legacy lint dependencies
+
+Existing Ruff and Biome declarations and lock entries remain untouched because Justomp has no reliable record of who added them. Their versions and presence no longer select lint/format tools. A readiness receipt is not dependency provenance.
+
+If these packages are no longer needed by the project, review their other uses and remove them explicitly with the existing `dependency_remove` tool and the project's native dependency workflow. This optional cleanup is separate from normal preparation and must keep locks consistent. Do not remove TypeScript, Pyright or test-runner packages as lint leftovers. Native managed configuration fields still reconcile even when they share a manifest with retained dependencies.
 
 ### Migrating existing JavaScript policy
 
@@ -100,7 +106,7 @@ Unsupported rules are omitted rather than emulated or used to reinstall ESLint. 
 
 ### Go versions and readonly execution
 
-First preparation and each newly discovered Go project select the latest official stable golangci-lint v2 release for all Go projects. Ordinary repair retains those exact targets. Preparation downloads that release, verifies its SHA-256 checksum, and atomically publishes the binary below `.justomp/tools/`. It does not add a Go application dependency. The installed Go version and the binary's build Go version must support the project/workspace requirement. No toolchain download or upgrade is performed.
+Preparation uses the release-pinned golangci-lint **2.15.0**, verifies the official archive's SHA-256 checksum and version, and atomically publishes the binary below `.justomp/tools/golangci-lint/<version>/<platform>/`. It does not add a Go application dependency or query latest. The installed Go version and the binary's build Go version must support the project/workspace requirement. Compatible Go and application dependencies remain required; no toolchain download or upgrade is performed.
 
 One `golangci-lint run` checks linters and enabled formatters. The adapter separates diagnostics by their linter/formatter names; the lint check never invokes `fmt` or enables `--fix`. Native compiler/type-analysis failure leaves both stages `not-run`. See the [native CLI commands](https://golangci-lint.run/docs/configuration/cli/).
 
@@ -174,7 +180,7 @@ Statuses are `passed`, `failed`, `not-run` and `no-sources`. An empty source sco
 
 Preparation can affect more projects than the selected check. Its report includes affected IDs, actual changed metadata paths, errors and per-project receipts. Use per-project receipts for versions when projects have different tool sets. There is no rollback of completed native changes.
 
-An unrelated ecosystem's setup error does not prevent a ready selected project from passing. In that case the result can have `success: true` while `preparation.complete` is false; the preparation errors and effects remain visible. `partial_change` means incomplete preparation left reported changes, or an incomplete fix/check call left observed source changes. Remaining lint violations from completed checks do not alone make changes partial. The all-Python wave rule still blocks Python success until every required Python project is verified.
+An unrelated ecosystem's setup error does not prevent a ready selected project from passing. In that case the result can have `success: true` while `preparation.complete` is false; the preparation errors and effects remain visible. `partial_change` means incomplete preparation left reported changes, or an incomplete fix/check call left observed source changes. Remaining lint violations from completed checks do not alone make changes partial. Python success still requires every member of the current Python tool group to be verified.
 
 ## API, CLI and CI
 
@@ -200,22 +206,19 @@ justomp-lint --root /absolute/path/to/repository --project-id python:pyproject.t
 
 It writes one JSON result to stdout. Exit codes are `0` for both checks passing, `1` for a completed non-passing result (including no sources), and `2` for incomplete execution or an input/setup error. It does not install tools, flush config, save receipts or publish a packaging snapshot.
 
-Local `.justomp` files are not automatically supplied to another checkout or CI machine. The extension does not edit `.gitignore`. Decide how the shared policy and retained exact targets reach CI, then explicitly prepare and verify the environment before using check-only. A fresh preparation without retained targets can resolve versions and change manifests/locks; CI that forbids those changes must provision retained targets and reject unexpected metadata changes. Native readiness is verified even when state is supplied.
+Local `.justomp` runtime files are not automatically supplied to another checkout or CI machine. Keep repository-local `.justomp/tools/`, runtime receipts and reports ignored; the extension does not edit `.gitignore`. Supply the shared policy and tracked native configs, then explicitly prepare the pinned tools before using check-only. Lint/format preparation does not change project dependency declarations or locks, but may reconcile managed native fields in manifests such as `pyproject.toml` or embedded Prettier settings in `package.json`. Native readiness is verified even when state is supplied. Complete CI/startup/hooks still need typecheck/test runtimes and dependency preparation.
 
 The [pre-commit](precommit.md) and [pre-push](prepush.md) hooks call the same shared lint service. Pre-commit applies safe lint fixes; pre-push checks without fixing. This engine migration does not change hook ordering or install a CI workflow. Use [`project_typecheck`](typecheck.md) for native project typechecking and [project_test and project_integration_test](testing.md) for tests. The public check API and CLI remain read-only. Explicit formatting is available through [project_format](format.md).
 
 ## Native verification and reproduction
 
-The fixed native test matrix uses these tool sets:
+The current release-owned tool set is Ruff 0.17.3, Biome 2.6.5, golangci-lint 2.15.0 and bundled Prettier 3.9.10. These pins are not a claim that every supported platform has been executed.
 
-| Ecosystem           | Exact tools                                                                              |
-| ------------------- | ---------------------------------------------------------------------------------------- |
-| Python              | uv 0.11.6; Ruff 0.17.2 and 0.17.3                                                        |
-| JS/TS               | Biome 2.6.3; application TypeScript 7.0.2; bundled Prettier 3.9.10                       |
-| JS managers/runtime | npm 11.12.1; pnpm 10.20.0; Yarn Classic 1.22.22; Yarn PnP 4.12.0; Bun 1.4.2; Node 26.0.0 |
-| Go                  | Go 1.25.6; golangci-lint 2.15.0                                                          |
+The earlier project-local ownership matrix exercised uv 0.11.6, Ruff 0.17.2/0.17.3 and Biome 2.6.3 on macOS arm64 and Linux arm64, with npm, Yarn PnP and custom pnpm layouts. That evidence does not verify the new installed-package ownership boundary. The existing runtime/manager fixture inputs remain relevant to dependency, typecheck and testing services: npm 11.12.1, pnpm 10.20.0, Yarn Classic 1.22.22, Yarn PnP 4.12.0, Bun 1.4.2, Node 26.0.0 and Go 1.25.6. Accepted manager families and provisioning are listed in [dependency test setup](dependencies.md#reproducing-native-tests).
 
-Managed Biome 2.6.3 was verified on macOS arm64 and Linux arm64 through npm, Yarn PnP and custom pnpm layouts. The npm workspace witness uses TypeScript 7.0.2; the Yarn 4.12 PnP witness uses JavaScript because that Yarn release's built-in TypeScript 7 patch fails independently of linting. Process cancellation and bounded output were also exercised on Linux in a disposable container with an init process. The Go installer accepts darwin/linux on x64/arm64; x64 remains unverified. Windows Go installation is explicitly unsupported. Other Windows runner/manager combinations remain unverified. Accepted manager families and provisioning are listed in [dependency test setup](dependencies.md#reproducing-native-tests).
+Ruff and Go acquisition accepts Darwin/Linux x64/arm64; platform mapping is not native execution proof. No Windows support or new Linux libc support is promised by this cutover. Installed-package, runtime-isolation and native execution results must be recorded from the corresponding verification runs rather than inferred from a supported target.
+
+Installed JS/Python lint and source formatting were executed on macOS arm64 and Ubuntu 24.04 x64 (glibc 2.39, Bun 1.4.2). The Linux run used local Docker CPU emulation, not a hosted CI runner. Both used production-only extension dependencies and an empty `PATH`, without child tool dependencies; removing the native Biome package produced an actionable `missing-tool` result.
 
 ```sh
 bun run check
@@ -224,17 +227,18 @@ bun run test:lint
 bun run check:integration
 ```
 
-`test:lint` runs lint integration tests and the real OMP lint tests. Provision the exact managers on `PATH`; `JUSTOMP_YARN_MODERN_BINARY` and `JUSTOMP_YARN_CLASSIC_BINARY` can select their installed launchers. `JUSTOMP_GOLANGCI_ARCHIVE` optionally points to an official 2.15.0 archive. Without it, the Go fixture downloads the exact official platform archive, verifies its checksum and caches it under the OS temporary directory. Missing managers fail tests rather than skipping coverage. Registry-resolution fixtures use fixed metadata; native installs still execute real managers and tools.
+`test:lint` runs lint integration tests and the real OMP lint tests. Provision the managers required by fixtures and unchanged typecheck/testing consumers on `PATH`; they are not used to choose Ruff/Biome lint executables. `JUSTOMP_YARN_MODERN_BINARY` and `JUSTOMP_YARN_CLASSIC_BINARY` can select fixture launchers. `JUSTOMP_GOLANGCI_ARCHIVE` optionally points to an official 2.15.0 archive. Without it, the Go fixture downloads the exact official platform archive, verifies its checksum and caches it under the OS temporary directory. Missing prerequisites fail tests rather than skipping coverage.
 
-The mixed-repository fixture combines root Python, `apps/web` TypeScript and `services/api` Go. It checks independent source scope, unchanged file hashes, registry-free repeated checks, new-Python partial failure/retry, shared policy repair and unrelated ecosystem failure. It is a behavior test, not a lint performance benchmark. Inspection-only measurements in [inspection documentation](inspection.md#measured-local-results) do not measure native lint or typed analysis costs.
+The mixed-repository fixture combines root Python, `apps/web` TypeScript and `services/api` Go. Its behavior coverage includes independent source scope, readonly checks, project membership, partial preparation/retry and shared policy repair. These cases are not a lint performance benchmark. Inspection-only measurements in [inspection documentation](inspection.md#measured-local-results) do not measure native lint or typed analysis costs.
 
-| Acceptance behavior                                          | Test evidence                                                                                                   |
+| Acceptance behavior                                          | Test locations                                                                                                  |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| AE1: field defaults and empty replacements                   | `tests/unit/config/lint.test.ts`, `tests/integration/config.test.ts`                                            |
-| AE2: new Python wave, empty folder ignored                   | `tests/integration/omp/lint.test.ts`, `tests/integration/lint/mixed-repository.test.ts`                         |
-| AE3: partial native effects and same-target retry            | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/mixed-repository.test.ts`               |
+| Field defaults and empty replacements                        | `tests/unit/config/lint.test.ts`, `tests/integration/config.test.ts`                                            |
+| New Python membership, empty folder ignored                  | `tests/integration/omp/lint.test.ts`, `tests/integration/lint/mixed-repository.test.ts`                         |
+| Partial native effects and same-target retry                 | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/mixed-repository.test.ts`               |
 | Selected scope, Biome diagnostics and native package layouts | `tests/integration/lint/javascript.native.test.ts`, `tests/integration/lint/javascript-outcomes.native.test.ts` |
-| AE5: format-only failure without source writes               | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/go.test.ts`                             |
+| Format-only failure without source writes                    | `tests/integration/lint/python.native.test.ts`, `tests/integration/lint/go.test.ts`                             |
 | Application TypeScript remains unchanged by lint preparation | `tests/integration/lint/javascript.native.test.ts`, `tests/unit/checks/javascript-preparation.test.ts`          |
-| AE7: shared resource ordering and process cancellation       | `tests/integration/lint/concurrency.test.ts`, `tests/integration/omp/lint.test.ts`                              |
-| AE8: independent readonly API/CLI                            | `tests/integration/lint/cli.test.ts`, `tests/integration/omp/installed-smoke.native.test.ts`                    |
+| Shared resource ordering and process cancellation            | `tests/integration/lint/concurrency.test.ts`, `tests/integration/omp/lint.test.ts`                              |
+| Independent readonly API/CLI                                 | `tests/integration/lint/cli.test.ts`, `tests/integration/omp/installed-smoke.native.test.ts`                    |
+| Release-owned tools without project runtimes/dependencies    | `tests/integration/lint/owned-tools.native.test.ts`                                                             |

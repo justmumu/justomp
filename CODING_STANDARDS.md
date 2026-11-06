@@ -8,6 +8,12 @@ Keep configuration readiness separate from tool installation state. Invalid conf
 
 Sources: [PR #3](https://github.com/justmumu/justomp/pull/3), [ownership reconciliation](https://github.com/justmumu/justomp/commit/c24a75e).
 
+## Lint and format tool ownership
+
+Resolve lint/format tools from Justomp's release-owned native installations or bundled runtime dependencies, never from project dependencies or `PATH`. Tool preparation must not mutate project dependency declarations, scripts or locks; reconciliation of owned native configuration fields remains separate.
+
+Sources: [lint tool ownership](docs/lint.md#preparation-and-lifecycle), [legacy dependency migration](docs/lint.md#legacy-lint-dependencies).
+
 ## Checkout-independent exclusions
 
 Preserve canonical relative directory exclusions as directory patterns rather than expanding them into ignored files found on the current machine. Shared native configuration must remain stable when those local files are absent in a clean checkout.

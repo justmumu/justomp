@@ -30,9 +30,9 @@ The OMP tool uses the `exec` approval tier. Its JSON text and `details` contain 
 
 Ruff and Biome lint fixes are not run. Go formatting includes the agreed import organization. `go.mod`, `go.work`, sums, lockfiles and notebooks are not format targets. Known JSONC configuration filenames, including `tsconfig*.json` and Pyright configs, keep their comments.
 
-Prettier belongs to the extension, so formatting documents or TOML in a Python/Go project does not install Node packages into that project. Native preparation runs only when the selected files need Ruff or Go formatters. It reuses retained versions and existing preparation; a newly discovered Python or Go project aligns the relevant native formatter tools across that ecosystem. Formatting waits for the entire required group to reach its accepted target. Preparation can change shared manifests, locks, environments and projected settings beyond the selected files. The result reports those effects separately.
+Prettier and its TOML plugin belong to the extension and run under Bun, without installing Node packages into the project. Native preparation runs only when the selected files need Ruff or Go formatters. It uses Justomp's release pins and waits for the required ecosystem group to be ready. Ruff runs from the repository-local `.justomp/tools/` installation without Python or uv. Go formatting still requires compatible Go and application dependencies. Preparation may reconcile managed native configuration beyond the selected files, but does not add lint/format dependencies or change dependency declarations, scripts or locks. The result reports preparation effects separately.
 
-`project_lint` and `project_format` use the same formatter engine and effective settings for files they both cover. Lint keeps its existing source scope: formatting a document does not make it a lint requirement. Genuine lint errors can remain after formatting. JS lint no longer installs or verifies project-local Prettier; an existing user dependency is preserved.
+`project_lint` and `project_format` use the same formatter engine and effective settings for files they both cover. Lint keeps its existing source scope: formatting a document does not make it a lint requirement. Genuine lint errors can remain after formatting. Existing user Ruff, Biome and Prettier dependencies are preserved; their presence or versions do not select Justomp's tools. Full startup and hooks also prepare typecheck/testing, whose runtime and project-dependency requirements are unchanged.
 
 ## Shared configuration
 
@@ -75,4 +75,4 @@ Changed discovery metadata triggers an inspection refresh, including after parti
 
 No formatter CLI, Git hook, CI configuration or automatic source-formatting lifecycle is installed by this feature.
 
-Native formatting and the complete test gate were verified on macOS arm64 for this change. Linux uses the existing native tool paths but was not executed in this validation.
+Ruff and Go tool acquisition supports Darwin/Linux on x64/arm64. This does not certify every platform combination; see [native verification and reproduction](lint.md#native-verification-and-reproduction). This ownership change makes no formatter performance claim.

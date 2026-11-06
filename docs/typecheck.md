@@ -48,7 +48,9 @@ Native managers install or upgrade project dev dependencies and update their man
 
 Exact targets and readiness evidence persist in `.justomp/typecheck_state.json`. A receipt never replaces verification of native tools, source/configuration inputs or generated outputs. Preparation, checks, lint and dependency operations share process-local resource leases. There is no persisted `BUSY` lock or rollback of completed native changes. A cancelled tool wait may leave shared setup running for another session. Closing the last owning session cancels and joins native work before releasing resources.
 
-Typecheck owns the application TypeScript target. Managed lint uses Biome independently of the TypeScript compiler API and never installs or restores a compiler to satisfy a lint plugin. Typecheck preparation can invalidate stale legacy lint receipts; lint preparation then verifies its own current Biome environment. Typecheck success and lint success remain separate results. See [lint preparation](lint.md#javascript-and-typescript-versions).
+Typecheck owns the application TypeScript target. Managed lint uses Justomp's bundled native Biome independently of the TypeScript compiler API and never installs or restores a compiler to satisfy a lint plugin. Typecheck preparation can invalidate stale legacy lint receipts; lint preparation then verifies its own release-owned tool identity and native configuration. Typecheck success and lint success remain separate results. See [lint preparation](lint.md#javascript-and-typescript-versions).
+
+The lint/format ownership change does not centralize typecheck tools or change their version policy. Full startup and hooks still prepare them. Python typechecking still requires uv, Python and Node; JavaScript typechecking still requires its native runtime/manager and project compiler environment; Go requires the installed Go toolchain and application dependencies.
 
 ## Native checking and generated files
 
@@ -135,6 +137,6 @@ bun run check:integration
 
 Provision native managers as described in [dependency test setup](dependencies.md#reproducing-native-tests). `JUSTOMP_TYPECHECK_YARN_MODERN_BINARY` selects the installed Yarn 4.18.1 launcher for typecheck tests; the existing lint fixtures use their own `JUSTOMP_YARN_MODERN_BINARY`. Registry fixtures provide deterministic version metadata while native managers install real packages and compilers perform the checks. Missing prerequisites fail tests instead of skipping them.
 
-The mixed repository test starts with a successful TypeScript 5.9.3 typed-lint check, upgrades through typecheck, verifies stale lint rejection and reports the retained tool incompatibility. It also checks Python/JS/Go source separation, diagnostic origin IDs, readonly hashes, dependency inventory and continued Go checking after native Python setup fails. Unit tests compare the published defaults with runtime policy; installed smoke checks the exported API, CLI and documentation files.
+Earlier mixed-repository evidence covered the old typed-lint/compiler coupling; it does not describe the release-owned Biome path. Typecheck still owns compiler upgrades, Python/JS/Go source separation, diagnostic origin IDs, readonly metadata and dependency preparation. Unit tests compare the published defaults with runtime policy; installed smoke covers the exported API, CLI and documentation files.
 
 No typecheck performance benchmark was run. The [inspection measurements](inspection.md#measured-local-results) exclude compiler execution, generation and typecheck source hashing.
