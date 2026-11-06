@@ -158,6 +158,8 @@
     "./src/lint/service.ts",
     "./src/lint/state.ts",
     "./src/lint/targets.ts",
+    "./src/lint/tool-install.ts",
+    "./src/lint/toolchain.ts",
     "./src/lint/versions.ts",
     "./src/native-config/biome.ts",
     "./src/native-config/edit.ts",

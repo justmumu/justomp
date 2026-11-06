@@ -191,3 +191,35 @@ test("schema two clears legacy JavaScript readiness and keeps other ecosystems",
     read.mockRestore();
   }
 });
+
+test("malformed toolchain identity invalidates readiness without losing native config ownership", async () => {
+  const native_configs = {
+    version: 1,
+    configs: [{ role: "ruff", path: "ruff.toml", fields: [["line-length"]] }],
+  };
+  const read = spyOn(files, "readProjectionFile").mockResolvedValue({
+    text: JSON.stringify({
+      schema: 3,
+      projects: {
+        "python:a": {
+          ecosystem: "python",
+          tools: { ruff: "0.17.3" },
+          policy_hash: "policy",
+          ready: true,
+          toolchain_id: 7,
+          native_configs,
+        },
+      },
+      waves: {},
+    }),
+    identity: "1",
+    mode: 420,
+  });
+  try {
+    const store = await LintStateStore.load("/repo");
+    expect(store.recovery).toBeUndefined();
+    expect(store.state.projects["python:a"]).toMatchObject({ ready: false, native_configs });
+  } finally {
+    read.mockRestore();
+  }
+});
