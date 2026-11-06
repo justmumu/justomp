@@ -1,3 +1,25 @@
 docs_root: .compound-engineering/artifacts
 packs:
-  - source: compound-packs/testing
+  - source: compound-packs
+
+plan_output: md
+brainstorm_output: md
+ideate_output: md
+
+plan_model: gpt-6-astra
+brainstorm_model: gpt-6-astra
+plan_skip_scoping_confirm: false
+
+cross_model_review_mode: auto
+cross_model_peer: claude
+
+work_engine_mode: prefer
+work_engine_preferences:
+  - harness: codex
+    model: gpt-6.1-sol
+work_engine_effort:
+  codex: medium
+
+pr_teaching_section: true
+pr_teaching_archive: false
+auto_babysit: false

@@ -3,3 +3,4 @@ node_modules/
 !.justomp/config.json
 .private/
 *.tgz
+.context/compound-engineering/
