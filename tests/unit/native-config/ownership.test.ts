@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import * as files from "../../../src/lint/files";
 import { LintStateStore } from "../../../src/lint/state";
+import { lintToolchainId } from "../../../src/lint/toolchain";
 import { parseNativeOwnership, reconcileFields } from "../../../src/native-config/ownership";
 import { TestStateStore } from "../../../src/testing/state";
 import { TypecheckStateStore } from "../../../src/typecheck/state";
@@ -41,6 +42,7 @@ for (const family of ["lint", "typecheck", "testing"] as const) {
     const tools = family === "testing" ? { pytest: "8.0.0" } : { ruff: "0.14.0" };
     const receipt = {
       ...(family === "testing" ? { runner: "pytest" as const } : { ecosystem: "python" as const }),
+      ...(family === "lint" ? { toolchain_id: lintToolchainId("python") } : {}),
       tools,
       policy_hash: "policy",
       ready: true,

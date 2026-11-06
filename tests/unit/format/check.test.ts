@@ -14,6 +14,7 @@ import * as scope from "../../../src/format/scope";
 import { type LintCheckContext } from "../../../src/lint/adapters/types";
 import * as coordinator from "../../../src/lint/coordinator";
 import * as install from "../../../src/lint/go/install";
+import * as ruff from "../../../src/lint/ruff-install";
 import * as runtime from "../../../src/lint/runtime";
 import { output, target } from "../checks/fixture";
 
@@ -160,6 +161,7 @@ for (const language of ["python", "go"] as const) {
     f.native.mockRestore();
     keep(spyOn(paths, "safePath").mockImplementation(async (_root, path) => path));
     keep(spyOn(install, "localGolangci").mockResolvedValue("/repo/golangci-lint"));
+    keep(spyOn(ruff, "localRuff").mockResolvedValue("/repo/ruff"));
     keep(spyOn(runtime, "lintManagerContext").mockResolvedValue({} as AdapterContext));
     const invoke = keep(spyOn(runner, "runProcess").mockResolvedValue(output()));
     const filename = language === "python" ? "--flag.py" : "--flag.go";

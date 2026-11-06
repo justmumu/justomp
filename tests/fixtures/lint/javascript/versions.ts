@@ -1,1 +1,3 @@
-export const TOOLS = { "@biomejs/biome": "2.6.3" };
+import { BIOME_VERSION } from "../../../../src/lint/toolchain";
+
+export const TOOLS = { "@biomejs/biome": BIOME_VERSION };

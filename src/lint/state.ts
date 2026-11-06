@@ -4,6 +4,7 @@ import { type ToolVersions } from "./adapters/types";
 import { type FileSnapshot, publishProjectionFile, readProjectionFile } from "./files";
 import { nativeJavascriptTools } from "./javascript/tools";
 import { type LintEcosystem, LintError } from "./model";
+import { lintToolchainId } from "./toolchain";
 import { sameVersions, validateToolVersions } from "./versions";
 
 export interface ProjectReceipt {
@@ -88,6 +89,9 @@ function parseReceipt(value: unknown, id: string, schema: number): ProjectReceip
   if (receipt.toolchain_id !== undefined && typeof receipt.toolchain_id !== "string") {
     parsed.ready = false;
     parsed.toolchain_id = undefined;
+  }
+  if (parsed.toolchain_id !== lintToolchainId(parsed.ecosystem)) {
+    parsed.ready = false;
   }
   if (parsed.ecosystem === "javascript") {
     parsed.tools = nativeJavascriptTools(tools);

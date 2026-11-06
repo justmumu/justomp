@@ -1,10 +1,9 @@
 import { lstat } from "node:fs/promises";
 import { join } from "node:path";
-import { object } from "../../dependencies/inventory";
 import { safePath } from "../../dependencies/paths";
 import { LintError, type PreparationChange } from "../model";
 import { installNativeTool } from "../tool-install";
-import { fetchVersionJSON, stableVersion } from "../versions";
+import { stableVersion } from "../versions";
 
 const RELEASES = "https://github.com/golangci/golangci-lint/releases/download";
 export function golangciArtifact(version: string) {
@@ -29,17 +28,6 @@ export function golangciArtifact(version: string) {
 }
 export function golangciPath(root: string, version: string): string {
   return join(root, ".justomp/tools/golangci-lint", version, golangciArtifact(version).platform, "golangci-lint");
-}
-export async function latestGolangci(signal: AbortSignal): Promise<string> {
-  const release = object(
-    await fetchVersionJSON("https://api.github.com/repos/golangci/golangci-lint/releases/latest", signal),
-  );
-  if (release.draft || release.prerelease || typeof release.tag_name !== "string") {
-    throw new LintError("version-resolution-failed", "Official Go lint release is not stable");
-  }
-  const version = stableVersion(release.tag_name.replace(/^v/, ""));
-  golangciArtifact(version);
-  return version;
 }
 /** Only a fixed regular-file destination is published; archive paths are never extracted to disk. */
 export async function installGolangci(

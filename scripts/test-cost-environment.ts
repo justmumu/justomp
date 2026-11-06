@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { availableParallelism, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runProcess } from "../src/dependencies/runner";
+import { BIOME_VERSION, RUFF_VERSION } from "../src/lint/toolchain";
 export async function costEnvironment(root: string) {
   return {
     platform: `${process.platform}-${process.arch}`,
@@ -31,8 +32,10 @@ export async function costEnvironment(root: string) {
               (
                 (await readFile(resolve(root, path), "utf8")) +
                 (path === "tests/fixtures/lint/javascript/fixture.ts"
-                  ? await readFile(resolve(root, "tests/fixtures/lint/javascript/versions.ts"), "utf8")
-                  : "")
+                  ? `${await readFile(resolve(root, "tests/fixtures/lint/javascript/versions.ts"), "utf8")}\n${BIOME_VERSION}`
+                  : path === "tests/fixtures/lint/python/fixture.ts"
+                    ? RUFF_VERSION
+                    : "")
               ).match(/\b\d+\.\d+\.\d+\b/g) ?? [],
             ),
           ].sort(),

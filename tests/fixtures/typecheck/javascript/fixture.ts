@@ -13,7 +13,7 @@ export async function javascriptFixture(manager: Manager = "npm", workspace = fa
   if (manager === "yarn-modern" && !modernLauncher) {
     throw new Error("Provide JUSTOMP_TYPECHECK_YARN_MODERN_BINARY for the native Yarn4.18.1 typecheck fixture");
   }
-  const native = await nativeFixture(manager, "js", workspace);
+  const native = await nativeFixture(manager, "js", workspace, true);
   if (manager === "yarn-modern") {
     const manifestPath = join(native.root, "package.json");
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));

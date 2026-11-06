@@ -139,7 +139,7 @@ test("incomplete schema three persists exact targets while malformed target maps
   }
 });
 
-test("schema two clears legacy JavaScript readiness and keeps other ecosystems", async () => {
+test("legacy receipts retain selected versions but cannot trust project-local readiness", async () => {
   const python = {
     ecosystem: "python" as const,
     tools: { ruff: "0.14.0" },
@@ -172,7 +172,7 @@ test("schema two clears legacy JavaScript readiness and keeps other ecosystems",
   try {
     const store = await LintStateStore.load("/repo");
     expect(store.recovery).toBeUndefined();
-    expect(store.state.projects["python:a"]).toEqual(python);
+    expect(store.state.projects["python:a"]).toEqual({ ...python, ready: false });
     expect(store.state.projects["javascript:a"]).toMatchObject({
       ready: false,
       tools: {},
@@ -192,34 +192,37 @@ test("schema two clears legacy JavaScript readiness and keeps other ecosystems",
   }
 });
 
-test("malformed toolchain identity invalidates readiness without losing native config ownership", async () => {
-  const native_configs = {
-    version: 1,
-    configs: [{ role: "ruff", path: "ruff.toml", fields: [["line-length"]] }],
-  };
-  const read = spyOn(files, "readProjectionFile").mockResolvedValue({
-    text: JSON.stringify({
-      schema: 3,
-      projects: {
-        "python:a": {
-          ecosystem: "python",
-          tools: { ruff: "0.17.3" },
-          policy_hash: "policy",
-          ready: true,
-          toolchain_id: 7,
-          native_configs,
+test.each([undefined, "justomp-owned-v1:python:0.14.0", 7])(
+  "untrusted toolchain identity %p invalidates readiness without losing native config ownership",
+  async (toolchain_id) => {
+    const native_configs = {
+      version: 1,
+      configs: [{ role: "ruff", path: "ruff.toml", fields: [["line-length"]] }],
+    };
+    const read = spyOn(files, "readProjectionFile").mockResolvedValue({
+      text: JSON.stringify({
+        schema: 3,
+        projects: {
+          "python:a": {
+            ecosystem: "python",
+            tools: { ruff: "0.17.3" },
+            policy_hash: "policy",
+            ready: true,
+            toolchain_id,
+            native_configs,
+          },
         },
-      },
-      waves: {},
-    }),
-    identity: "1",
-    mode: 420,
-  });
-  try {
-    const store = await LintStateStore.load("/repo");
-    expect(store.recovery).toBeUndefined();
-    expect(store.state.projects["python:a"]).toMatchObject({ ready: false, native_configs });
-  } finally {
-    read.mockRestore();
-  }
-});
+        waves: {},
+      }),
+      identity: "1",
+      mode: 420,
+    });
+    try {
+      const store = await LintStateStore.load("/repo");
+      expect(store.recovery).toBeUndefined();
+      expect(store.state.projects["python:a"]).toMatchObject({ ready: false, native_configs });
+    } finally {
+      read.mockRestore();
+    }
+  },
+);

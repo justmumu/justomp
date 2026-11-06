@@ -1,57 +1,48 @@
 import { join, relative, resolve } from "node:path";
-import { readOptional } from "../../dependencies/executable";
-import {
-  type AdapterContext,
-  type DependencyRequest,
-  type Inventory,
-  type ProcessResult,
-  redact,
-} from "../../dependencies/model";
+import { type ProcessResult, redact } from "../../dependencies/model";
 import { within } from "../../dependencies/paths";
+import { runProcess } from "../../dependencies/runner";
 import { checkPrettierFile, prettierVersion } from "../../format/engines/prettier";
 import { formatterFor } from "../../format/selection";
-import { nodeVersion, toolMetadata, validateCompatibility } from "../javascript/compatibility";
-import { assertNative, installedPackages, localTool, nativeAdapter, succeeded } from "../javascript/native";
+import { assertNative, succeeded } from "../javascript/native";
 import { resolveJavascript } from "../javascript/resolve";
 import { biomeDiagnostics } from "../javascript/result";
-import { BIOME_PACKAGE, BIOME_TOOL, nativeJavascriptTools } from "../javascript/tools";
+import { BIOME_PACKAGE } from "../javascript/tools";
 import { type LintCheck, LintError } from "../model";
-import { lintManagerContext } from "../runtime";
 import { collectLintScope } from "../scope";
-import { metadataChangeKind } from "./metadata";
-import { type LintAdapter, type LintCheckContext, type LintOperationContext } from "./types";
+import { BIOME_VERSION, bundledBiome } from "../toolchain";
+import { type LintAdapter, type LintCheckContext } from "./types";
 
-async function exactToolPlan(
-  native: AdapterContext,
-  adapter: ReturnType<typeof nativeAdapter>,
-  before: Inventory,
-  request: Exclude<DependencyRequest, { operation: "list" }>,
-) {
-  const plan = await adapter.plan(native, request, before);
-  if (request.operation === "add") {
-    for (const step of plan.steps) {
-      step.args.push(native.manager === "npm" || native.manager === "pnpm" ? "--save-exact" : "--exact");
-    }
-  }
-  return { request, plan };
+function biomeEnvironment(env: Record<string, string | undefined>) {
+  return {
+    ...env,
+    BIOME_BINARY: undefined,
+    BIOME_CONFIG_PATH: undefined,
+    BIOME_LOG_FILE: undefined,
+    BIOME_LOG_LEVEL: undefined,
+  };
 }
-async function operations(context: LintOperationContext) {
-  return await Promise.all(
-    context.targets.map(async (target) => {
-      const native = await lintManagerContext(target, context.signal);
-      const adapter = nativeAdapter(native);
-      const before = await adapter.inventory(native, false);
-      const tools = nativeJavascriptTools(context.versions[target.project.project_id] ?? {});
-      const requests = toolRequests(target, before, tools);
-      const plans = await Promise.all(
-        requests.map(async (request) => {
-          return await exactToolPlan(native, adapter, before, request);
-        }),
-      );
-      return { target, native, adapter, before, plans };
-    }),
-  );
+
+async function runBiome(context: LintCheckContext, args: string[]): Promise<ProcessResult> {
+  return runProcess(await bundledBiome(), args, {
+    cwd: context.target.scope.cwd,
+    env: biomeEnvironment(context.target.scope.env),
+    signal: context.signal,
+  });
 }
+
+async function biomeVersion(signal: AbortSignal): Promise<ProcessResult> {
+  return runProcess(await bundledBiome(), ["--version"], {
+    cwd: process.cwd(),
+    env: biomeEnvironment(process.env),
+    signal,
+  });
+}
+
+function expectedBiome(result: ProcessResult): boolean {
+  return succeeded(result) && result.stdout.trim().replace(/^Version:\s*/, "") === BIOME_VERSION;
+}
+
 function diagnosticPath(context: LintCheckContext, filename: string) {
   const absolute = resolve(context.target.scope.cwd, filename);
   if (!within(context.target.root, absolute) || !within(context.target.scope.cwd, absolute)) {
@@ -77,88 +68,6 @@ function biomeArgs(context: LintCheckContext, files: readonly string[], write = 
     ...files.map((file) => `./${file}`),
   ];
 }
-function toolRequests(
-  target: LintCheckContext["target"],
-  before: Awaited<ReturnType<ReturnType<typeof nativeAdapter>["inventory"]>>,
-  tools: Record<string, string>,
-) {
-  const requests: Exclude<DependencyRequest, { operation: "list" }>[] = [];
-  const additions: Extract<DependencyRequest, { operation: "add" }>["packages"] = [];
-  const updates: Extract<DependencyRequest, { operation: "update" }>["packages"] = [];
-  for (const [name, version] of Object.entries(tools)) {
-    const declarations = before.dependencies.filter((value) => value.name === name);
-    if (
-      declarations.some((value) => value.group.kind !== "dev" || value.source.kind !== "registry") ||
-      declarations.length > 1
-    ) {
-      throw new LintError(
-        "conflicting-declaration",
-        `${name} must have one registry dev declaration; reconcile its existing groups/sources explicitly`,
-      );
-    }
-    if (declarations.length) {
-      updates.push({ name, version, group: { kind: "dev" } });
-    } else {
-      additions.push({ name, version, source: { kind: "registry" } });
-    }
-  }
-  if (additions.length) {
-    requests.push({
-      operation: "add",
-      project_id: target.project.project_id,
-      packages: additions,
-      group: { kind: "dev" },
-    });
-  }
-  if (updates.length) {
-    requests.push({
-      operation: "update",
-      project_id: target.project.project_id,
-      packages: updates,
-      mode: "within_constraints",
-    });
-  }
-  return requests;
-}
-function changedMetadata(all: Awaited<ReturnType<typeof operations>>): Map<string, string> {
-  const metadata = new Map<string, string>();
-  for (const { target, plans } of all) {
-    for (const { plan } of plans) {
-      for (const path of plan.metadata) {
-        metadata.set(join(target.root, path), target.project.project_id);
-      }
-    }
-  }
-  return metadata;
-}
-async function observeMetadata(
-  context: LintOperationContext,
-  metadata: Map<string, string>,
-  before: Map<string, string | null>,
-): Promise<void> {
-  for (const [path, project_id] of metadata) {
-    const after = (await readOptional(path)) ?? null,
-      previous = before.get(path);
-    if (after !== previous) {
-      context.changes.push({
-        project_id,
-        path: relative(context.targets[0]?.root ?? "", path).replaceAll("\\", "/"),
-        kind: metadataChangeKind(previous, after),
-      });
-    }
-  }
-}
-async function executePlans(all: Awaited<ReturnType<typeof operations>>): Promise<void> {
-  for (const { native, adapter, plans } of all) {
-    for (const { request, plan } of plans) {
-      const previous = await adapter.inventory(native, false);
-      for (const step of plan.steps) {
-        assertNative(await native.run(step), step.label);
-      }
-      await adapter.verify?.(native, request, previous, await adapter.inventory(native, false));
-    }
-  }
-}
 function applyCheckResult(context: LintCheckContext, files: string[], check: LintCheck, result: ProcessResult): void {
   const tool = check.tool;
   check.exit_code = result.exit_code;
@@ -182,8 +91,7 @@ async function checkSource(context: LintCheckContext, files: string[], check: Li
       check.status = check.diagnostics.length ? "failed" : "passed";
       return;
     }
-    const native = await lintManagerContext(context.target, context.signal);
-    const result = await localTool(context.target, native, BIOME_TOOL, biomeArgs(context, files), context.signal);
+    const result = await runBiome(context, biomeArgs(context, files));
     applyCheckResult(context, files, check, result);
   } catch (error) {
     check.reason = redact(error instanceof Error ? error.message : String(error));
@@ -220,75 +128,29 @@ async function checkFormatting(context: LintCheckContext, files: string[], check
 export const javascriptAdapter: LintAdapter = {
   resolve: resolveJavascript,
   async preflight(context) {
-    const all = await operations(context);
-    for (const { target, native } of all) {
-      try {
-        const tools = nativeJavascriptTools(context.versions[target.project.project_id] ?? {});
-        if (!tools[BIOME_PACKAGE]) {
-          throw new LintError("missing-tool", `No resolved version for ${BIOME_PACKAGE}`);
-        }
-        const metadata = await toolMetadata(target, native, tools, context.signal);
-        validateCompatibility(metadata, tools, await nodeVersion(target, native, context.signal));
-      } catch (error) {
-        if (error instanceof LintError) {
-          throw new LintError(error.code, `${target.project.project_id}: ${error.message}`);
-        }
-        throw error;
-      }
+    const result = await biomeVersion(context.signal);
+    assertNative(result, "Verify Justomp Biome");
+    if (!expectedBiome(result)) {
+      throw new LintError("missing-tool", `Justomp requires bundled Biome ${BIOME_VERSION}`);
     }
   },
   async prepareBatch(context) {
-    const all = await operations(context);
-    const metadata = changedMetadata(all);
-    const before = new Map<string, string | null>();
-    for (const path of metadata.keys()) {
-      before.set(path, (await readOptional(path)) ?? null);
-    }
-    try {
-      await executePlans(all);
-    } finally {
-      await observeMetadata(context, metadata, before);
-    }
+    context.signal.throwIfAborted();
+    await bundledBiome();
   },
   async verify(context) {
-    const tools = nativeJavascriptTools(context.versions);
+    if (context.versions[BIOME_PACKAGE] !== BIOME_VERSION) {
+      return false;
+    }
     try {
-      const native = await lintManagerContext(context.target, context.signal);
-      const inventory = await nativeAdapter(native).inventory(native, false);
-      if (!inventory.complete || inventory.diagnostics.length) {
-        return false;
-      }
-      const installed = await installedPackages(context.target, native, Object.keys(tools), context.signal);
-      for (const [name, version] of Object.entries(tools)) {
-        const declarations = inventory.dependencies.filter((item) => item.name === name);
-        const item = declarations[0];
-        if (
-          declarations.length !== 1 ||
-          !item ||
-          item.group.kind !== "dev" ||
-          item.source.kind !== "registry" ||
-          item.declared_specifier !== version ||
-          !item.resolutions?.length ||
-          item.resolutions.some((value) => value.version !== version) ||
-          installed[name]?.version !== version
-        ) {
-          return false;
-        }
-      }
-      validateCompatibility(installed, tools, await nodeVersion(context.target, native, context.signal));
-      const result = await localTool(context.target, native, BIOME_TOOL, ["--version"], context.signal);
-      return (
-        succeeded(result) &&
-        result.stdout.split("\n").some((line) => line.trim().replace(/^Version:\s*/, "") === tools[BIOME_PACKAGE])
-      );
+      return expectedBiome(await biomeVersion(context.signal));
     } catch {
       context.signal.throwIfAborted();
       return false;
     }
   },
-  async fix(context, files) {
-    const native = await lintManagerContext(context.target, context.signal);
-    return localTool(context.target, native, BIOME_TOOL, biomeArgs(context, files, true), context.signal);
+  fix(context, files) {
+    return runBiome(context, biomeArgs(context, files, true));
   },
   async check(context) {
     const scope = await collectLintScope(context.target, context.policy.javascript.exclude);
@@ -299,7 +161,7 @@ export const javascriptAdapter: LintAdapter = {
         kind,
         status: scope.empty ? "no-sources" : "not-run",
         tool,
-        version: kind === "format" ? prettierVersion : (context.versions[BIOME_PACKAGE] ?? null),
+        version: kind === "format" ? prettierVersion : BIOME_VERSION,
         exit_code: null,
         duration_ms: 0,
         diagnostics: [],

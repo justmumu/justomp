@@ -1,6 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ruffPath } from "../../../src/lint/ruff-install";
 import { lintAdapters } from "../../../src/lint/service";
 import { cleanups, fixture, heldRegistry, json, registry, until } from "./lint-fixture";
 import { assertLocalPreparation, createLocalHost } from "./local-checkers";
@@ -53,7 +54,7 @@ test("OMP lint has strict ID/fix exec schema; denial and unknown IDs cannot prep
   expect(await Bun.file(join(denied.f.root, ".justomp/config.json")).exists()).toBe(false);
 });
 test("releasing one session cancels its preparation waiter but preserves another session's job", async () => {
-  const { f, h } = await fixture([], true);
+  const { f, h } = await fixture([], true, true);
   const second = await createLocalHost(f.root);
   cleanups.push(second.close);
   const network = heldRegistry();
@@ -94,7 +95,7 @@ test("releasing one session cancels its preparation waiter but preserves another
   }
 }, 30000);
 test("cancelled new setup wait never reports a previous job's changes", async () => {
-  const { f, h } = await fixture([], true);
+  const { f, h } = await fixture([], true, true);
   const firstRegistry = registry();
   try {
     expect(
@@ -107,6 +108,7 @@ test("cancelled new setup wait never reports a previous job's changes", async ()
   }
   const network = heldRegistry();
   try {
+    await unlink(ruffPath(f.root));
     await mkdir(join(f.root, "new"));
     await writeFile(
       join(f.root, "new/pyproject.toml"),
@@ -136,7 +138,7 @@ test("cancelled new setup wait never reports a previous job's changes", async ()
 }, 30000);
 
 test("startup returns before adapter setup, reports progress, and discovers new Python manifests", async () => {
-  const { f, h } = await fixture([], true);
+  const { f, h } = await fixture([], true, true);
   const network = heldRegistry();
   const messages: string[] = [];
   const log = spyOn(process.stdout, "write").mockImplementation((value) => {
@@ -147,8 +149,8 @@ test("startup returns before adapter setup, reports progress, and discovers new 
     const start = performance.now();
     await h.runner.emit({ type: "session_start" });
     expect(performance.now() - start).toBeLessThan(1000);
-    await until(async () => network.entered(), "background resolution did not start");
-    expect(messages.some((m) => m.includes("align latest tools across their consumers"))).toBe(true);
+    await until(async () => network.entered(), "background Ruff installation did not start");
+    expect(messages.some((m) => m.startsWith("justomp lint:"))).toBe(true);
     const pendingState = Bun.file(join(f.root, ".justomp/lint_state.json"));
     expect((await pendingState.exists()) ? (await pendingState.json()).waves?.python?.complete : false).not.toBe(true);
     network.release();
@@ -173,7 +175,7 @@ test("startup returns before adapter setup, reports progress, and discovers new 
       const state = JSON.parse(await readFile(join(f.root, ".justomp/lint_state.json"), "utf8"));
       return state.waves?.python?.complete && state.projects["python:apps/new/pyproject.toml"]?.ready;
     }, "new Python project did not prepare automatically");
-    expect(network.calls()).toBe(2);
+    expect(network.calls()).toBe(1);
     await assertLocalPreparation(join(f.root, "apps/new"), "ruff");
   } finally {
     network.release();

@@ -5,7 +5,9 @@ import { resolveLintConfig } from "../../../src/config/lint/resolve";
 import { resolveTypecheckConfig } from "../../../src/config/typecheck/resolve";
 import * as runner from "../../../src/dependencies/runner";
 import { pythonAdapter as lint } from "../../../src/lint/adapters/python";
+import * as ruff from "../../../src/lint/ruff-install";
 import * as runtime from "../../../src/lint/runtime";
+import { RUFF_VERSION } from "../../../src/lint/toolchain";
 import { pythonAdapter as typecheck } from "../../../src/typecheck/adapters/python";
 import { suppliedResponse } from "../../response";
 import { memoryContext } from "../dependencies/memory";
@@ -21,7 +23,7 @@ function keep<T extends { mockRestore(): void }>(spy: T): T {
   restores.push(() => spy.mockRestore());
   return spy;
 }
-function fixture(tool: "ruff" | "pyright") {
+function fixture() {
   const f = memoryContext({
     ecosystem: "python",
     manager: "uv",
@@ -75,7 +77,7 @@ function fixture(tool: "ruff" | "pyright") {
   );
   const context = {
     targets: [selected],
-    versions: { [selected.project.project_id]: { [tool]: "1.0.0" } },
+    versions: { [selected.project.project_id]: { pyright: "1.0.0" } },
     signal: new AbortController().signal,
     changes: [],
   };
@@ -89,17 +91,15 @@ function fixture(tool: "ruff" | "pyright") {
       broken = damaged;
     },
     preflight: () =>
-      tool === "ruff"
-        ? lint.preflight({ ...context, policy: resolveLintConfig().policy })
-        : typecheck.preflight({
-            ...context,
-            policy: resolveTypecheckConfig().policy,
-          }),
+      typecheck.preflight({
+        ...context,
+        policy: resolveTypecheckConfig().policy,
+      }),
   };
 }
-for (const tool of ["ruff", "pyright"] as const) {
+for (const tool of ["pyright"] as const) {
   test(`${tool} preflight validates the selected Python without allowing downloads`, async () => {
-    const f = fixture(tool);
+    const f = fixture();
     await f.preflight();
     expect(f.run.mock.calls.map(([step]) => step.args)).toEqual([
       ["python", "find"],
@@ -110,7 +110,7 @@ for (const tool of ["ruff", "pyright"] as const) {
     expect(f.context.changes).toEqual([]);
   });
   test(`${tool} preflight reports an unavailable or incompatible Python before mutations`, async () => {
-    const f = fixture(tool);
+    const f = fixture();
     f.run.mockResolvedValueOnce(output({ exit_code: 1, stderr: "not installed" }));
     await expect(f.preflight()).rejects.toMatchObject({
       code: "native-preparation-failed",
@@ -123,7 +123,7 @@ for (const tool of ["ruff", "pyright"] as const) {
     expect(f.context.changes).toEqual([]);
   });
   test(`${tool} preflight rejects interpreter replacement and damaged environments`, async () => {
-    const f = fixture(tool);
+    const f = fixture();
     f.existing(true);
     f.run.mockResolvedValueOnce(output({ stdout: "/python/other\n" }));
     await expect(f.preflight()).rejects.toMatchObject({
@@ -137,9 +137,56 @@ for (const tool of ["ruff", "pyright"] as const) {
   });
 }
 test("Pyright preflight requires an installed Node after validating Python", async () => {
-  const f = fixture("pyright");
+  const f = fixture();
   f.node.mockReturnValue(null);
   await expect(f.preflight()).rejects.toThrow("installed Node");
   expect(f.context.changes).toEqual([]);
   expect(f.process).not.toHaveBeenCalled();
+});
+
+test("Ruff selects its release pin and preflights without Python, uv, or dependency inspection", async () => {
+  const selected = target("python");
+  selected.scope.env = { PATH: "", UV_PROJECT_ENVIRONMENT: "/unused-environment" };
+  const signal = new AbortController().signal;
+  const policy = resolveLintConfig().policy;
+  const manager = keep(spyOn(runtime, "lintManagerContext").mockRejectedValue(new Error("uv must not run")));
+  const process = keep(spyOn(runner, "runProcess").mockRejectedValue(new Error("Python must not run")));
+  const versions = await lint.resolve([selected], policy, signal, {
+    [selected.project.project_id]: { ruff: "0.17.2" },
+  });
+  expect(versions).toEqual({ [selected.project.project_id]: { ruff: RUFF_VERSION } });
+  const context = { targets: [selected], policy, signal, versions, changes: [] };
+  await lint.preflight(context);
+  expect(manager).not.toHaveBeenCalled();
+  expect(process).not.toHaveBeenCalled();
+  versions[selected.project.project_id] = { ruff: "0.17.2" };
+  await expect(lint.preflight(context)).rejects.toMatchObject({ code: "invalid-version" });
+});
+
+test("Ruff readiness requires both the release pin and a successful live owned-binary version", async () => {
+  const selected = target("python");
+  const local = keep(spyOn(ruff, "localRuff").mockResolvedValue("/repo/owned/ruff"));
+  const invoke = keep(spyOn(runner, "runProcess").mockResolvedValue(output({ stdout: `ruff ${RUFF_VERSION}\n` })));
+  const context = {
+    target: selected,
+    versions: { ruff: RUFF_VERSION },
+    signal: new AbortController().signal,
+    policy: resolveLintConfig().policy,
+    projection: { target: selected, files: [], current: true, configs: { lint: "", format: "" } },
+  };
+  expect(await lint.verify(context)).toBe(true);
+  expect(local).toHaveBeenCalledWith(selected.root);
+  expect(invoke.mock.calls[0]?.slice(0, 2)).toEqual(["/repo/owned/ruff", ["--version"]]);
+  for (const result of [
+    output({ stdout: "ruff 0.17.2\n" }),
+    output({ stdout: `ruff ${RUFF_VERSION}\n`, exit_code: 1 }),
+    output({ stdout: `ruff ${RUFF_VERSION}\n`, truncated: true }),
+    output({ stdout: `ruff ${RUFF_VERSION}\n`, cancelled: true }),
+  ]) {
+    invoke.mockResolvedValueOnce(result);
+    expect(await lint.verify(context)).toBe(false);
+  }
+  invoke.mockClear();
+  expect(await lint.verify({ ...context, versions: { ruff: "0.17.2" } })).toBe(false);
+  expect(invoke).not.toHaveBeenCalled();
 });

@@ -1,9 +1,9 @@
 import { spyOn } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ruffArtifact } from "../../../src/lint/ruff-install";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
 import { type TypecheckResult } from "../../../src/typecheck/model";
-import { VERSION as RUFF_VERSION } from "../../fixtures/lint/python/fixture";
 import { pythonFixture, VERSION } from "../../fixtures/typecheck/python/fixture";
 import { suppliedResponse } from "../../response";
 import { createHost } from "./host";
@@ -28,18 +28,15 @@ export function registry() {
   const original = globalThis.fetch;
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      (input: Parameters<typeof fetch>[0]) => {
-        return suppliedResponse(() => {
-          if (String(input) === "https://pypi.org/pypi/ruff/json") {
-            return Response.json({
-              releases: { [RUFF_VERSION]: [{ yanked: false }] },
-            });
-          }
-          if (String(input) !== "https://pypi.org/pypi/pyright/json") {
-            throw new Error(`Unexpected network: ${input}`);
-          }
-          return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
-        });
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        if (String(input) === "https://pypi.org/pypi/pyright/json") {
+          return suppliedResponse(() => Response.json({ releases: { [VERSION]: [{ yanked: false }] } }));
+        }
+        const artifact = ruffArtifact();
+        if (![artifact.archive, artifact.checksums].some((file) => String(input) === `${artifact.base}/${file}`)) {
+          throw new Error(`Unexpected network: ${input}`);
+        }
+        return original(input, init);
       },
       { preconnect: original.preconnect },
     ),
@@ -75,10 +72,9 @@ export function heldRegistry() {
   const fetcher = spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
       async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-        if (String(input) === "https://pypi.org/pypi/ruff/json") {
-          return Response.json({
-            releases: { [RUFF_VERSION]: [{ yanked: false }] },
-          });
+        const artifact = ruffArtifact();
+        if ([artifact.archive, artifact.checksums].some((file) => String(input) === `${artifact.base}/${file}`)) {
+          return original(input, init);
         }
         if (String(input) !== "https://pypi.org/pypi/pyright/json") {
           throw new Error(`Unexpected network ${input}`);

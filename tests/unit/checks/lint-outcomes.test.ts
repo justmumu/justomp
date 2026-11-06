@@ -1,15 +1,14 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { resolveLintConfig } from "../../../src/config/lint/resolve";
-import { type AdapterContext, type ProcessResult } from "../../../src/dependencies/model";
-import * as paths from "../../../src/dependencies/paths";
+import { type ProcessResult } from "../../../src/dependencies/model";
 import * as runner from "../../../src/dependencies/runner";
 import * as prettier from "../../../src/format/engines/prettier";
 import { javascriptAdapter } from "../../../src/lint/adapters/javascript";
 import { pythonAdapter } from "../../../src/lint/adapters/python";
 import { type LintCheckContext } from "../../../src/lint/adapters/types";
-import * as native from "../../../src/lint/javascript/native";
-import * as runtime from "../../../src/lint/runtime";
+import * as ruff from "../../../src/lint/ruff-install";
 import * as scopes from "../../../src/lint/scope";
+import * as toolchain from "../../../src/lint/toolchain";
 import { suppliedResponse } from "../../response";
 import { output, scope, target } from "./fixture";
 
@@ -46,7 +45,7 @@ function fixture(language: "python" | "javascript") {
     controller = new AbortController();
   const context: LintCheckContext = {
     target: selected,
-    versions: { ruff: "0.17.3", "@biomejs/biome": "2.6.3", prettier: "3.6.2" },
+    versions: { ruff: "0.17.3", "@biomejs/biome": toolchain.BIOME_VERSION, prettier: "3.9.10" },
     policy: resolveLintConfig().policy,
     signal: controller.signal,
     projection: {
@@ -62,9 +61,9 @@ function fixture(language: "python" | "javascript") {
   const files = keep(
     spyOn(scopes, "collectLintScope").mockResolvedValue(scope(language === "python" ? "module.py" : "index.ts")),
   );
-  const invoke = language === "python" ? keep(spyOn(runner, "runProcess")) : keep(spyOn(native, "localTool"));
-  keep(spyOn(paths, "safePath").mockImplementation(async (_root, path) => path));
-  keep(spyOn(runtime, "lintManagerContext").mockResolvedValue({} as AdapterContext));
+  const invoke = keep(spyOn(runner, "runProcess"));
+  keep(spyOn(ruff, "localRuff").mockResolvedValue("/owned/ruff"));
+  keep(spyOn(toolchain, "bundledBiome").mockResolvedValue("/owned/biome"));
   const formatted = keep(spyOn(prettier, "checkPrettierFile").mockResolvedValue(true));
   const adapter = language === "python" ? pythonAdapter : javascriptAdapter;
   function results(lint: ProcessResult, format = output({ stdout: language === "python" ? "[]" : "" })) {
@@ -224,7 +223,6 @@ test("Biome import assist and Prettier source differences remain separate checks
   expect(checks[0]).toMatchObject({
     status: "failed",
     tool: "biome",
-    version: "2.6.3",
     diagnostics: [
       {
         kind: "lint",

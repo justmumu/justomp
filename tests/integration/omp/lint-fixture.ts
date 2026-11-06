@@ -2,16 +2,17 @@ import { spyOn } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type LintResult } from "../../../src/lint/model";
+import { ruffArtifact } from "../../../src/lint/ruff-install";
 import { closePackagingStructure } from "../../../src/packaging/get-structure";
-import { pythonFixture, VERSION } from "../../fixtures/lint/python/fixture";
+import { pythonFixture } from "../../fixtures/lint/python/fixture";
 import { VERSION as PYRIGHT_VERSION } from "../../fixtures/typecheck/python/fixture";
 import { suppliedResponse } from "../../response";
 import { createHost } from "./host";
 import { createLocalHost, localPythonCheckers } from "./local-checkers";
 export const cleanups: (() => Promise<void>)[] = [];
-export async function fixture(deny: string[] = [], local = false) {
+export async function fixture(deny: string[] = [], local = false, nativeLint = false) {
   if (local) {
-    const restore = localPythonCheckers();
+    const restore = localPythonCheckers(nativeLint);
     cleanups.push(async () => restore());
   }
   const f = await pythonFixture();
@@ -28,18 +29,15 @@ export function registry() {
   const original = globalThis.fetch;
   return spyOn(globalThis, "fetch").mockImplementation(
     Object.assign(
-      (input: Parameters<typeof fetch>[0]) => {
-        return suppliedResponse(() => {
-          if (String(input) === "https://pypi.org/pypi/pyright/json") {
-            return Response.json({
-              releases: { [PYRIGHT_VERSION]: [{ yanked: false }] },
-            });
-          }
-          if (String(input) !== "https://pypi.org/pypi/ruff/json") {
-            throw new Error(`Unexpected network: ${input}`);
-          }
-          return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
-        });
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        if (String(input) === "https://pypi.org/pypi/pyright/json") {
+          return suppliedResponse(() => Response.json({ releases: { [PYRIGHT_VERSION]: [{ yanked: false }] } }));
+        }
+        const artifact = ruffArtifact();
+        if (![artifact.archive, artifact.checksums].some((file) => String(input) === `${artifact.base}/${file}`)) {
+          throw new Error(`Unexpected network: ${input}`);
+        }
+        return original(input, init);
       },
       { preconnect: original.preconnect },
     ),
@@ -69,6 +67,8 @@ export function heldRegistry() {
   };
   let entered = false;
   let calls = 0;
+  let aborted = false;
+  const artifact = ruffArtifact();
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -80,8 +80,11 @@ export function heldRegistry() {
             releases: { [PYRIGHT_VERSION]: [{ yanked: false }] },
           });
         }
-        if (String(input) !== "https://pypi.org/pypi/ruff/json") {
+        if (![artifact.archive, artifact.checksums].some((file) => String(input) === `${artifact.base}/${file}`)) {
           throw new Error(`Unexpected network ${input}`);
+        }
+        if (String(input) !== `${artifact.base}/${artifact.checksums}`) {
+          return original(input, init);
         }
         calls++;
         entered = true;
@@ -90,7 +93,10 @@ export function heldRegistry() {
           /* This supplied callback intentionally has no side effects. */
         };
         const cancelled = new Promise<never>((_, reject) => {
-          abort = () => reject(signal?.reason);
+          abort = () => {
+            aborted = true;
+            reject(signal?.reason);
+          };
           signal?.addEventListener("abort", abort, { once: true });
           if (signal?.aborted) {
             abort();
@@ -101,10 +107,10 @@ export function heldRegistry() {
         } finally {
           signal?.removeEventListener("abort", abort);
         }
-        return Response.json({ releases: { [VERSION]: [{ yanked: false }] } });
+        return original(input, init);
       },
       { preconnect: original.preconnect },
     ),
   );
-  return { fetcher, release, entered: () => entered, calls: () => calls };
+  return { fetcher, release, entered: () => entered, calls: () => calls, aborted: () => aborted };
 }

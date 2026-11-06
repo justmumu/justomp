@@ -2,16 +2,25 @@ import { lstat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import manifest from "../../package.json";
 import { object } from "../dependencies/inventory";
-import { LintError } from "./model";
+import { type LintEcosystem, LintError } from "./model";
 
 export const RUFF_VERSION = "0.17.3";
 export const GOLANGCI_VERSION = "2.15.0";
 export const LINT_TOOLCHAIN_ID = "justomp-owned-v1";
-export const BIOME_VERSION = manifest.devDependencies["@biomejs/biome"];
+export const BIOME_VERSION = manifest.dependencies["@biomejs/biome"];
+
+export function lintToolchainId(ecosystem: LintEcosystem): string {
+  const version = ecosystem === "python" ? RUFF_VERSION : ecosystem === "javascript" ? BIOME_VERSION : GOLANGCI_VERSION;
+  return `${LINT_TOOLCHAIN_ID}:${ecosystem}:${version}`;
+}
 
 const require = createRequire(import.meta.url);
+let biomePlatformName: string | undefined;
 
 function biomePlatform(): string {
+  if (biomePlatformName !== undefined) {
+    return biomePlatformName;
+  }
   if (!["darwin", "linux"].includes(process.platform) || !["x64", "arm64"].includes(process.arch)) {
     throw new LintError("unsupported-platform", `Biome is not supported on ${process.platform}/${process.arch}`);
   }
@@ -22,10 +31,10 @@ function biomePlatform(): string {
       suffix = "-musl";
     }
   }
-  return `${process.platform}-${process.arch}${suffix}`;
+  biomePlatformName = `${process.platform}-${process.arch}${suffix}`;
+  return biomePlatformName;
 }
 
-/** Resolve from the extension, never from the inspected project's package graph. */
 export async function bundledBiome(): Promise<string> {
   const platform = biomePlatform();
   try {

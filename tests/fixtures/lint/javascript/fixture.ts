@@ -20,6 +20,7 @@ export async function javascriptFixture(
   manager: Manager = "npm",
   flavor: "js" | "ts" | "react" | "next" = "js",
   workspace = false,
+  withManager = false,
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "lint-javascript-")));
   const nativeManager = manager.startsWith("yarn") ? "yarn" : manager;
@@ -44,7 +45,9 @@ export async function javascriptFixture(
   }
   const structure = { root, complete: true, projects } as PackagingStructure;
   const targets = await Promise.all(projects.map((project) => resolveLintTarget(structure, project.project_id)));
-  await setYarnLauncher(root, manager, targets);
+  if (withManager) {
+    await setYarnLauncher(root, manager, targets);
+  }
   const tools: ToolVersions = { ...TOOLS };
   const policy = resolveLintConfig().policy,
     signal = new AbortController().signal;

@@ -2,8 +2,9 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { checkProjectLint } from "../../../src/lint/index";
+import { ruffPath } from "../../../src/lint/ruff-install";
 import { VERSION } from "../../fixtures/lint/python/fixture";
-import { cleanups, fixture, json, registry, until } from "./lint-fixture";
+import { cleanups, fixture, heldRegistry, json, registry, until } from "./lint-fixture";
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
@@ -36,28 +37,13 @@ test("OMP native lint exposes setup effects and the same diagnostics as readonly
   expect(JSON.parse(await readFile(join(f.root, ".justomp/config.json"), "utf8")).lint).toBeDefined();
 }, 30000);
 for (const transition of ["shutdown", "root change"] as const) {
-  test(`session ${transition} cancels and joins actual background setup subprocess`, async () => {
-    const { f, h } = await fixture();
-    const actualUv = Bun.which("uv");
-    if (!actualUv) {
-      throw new Error("uv required for native setup lifecycle test");
-    }
-    const bin = join(f.root, ".fixture-bin");
-    await mkdir(bin);
-    const started = join(f.root, "started"),
-      stopped = join(f.root, "stopped");
-    await writeFile(
-      join(bin, "uv"),
-      `#!/usr/bin/env python3\nimport os, signal, sys, time\nif len(sys.argv)>1 and sys.argv[1]=='add':\n def stop(signum, frame):\n  time.sleep(0.08)\n  open(${JSON.stringify(stopped)}, 'w').write('closed')\n  sys.exit(1)\n signal.signal(signal.SIGTERM, stop)\n open(${JSON.stringify(started)}, 'w').write(str(os.getpid()))\n while True: time.sleep(0.05)\nelse: os.execv(${JSON.stringify(actualUv)}, [${JSON.stringify(actualUv)}]+sys.argv[1:])\n`,
-      { mode: 0o755 },
-    );
-    const previous = process.env.PATH;
-    process.env.PATH = `${bin}:${previous}`;
-    const network = registry();
+  test(`session ${transition} aborts and joins the owned Ruff artifact download`, async () => {
+    const { f, h } = await fixture([], true, true);
+    const network = heldRegistry();
     try {
       await h.runner.emit({ type: "session_start" });
-      await until(() => Bun.file(started).exists(), "native setup child did not start");
-      const pid = Number(await readFile(started, "utf8"));
+      await until(async () => network.entered(), "Ruff artifact download did not start");
+      expect(network.calls()).toBe(1);
       if (transition === "shutdown") {
         await h.close();
       } else {
@@ -66,12 +52,12 @@ for (const transition of ["shutdown", "root change"] as const) {
         await h.session.moveTo(next, join(next, ".host/sessions"));
         await h.runner.emit({ type: "session_start" });
       }
-      expect(await readFile(stopped, "utf8")).toBe("closed");
-      expect(() => process.kill(pid, 0)).toThrow();
+      expect(network.aborted()).toBe(true);
+      expect(await Bun.file(ruffPath(f.root)).exists()).toBe(false);
     } finally {
+      network.release();
       await h.close();
-      process.env.PATH = previous;
-      network.mockRestore();
+      network.fetcher.mockRestore();
     }
   }, 30000);
 }

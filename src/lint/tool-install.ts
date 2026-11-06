@@ -84,7 +84,6 @@ async function publish(temporary: string, path: string, create: boolean): Promis
   }
 }
 
-/** Read only the selected archive member; archive paths never become filesystem paths. */
 export async function installNativeTool(
   root: string,
   path: string,
